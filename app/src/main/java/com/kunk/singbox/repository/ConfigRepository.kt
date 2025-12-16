@@ -803,16 +803,37 @@ class ConfigRepository(private val context: Context) {
     suspend fun testAllNodesLatency() = withContext(Dispatchers.IO) {
         val nodes = _nodes.value
         Log.d(TAG, "Starting latency test for ${nodes.size} nodes")
-        
-        // 并发测试所有节点，但限制并发数量避免过载
-        nodes.chunked(5).forEach { chunk ->
-            chunk.map { node ->
-                async {
-                    testNodeLatency(node.id)
-                }
-            }.awaitAll()
+
+        // 构建需要测试的 outbounds 列表，使用 singBoxCore 批量测试，避免并发启动多个临时服务导致崩溃
+        val outbounds = ArrayList<com.kunk.singbox.model.Outbound>()
+        val tagToNodeId = HashMap<String, String>()
+        val tagToProfileId = HashMap<String, String>()
+
+        for (node in nodes) {
+            val config = profileConfigs[node.sourceProfileId] ?: continue
+            val outbound = config.outbounds?.find { it.tag == node.name } ?: continue
+            outbounds.add(outbound)
+            tagToNodeId[node.name] = node.id
+            tagToProfileId[node.name] = node.sourceProfileId
         }
-        
+
+        singBoxCore.testOutboundsLatency(outbounds) { tag, latency ->
+            val nodeId = tagToNodeId[tag] ?: return@testOutboundsLatency
+            val profileId = tagToProfileId[tag] ?: return@testOutboundsLatency
+
+            _nodes.update { list ->
+                list.map {
+                    if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else null) else it
+                }
+            }
+
+            profileNodes[profileId] = profileNodes[profileId]?.map {
+                if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else null) else it
+            } ?: emptyList()
+
+            Log.d(TAG, "Latency test result for $tag: ${latency}ms")
+        }
+
         Log.d(TAG, "Latency test completed for all nodes")
     }
 
@@ -955,6 +976,11 @@ class ConfigRepository(private val context: Context) {
             clashApi = ClashApiConfig(
                 externalController = "127.0.0.1:9090",
                 secret = ""
+            ),
+            cacheFile = CacheFileConfig(
+                enabled = true,
+                path = File(File(context.filesDir, "singbox_work"), "cache.db").absolutePath,
+                storeFakeip = false
             )
         )
         

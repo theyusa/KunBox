@@ -5,6 +5,7 @@ import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
@@ -14,7 +15,7 @@ import java.util.concurrent.TimeUnit
  * 用于通过 sing-box 的 Clash API 测试节点延迟
  */
 class ClashApiClient(
-    private val baseUrl: String = "http://127.0.0.1:9090",
+    baseUrl: String = "http://127.0.0.1:9090",
     private val secret: String = ""
 ) {
     companion object {
@@ -24,6 +25,15 @@ class ClashApiClient(
     }
     
     private val gson = Gson()
+    @Volatile
+    private var baseUrl: String = baseUrl
+
+    fun setBaseUrl(baseUrl: String) {
+        this.baseUrl = baseUrl.trimEnd('/')
+    }
+
+    fun getBaseUrl(): String = baseUrl
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
@@ -35,8 +45,15 @@ class ClashApiClient(
      */
     suspend fun getProxies(): ProxiesResponse? = withContext(Dispatchers.IO) {
         try {
+            val url = baseUrl.toHttpUrlOrNull()?.newBuilder()
+                ?.addPathSegment("proxies")
+                ?.build()
+                ?: run {
+                    Log.e(TAG, "Invalid baseUrl: $baseUrl")
+                    return@withContext null
+                }
             val request = Request.Builder()
-                .url("$baseUrl/proxies")
+                .url(url)
                 .apply {
                     if (secret.isNotEmpty()) {
                         addHeader("Authorization", "Bearer $secret")
@@ -74,8 +91,17 @@ class ClashApiClient(
         timeout: Long = DEFAULT_TIMEOUT
     ): Long = withContext(Dispatchers.IO) {
         try {
-            val encodedName = java.net.URLEncoder.encode(proxyName, "UTF-8")
-            val url = "$baseUrl/proxies/$encodedName/delay?timeout=$timeout&url=$testUrl"
+            val url = baseUrl.toHttpUrlOrNull()?.newBuilder()
+                ?.addPathSegment("proxies")
+                ?.addPathSegment(proxyName)
+                ?.addPathSegment("delay")
+                ?.addQueryParameter("timeout", timeout.toString())
+                ?.addQueryParameter("url", testUrl)
+                ?.build()
+                ?: run {
+                    Log.e(TAG, "Invalid baseUrl: $baseUrl")
+                    return@withContext -1L
+                }
             
             val request = Request.Builder()
                 .url(url)
@@ -125,8 +151,12 @@ class ClashApiClient(
      */
     suspend fun isAvailable(): Boolean = withContext(Dispatchers.IO) {
         try {
+            val url = baseUrl.toHttpUrlOrNull()?.newBuilder()
+                ?.addPathSegment("version")
+                ?.build()
+                ?: return@withContext false
             val request = Request.Builder()
-                .url("$baseUrl/version")
+                .url(url)
                 .apply {
                     if (secret.isNotEmpty()) {
                         addHeader("Authorization", "Bearer $secret")
