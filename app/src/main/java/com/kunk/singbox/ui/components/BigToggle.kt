@@ -168,17 +168,11 @@ fun BigToggle(
                     }
                     .background(backgroundColor)
             ) {
-                // Use AndroidView to render adaptive icon correctly as the logo
-                AndroidView(
-                    factory = { ctx ->
-                        ImageView(ctx).apply {
-                            setImageResource(R.mipmap.ic_launcher_round)
-                        }
-                    },
-                    modifier = Modifier
-                        .size(100.dp)
-                        .graphicsLayer {
-                        }
+                Icon(
+                    imageVector = Icons.Rounded.PowerSettingsNew,
+                    contentDescription = null,
+                    tint = iconColor,
+                    modifier = Modifier.size(100.dp)
                 )
             }
         }

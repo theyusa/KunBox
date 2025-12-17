@@ -21,6 +21,14 @@ class VpnTileService : TileService() {
     override fun onClick() {
         super.onClick()
         val isRunning = SingBoxService.isRunning
+        
+        // Optimistically update tile state immediately
+        val tile = qsTile
+        if (tile != null) {
+            tile.state = if (isRunning) Tile.STATE_INACTIVE else Tile.STATE_ACTIVE
+            tile.updateTile()
+        }
+
         if (isRunning) {
             val intent = Intent(this, SingBoxService::class.java).apply {
                 action = SingBoxService.ACTION_STOP
@@ -36,13 +44,11 @@ class VpnTileService : TileService() {
                         putExtra(SingBoxService.EXTRA_CONFIG_PATH, configPath)
                     }
                     startForegroundService(intent)
+                } else {
+                    // Revert tile state if config generation failed
+                    updateTile()
                 }
             }
-        }
-        // Small delay to let service update state
-        serviceScope.launch {
-            kotlinx.coroutines.delay(1000)
-            updateTile()
         }
     }
 

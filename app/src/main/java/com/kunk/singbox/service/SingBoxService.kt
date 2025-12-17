@@ -19,6 +19,7 @@ import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.SettingsRepository
 import io.nekohasekai.libbox.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import java.io.File
 import java.net.NetworkInterface
