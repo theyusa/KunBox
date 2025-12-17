@@ -58,20 +58,26 @@ fun NodeCard(
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
-    androidx.compose.material3.Surface(
-        onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = SurfaceCard,
-        border = androidx.compose.foundation.BorderStroke(
-            width = if (isSelected) 2.dp else 1.dp,
-            color = if (isSelected) PureWhite else Divider
-        )
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(SurfaceCard, RoundedCornerShape(16.dp))
+            .then(
+                if (isSelected) {
+                    Modifier.androidx.compose.foundation.border(
+                        2.dp, PureWhite, RoundedCornerShape(16.dp)
+                    )
+                } else {
+                    Modifier.androidx.compose.foundation.border(
+                        1.dp, Divider, RoundedCornerShape(16.dp)
+                    )
+                }
+            )
+            .clickable(onClick = onClick)
+            .padding(16.dp)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -100,9 +106,10 @@ fun NodeCard(
                         text = name,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = TextPrimary
+                        color = TextPrimary,
+                        maxLines = 1
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = type,
@@ -112,100 +119,85 @@ fun NodeCard(
                         
                         Spacer(modifier = Modifier.width(8.dp))
                         
-                        Box(contentAlignment = Alignment.CenterStart) {
-                            if (isTesting) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(14.dp),
-                                    color = PureWhite,
-                                    strokeWidth = 2.dp
-                                )
-                            } else if (latency != null) {
-                                val latencyColor = remember(latency) {
-                                    when {
-                                        latency < 0 -> Color.Red
-                                        latency < 200 -> Color(0xFF4CAF50)
-                                        latency < 500 -> Color(0xFFFFC107)
-                                        else -> Color.Red
-                                    }
+                        if (isTesting) {
+                            Text(
+                                text = "Testing...",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = PureWhite,
+                                fontWeight = FontWeight.Medium
+                            )
+                        } else if (latency != null) {
+                            val latencyColor = remember(latency) {
+                                when {
+                                    latency < 0 -> Color.Red
+                                    latency < 200 -> Color(0xFF4CAF50)
+                                    latency < 500 -> Color(0xFFFFC107)
+                                    else -> Color.Red
                                 }
-                                val latencyText = remember(latency) {
-                                    if (latency < 0) "Timeout" else "${latency}ms"
-                                }
-                                
-                                Text(
-                                    text = latencyText,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = latencyColor,
-                                    fontWeight = FontWeight.Bold
-                                )
                             }
+                            val latencyText = remember(latency) {
+                                if (latency < 0) "Timeout" else "${latency}ms"
+                            }
+                            
+                            Text(
+                                text = latencyText,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = latencyColor,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
             }
 
-            Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
-                IconButton(onClick = { showMenu = true }) {
-                    Icon(
-                        imageVector = Icons.Rounded.MoreVert,
-                        contentDescription = "More",
-                        tint = TextSecondary
+            IconButton(
+                onClick = { showMenu = true },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.MoreVert,
+                    contentDescription = "More",
+                    tint = TextSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            
+            if (showMenu) {
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                    modifier = Modifier
+                        .background(Neutral700)
+                        .width(100.dp)
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("编辑", color = PureWhite) },
+                        onClick = {
+                            showMenu = false
+                            onEdit()
+                        }
                     )
-                }
-                
-                if (showMenu) {
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false },
-                        modifier = Modifier
-                            .background(Neutral700)
-                            .width(100.dp)
-                    ) {
-                        DropdownMenuItem(
-                            text = {
-                                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    Text("编辑", color = PureWhite)
-                                }
-                            },
-                            onClick = {
-                                showMenu = false
-                                onEdit()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    Text("导出", color = PureWhite)
-                                }
-                            },
-                            onClick = {
-                                showMenu = false
-                                onExport()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    Text("延迟", color = PureWhite)
-                                }
-                            },
-                            onClick = {
-                                showMenu = false
-                                onLatency()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    Text("删除", color = PureWhite)
-                                }
-                            },
-                            onClick = {
-                                showMenu = false
-                                onDelete()
-                            }
-                        )
-                    }
+                    DropdownMenuItem(
+                        text = { Text("导出", color = PureWhite) },
+                        onClick = {
+                            showMenu = false
+                            onExport()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("延迟", color = PureWhite) },
+                        onClick = {
+                            showMenu = false
+                            onLatency()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("删除", color = PureWhite) },
+                        onClick = {
+                            showMenu = false
+                            onDelete()
+                        }
+                    )
                 }
             }
         }

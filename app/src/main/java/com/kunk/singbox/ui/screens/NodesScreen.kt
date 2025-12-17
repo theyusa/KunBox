@@ -2,20 +2,19 @@ package com.kunk.singbox.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -28,7 +27,6 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Sort
-import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -59,7 +57,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.kunk.singbox.ui.components.ConfirmDialog
 import com.kunk.singbox.viewmodel.NodesViewModel
 import com.kunk.singbox.ui.components.InputDialog
 import com.kunk.singbox.ui.components.SingleSelectDialog
@@ -69,8 +66,6 @@ import com.kunk.singbox.ui.theme.AppBackground
 import com.kunk.singbox.ui.theme.Neutral500
 import com.kunk.singbox.ui.theme.PureWhite
 import com.kunk.singbox.ui.theme.TextPrimary
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -108,12 +103,14 @@ fun NodesScreen(
     }
     
     // Filter nodes based on selected group
-    val filteredNodes = remember(nodes, groups, selectedGroupIndex) {
-        if (selectedGroupIndex == 0 || groups.isEmpty()) {
-            nodes
-        } else {
-            val selectedGroup = groups.getOrNull(selectedGroupIndex) ?: return@remember nodes
-            nodes.filter { it.group == selectedGroup }
+    val filteredNodes by remember {
+        androidx.compose.runtime.derivedStateOf {
+            if (selectedGroupIndex == 0 || groups.isEmpty()) {
+                nodes
+            } else {
+                val selectedGroup = groups.getOrNull(selectedGroupIndex)
+                if (selectedGroup == null) nodes else nodes.filter { it.group == selectedGroup }
+            }
         }
     }
     
@@ -133,7 +130,7 @@ fun NodesScreen(
         SingleSelectDialog(
             title = "排序方式",
             options = sortOptions.map { it.first },
-            selectedIndex = -1, // No pre-selection highlight needed or could track current sort
+            selectedIndex = -1,
             onSelect = { index ->
                 viewModel.setSortType(sortOptions[index].second)
                 showSortDialog = false
@@ -169,7 +166,9 @@ fun NodesScreen(
     }
 
     Scaffold(
-        modifier = Modifier.background(AppBackground),
+        modifier = Modifier
+            .background(AppBackground)
+            .statusBarsPadding(),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
@@ -260,21 +259,19 @@ fun NodesScreen(
                     contentColor = Color.Black
                 ) {
                     Icon(
-                        imageVector = if (isFabExpanded) Icons.Rounded.Sort else Icons.Rounded.Add, // Using Sort icon for "Menu" feeling or Add
+                        imageVector = if (isFabExpanded) Icons.Rounded.Sort else Icons.Rounded.Add,
                         contentDescription = "菜单"
                     )
                 }
             }
         }
     ) { padding ->
-        val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = statusBarPadding.calculateTopPadding())
                 .padding(bottom = padding.calculateBottomPadding())
         ) {
-            // 1. Top Bar (Filter & Sort)
+            // 1. Top Bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -301,7 +298,7 @@ fun NodesScreen(
                 modifier = Modifier.background(AppBackground),
                 edgePadding = 16.dp,
                 divider = {},
-                indicator = {} // Custom indicator or none for minimalist look
+                indicator = {}
             ) {
                 groups.forEachIndexed { index, title ->
                     Tab(
@@ -322,7 +319,7 @@ fun NodesScreen(
 
             // 3. Node List
             LazyColumn(
-                contentPadding = PaddingValues(bottom = 88.dp, top = 16.dp, start = 16.dp, end = 16.dp), // Add bottom padding for FAB
+                contentPadding = PaddingValues(bottom = 88.dp, top = 16.dp, start = 16.dp, end = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(
@@ -334,7 +331,7 @@ fun NodesScreen(
                         "${node.regionFlag ?: ""} ${node.name}"
                     }
                     val isSelected = activeNodeId == node.id
-                    val isTesting = node.id in testingNodeIds
+                    val isTestingNode = node.id in testingNodeIds
                     
                     val onNodeClick = remember(node.id) { { viewModel.setActiveNode(node.id) } }
                     val onEdit = remember(node.id) { 
@@ -351,18 +348,18 @@ fun NodesScreen(
                     val onLatency = remember(node.id) { { viewModel.testLatency(node.id) } }
                     val onDelete = remember(node.id) { { viewModel.deleteNode(node.id) } }
 
-                        NodeCard(
-                            name = name,
-                            type = node.protocol,
-                            latency = node.latencyMs,
-                            isSelected = isSelected,
-                            isTesting = isTesting,
-                            onClick = onNodeClick,
-                            onEdit = onEdit,
-                            onExport = onExport,
-                            onLatency = onLatency,
-                            onDelete = onDelete
-                        )
+                    NodeCard(
+                        name = name,
+                        type = node.protocol,
+                        latency = node.latencyMs,
+                        isSelected = isSelected,
+                        isTesting = isTestingNode,
+                        onClick = onNodeClick,
+                        onEdit = onEdit,
+                        onExport = onExport,
+                        onLatency = onLatency,
+                        onDelete = onDelete
+                    )
                 }
             }
         }
