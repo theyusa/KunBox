@@ -44,37 +44,20 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
             _error.value = null
             Log.d(TAG, "========== 开始获取规则集 ==========")
             try {
-                val allRuleSets = mutableListOf<HubRuleSet>()
-                
-                Log.d(TAG, ">>> 获取 SagerNet 规则集...")
+                Log.d(TAG, ">>> 获取 SagerNet 官方规则集...")
                 val sagerNetRules = fetchFromSagerNet()
                 Log.d(TAG, "<<< SagerNet 获取到 ${sagerNetRules.size} 个规则集")
-                allRuleSets.addAll(sagerNetRules)
                 
-                Log.d(TAG, ">>> 获取 lyc8503 规则集...")
-                val lycRules = fetchFromLyc8503()
-                Log.d(TAG, "<<< lyc8503 获取到 ${lycRules.size} 个规则集")
-                allRuleSets.addAll(lycRules)
-                
-                Log.d(TAG, ">>> 获取 MetaCubeX 规则集...")
-                val metaRules = fetchFromMetaCubeX()
-                Log.d(TAG, "<<< MetaCubeX 获取到 ${metaRules.size} 个规则集")
-                allRuleSets.addAll(metaRules)
-
-                Log.d(TAG, "总计获取到 ${allRuleSets.size} 个规则集")
-                
-                // 如果在线获取失败，使用预置规则集
-                if (allRuleSets.isEmpty()) {
-                    Log.w(TAG, "在线获取全部失败，使用预置规则集")
-                    allRuleSets.addAll(getBuiltInRuleSets())
+                if (sagerNetRules.isEmpty()) {
+                    Log.w(TAG, "在线获取失败，使用预置规则集")
+                    _ruleSets.value = getBuiltInRuleSets().sortedBy { it.name }
+                } else {
+                    _ruleSets.value = sagerNetRules.sortedBy { it.name }
                 }
-
-                _ruleSets.value = allRuleSets.sortedBy { it.name }
                 Log.d(TAG, "========== 规则集加载完成 ==========")
             } catch (e: Exception) {
                 Log.e(TAG, "获取规则集失败", e)
                 _error.value = "加载失败: ${e.message}"
-                // 出错时也提供预置规则集
                 _ruleSets.value = getBuiltInRuleSets()
             } finally {
                 _isLoading.value = false
@@ -152,93 +135,6 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
             Log.e(TAG, "[SagerNet] 发生异常: ${e.javaClass.simpleName} - ${e.message}", e)
             emptyList()
         }
-    }
-
-      private fun fetchFromLyc8503(): List<HubRuleSet> {
-          return try {
-              val request = Request.Builder()
-                  .url("https://api.github.com/repos/lyc8503/sing-box-rules/contents/rule-set-geosite")
-                  .build()
-
-              client.newCall(request).execute().use { response ->
-                  if (!response.isSuccessful) return emptyList()
-
-                  val json = response.body?.string() ?: "[]"
-                  val type = object : TypeToken<List<GithubFile>>() {}.type
-                  val files: List<GithubFile> = gson.fromJson(json, type)
-
-                  files
-                      .filter { it.name.endsWith(".srs") || it.name.endsWith(".json") }
-                      .map { file ->
-                          val nameWithoutExt = file.name.substringBeforeLast(".")
-                          nameWithoutExt
-                      }
-                      .distinct()
-                      .map { name ->
-                          HubRuleSet(
-                              name = name,
-                              ruleCount = 0,
-                              tags = listOf("社区", "geosite"),
-                              description = "lyc8503 维护规则集",
-                              sourceUrl = "https://raw.githubusercontent.com/lyc8503/sing-box-rules/master/rule-set-geosite/$name.json",
-                              binaryUrl = "https://raw.githubusercontent.com/lyc8503/sing-box-rules/master/rule-set-geosite/$name.srs"
-                          )
-                      }
-              }
-          } catch (e: Exception) {
-              e.printStackTrace()
-              emptyList()
-          }
-      }
-
-    // MetaCubeX/meta-rules-dat 规则集 (与 GUI.for.SingBox 相同的源)
-    private fun fetchFromMetaCubeX(): List<HubRuleSet> {
-        val result = mutableListOf<HubRuleSet>()
-        val baseUrl = "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing"
-        
-        // geosite 规则
-        val geositeRules = listOf(
-            "google", "youtube", "twitter", "facebook", "instagram", "tiktok",
-            "telegram", "whatsapp", "discord", "github", "microsoft", "apple",
-            "amazon", "netflix", "spotify", "bilibili", "zhihu", "baidu",
-            "tencent", "alibaba", "openai", "bing", "oracle", "nvidia",
-            "cloudflare", "steam", "epicgames", "huggingface", "google-play",
-            "cn", "geolocation-cn", "geolocation-!cn", "private", "category-ads-all"
-        )
-        
-        geositeRules.forEach { name ->
-            result.add(
-                HubRuleSet(
-                    name = "$name-geosite",
-                    ruleCount = 0,
-                    tags = listOf("MetaCubeX", "geosite"),
-                    description = "MetaCubeX 规则集 (jsdelivr CDN)",
-                    sourceUrl = "$baseUrl/geo/geosite/$name.json",
-                    binaryUrl = "$baseUrl/geo/geosite/$name.srs"
-                )
-            )
-        }
-        
-        // geoip 规则
-        val geoipRules = listOf(
-            "cn", "private", "google", "telegram", "twitter", "facebook", 
-            "netflix", "cloudflare"
-        )
-        
-        geoipRules.forEach { name ->
-            result.add(
-                HubRuleSet(
-                    name = "$name-geoip",
-                    ruleCount = 0,
-                    tags = listOf("MetaCubeX", "geoip"),
-                    description = "MetaCubeX IP 规则集 (jsdelivr CDN)",
-                    sourceUrl = "$baseUrl/geo/geoip/$name.json",
-                    binaryUrl = "$baseUrl/geo/geoip/$name.srs"
-                )
-            )
-        }
-        
-        return result
     }
 
     data class GithubFile(
