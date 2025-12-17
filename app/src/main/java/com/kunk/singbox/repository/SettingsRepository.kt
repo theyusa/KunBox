@@ -175,8 +175,6 @@ class SettingsRepository(private val context: Context) {
             emptyList()
         }
 
-        val ghProxyMirror = GhProxyMirror.fromDisplayName(preferences[PreferencesKeys.GH_PROXY_MIRROR] ?: "ghfast.top")
-
         AppSettings(
             // 通用设置
             autoConnect = preferences[PreferencesKeys.AUTO_CONNECT] ?: false,
