@@ -94,11 +94,16 @@ data class Outbound(
     // Trojan
     // password 字段已定义
     
-    // Hysteria/Hysteria2
+    // Hysteria2
     @SerializedName("up_mbps") val upMbps: Int? = null,
     @SerializedName("down_mbps") val downMbps: Int? = null,
     @SerializedName("obfs") val obfs: ObfsConfig? = null,
     @SerializedName("auth_str") val authStr: String? = null,
+    
+    // AnyTLS
+    @SerializedName("idle_session_check_interval") val idleSessionCheckInterval: String? = null,
+    @SerializedName("idle_session_timeout") val idleSessionTimeout: String? = null,
+    @SerializedName("min_idle_session") val minIdleSession: Int? = null,
     
     // TLS
     @SerializedName("tls") val tls: TlsConfig? = null,

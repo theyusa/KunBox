@@ -175,14 +175,6 @@ object ClashConfigParser {
         }
 
         return when (type) {
-            "ss" -> Outbound(
-                type = "shadowsocks",
-                tag = name,
-                server = server,
-                serverPort = port,
-                method = map["cipher"] as? String,
-                password = password
-            )
             "vmess" -> Outbound(
                 type = "vmess",
                 tag = name,
@@ -215,6 +207,17 @@ object ClashConfigParser {
                 tls = tlsConfig,
                 transport = transportConfig
             )
+            "anytls" -> Outbound(
+                type = "anytls",
+                tag = name,
+                server = server,
+                serverPort = port,
+                password = password,
+                tls = tlsConfig,
+                idleSessionCheckInterval = map["idle_session_check_interval"] as? String,
+                idleSessionTimeout = map["idle_session_timeout"] as? String,
+                minIdleSession = (map["min_idle_session"] as? Number)?.toInt()
+            )
             "hysteria2" -> Outbound(
                 type = "hysteria2",
                 tag = name,
@@ -228,17 +231,6 @@ object ClashConfigParser {
                         password = map["obfs-password"] as? String
                     )
                 }
-            )
-             "hysteria" -> Outbound(
-                type = "hysteria",
-                tag = name,
-                server = server,
-                serverPort = port,
-                authStr = map["auth_str"] as? String,
-                upMbps = (map["up"] as? String)?.replace(" Mbps", "")?.toIntOrNull(),
-                downMbps = (map["down"] as? String)?.replace(" Mbps", "")?.toIntOrNull(),
-                tls = tlsConfig,
-                obfs = map["obfs"]?.let { ObfsConfig(type = "salamander", password = map["obfs-password"] as? String) }
             )
             else -> null
         }

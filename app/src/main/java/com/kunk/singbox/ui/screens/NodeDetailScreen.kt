@@ -169,12 +169,34 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                     }
                     
                     // Password
-                    if (outbound.type in listOf("trojan", "shadowsocks", "hysteria2")) {
+                    if (outbound.type in listOf("trojan", "anytls", "hysteria2")) {
                         EditableTextItem(
                             title = "密码",
                             value = outbound.password ?: "",
                             icon = Icons.Rounded.Password,
                             onValueChange = { editingOutbound = outbound.copy(password = it) }
+                        )
+                    }
+                    
+                    // AnyTLS Specific Fields
+                    if (outbound.type == "anytls") {
+                        EditableTextItem(
+                            title = "空闲会话检查间隔",
+                            value = outbound.idleSessionCheckInterval ?: "30s",
+                            icon = Icons.Rounded.SwapHoriz,
+                            onValueChange = { editingOutbound = outbound.copy(idleSessionCheckInterval = it) }
+                        )
+                        EditableTextItem(
+                            title = "空闲会话超时",
+                            value = outbound.idleSessionTimeout ?: "30s",
+                            icon = Icons.Rounded.SwapHoriz,
+                            onValueChange = { editingOutbound = outbound.copy(idleSessionTimeout = it) }
+                        )
+                        EditableTextItem(
+                            title = "最小空闲会话数",
+                            value = outbound.minIdleSession?.toString() ?: "0",
+                            icon = Icons.Rounded.Numbers,
+                            onValueChange = { editingOutbound = outbound.copy(minIdleSession = it.toIntOrNull()) }
                         )
                     }
                     
@@ -200,21 +222,6 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                         )
                     }
                     
-                    // Method (Shadowsocks)
-                    if (outbound.type == "shadowsocks") {
-                        val methods = listOf(
-                            "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm", "2022-blake3-chacha20-poly1305",
-                            "aes-128-gcm", "aes-256-gcm", "chacha20-poly1305", "none", "plain"
-                        )
-                        EditableSelectionItem(
-                            title = "加密方式",
-                            value = outbound.method ?: "",
-                            options = methods,
-                            icon = Icons.Rounded.Lock,
-                            onValueChange = { editingOutbound = outbound.copy(method = it) }
-                        )
-                    }
-                    
                     // Security (VMess)
                     if (outbound.type == "vmess") {
                         EditableSelectionItem(
@@ -236,8 +243,8 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 // --- Transport ---
-                // Only show transport settings for protocols that support pluggable transport (VMess, VLESS, Trojan, Shadowsocks)
-                if (outbound.type !in listOf("hysteria2", "hysteria", "tuic", "wireguard")) {
+                // Only show transport settings for protocols that support pluggable transport (VMess, VLESS, Trojan, AnyTLS)
+                if (outbound.type !in listOf("hysteria2")) {
                     StandardCard {
                         val transport = outbound.transport ?: TransportConfig(type = "tcp")
                         val currentType = transport.type ?: "tcp"
@@ -245,7 +252,7 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                         EditableSelectionItem(
                             title = "传输协议",
                             value = currentType,
-                            options = listOf("tcp", "http", "ws", "grpc", "quic"),
+                            options = if (outbound.type == "anytls") listOf("tcp") else listOf("tcp", "http", "ws", "grpc", "quic"),
                             icon = Icons.Rounded.SwapHoriz,
                             onValueChange = { newType ->
                                 editingOutbound = outbound.copy(

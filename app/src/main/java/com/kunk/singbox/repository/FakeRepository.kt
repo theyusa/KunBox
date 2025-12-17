@@ -50,11 +50,11 @@ object FakeRepository {
         _activeProfileId.value = "p1"
 
         val mockNodes = listOf(
-            NodeUi("n1", "香港-01 [VLESS]", "vless", "HK", "", 45, true, "p1"),
-            NodeUi("n2", "香港-02 [Trojan]", "trojan", "HK", "", 52, false, "p1"),
-            NodeUi("n3", "美国-洛杉矶 [VMess]", "vmess", "US", "", 180, false, "p2"),
-            NodeUi("n4", "日本-东京 [SS]", "shadowsocks", "JP", "", 80, true, "p1"),
-            NodeUi("n5", "新加坡-直连 [Hysteria2]", "hysteria2", "SG", "", 60, false, "p1")
+            NodeUi("n1", "香港-01 [VLESS]", "vless", "HK", "🇭🇰", 45, true, "p1"),
+            NodeUi("n2", "香港-02 [Trojan]", "trojan", "HK", "🇭🇰", 52, false, "p1"),
+            NodeUi("n3", "美国-洛杉矶 [VMess]", "vmess", "US", "🇺🇸", 180, false, "p2"),
+            NodeUi("n4", "日本-东京 [AnyTLS]", "anytls", "JP", "🇯🇵", 80, true, "p1"),
+            NodeUi("n5", "新加坡-直连 [Hysteria2]", "hysteria2", "SG", "🇸🇬", 60, false, "p1")
         )
         _nodes.value = mockNodes
         updateNodeGroups(mockNodes)
@@ -138,7 +138,7 @@ object FakeRepository {
         if (profileId == "p2") {
             val newNodes = listOf(
                 NodeUi("n3", "美国-洛杉矶 [VMess]", "vmess", "自动选择", "🇺🇸", 180, false, "p2"),
-                NodeUi("n6", "美国-纽约 [SS]", "shadowsocks", "自动选择", "🇺🇸", 200, false, "p2"),
+                NodeUi("n6", "美国-纽约 [AnyTLS]", "anytls", "自动选择", "🇺🇸", 200, false, "p2"),
                 NodeUi("n7", "手动-美国", "vmess", "手动选择", "🇺🇸", 190, false, "p2")
             )
             _nodes.value = newNodes
@@ -148,7 +148,7 @@ object FakeRepository {
             val newNodes = listOf(
                 NodeUi("n1", "香港-01 [VLESS]", "vless", "HK", "🇭🇰", 45, true, "p1"),
                 NodeUi("n2", "香港-02 [Trojan]", "trojan", "HK", "🇭🇰", 52, false, "p1"),
-                NodeUi("n4", "日本-东京 [SS]", "shadowsocks", "JP", "🇯🇵", 80, true, "p1"),
+                NodeUi("n4", "日本-东京 [AnyTLS]", "anytls", "JP", "🇯🇵", 80, true, "p1"),
                 NodeUi("n5", "新加坡-直连 [Hysteria2]", "hysteria2", "SG", "🇸🇬", 60, false, "p1")
             )
             _nodes.value = newNodes
