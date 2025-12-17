@@ -1585,8 +1585,13 @@ class ConfigRepository(private val context: Context) {
         val customRuleSetRules = buildCustomRuleSetRules(settings, selectorTag, fixedOutbounds)
         
         // 添加路由配置（使用在线规则集，sing-box 1.12.0+）
+        // 合并规则集时去重，以 customRuleSets 为准（用户配置优先）
+        val adBlockTags = adBlockRuleSet.map { it.tag }.toSet()
+        val filteredAdBlockRuleSets = adBlockRuleSet.filter { rs ->
+            customRuleSets.none { it.tag == rs.tag }
+        }
         val route = RouteConfig(
-            ruleSet = adBlockRuleSet + customRuleSets,
+            ruleSet = filteredAdBlockRuleSets + customRuleSets,
             rules = listOf(
                 // DNS 流量走 dns-out
                 RouteRule(protocol = listOf("dns"), outbound = "dns-out")
