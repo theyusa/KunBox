@@ -11,10 +11,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
@@ -22,7 +25,10 @@ import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.IconButton
+import androidx.compose.ui.viewinterop.AndroidView
+import android.widget.ImageView
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
@@ -47,14 +54,22 @@ import com.kunk.singbox.ui.components.InfoCard
 import com.kunk.singbox.ui.components.ModeChip
 import com.kunk.singbox.ui.components.SingleSelectDialog
 import com.kunk.singbox.ui.components.StatusChip
+import com.kunk.singbox.ui.theme.Neutral500
 import com.kunk.singbox.ui.theme.TextPrimary
 import com.kunk.singbox.ui.theme.TextSecondary
+import com.kunk.singbox.R
+import androidx.compose.ui.res.painterResource
 import android.widget.Toast
 import android.app.Activity
 import android.content.Intent
 import android.net.VpnService
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 
 @Composable
 fun DashboardScreen(
@@ -68,6 +83,7 @@ fun DashboardScreen(
     val profiles by viewModel.profiles.collectAsState()
     val activeProfileId by viewModel.activeProfileId.collectAsState()
     val activeNodeId by viewModel.activeNodeId.collectAsState()
+    val activeNodeLatency by viewModel.activeNodeLatency.collectAsState()
     
     // 获取活跃配置和节点的名称
     val activeProfileName = profiles.find { it.id == activeProfileId }?.name
@@ -166,18 +182,95 @@ fun DashboardScreen(
     // Helper to format bytes
     fun formatBytes(bytes: Long): String = Formatter.formatFileSize(context, bytes)
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
+    val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
+    
+    // Background Animation
+    val isRunning = connectionState == ConnectionState.Connected || connectionState == ConnectionState.Connecting
+    val infiniteTransition = rememberInfiniteTransition(label = "BackgroundAnimation")
+    
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = if (isRunning) 1.05f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "PulseScale"
+    )
+
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = if (isRunning) 0.6f else 0.3f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "PulseAlpha"
+    )
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Background Decoration
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+            val center = center
+            val baseRadius = size.minDimension / 1.5f
+            
+            // Inner Circle
+            drawCircle(
+                color = if (isRunning) Color(0xFF4CAF50).copy(alpha = pulseAlpha * 0.3f) else Color(0xFF2C2C2C),
+                radius = baseRadius * pulseScale,
+                center = center,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = if (isRunning) 4.dp.toPx() else 2.dp.toPx()
+                )
+            )
+            
+            // Outer Circle
+            drawCircle(
+                color = if (isRunning) Color(0xFF4CAF50).copy(alpha = pulseAlpha * 0.15f) else Color(0xFF1E1E1E),
+                radius = (baseRadius * 1.2f) * (pulseScale * 1.02f), // Slightly different scale for depth
+                center = center,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = if (isRunning) 2.dp.toPx() else 1.dp.toPx()
+                )
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = statusBarPadding.calculateTopPadding()) // 为状态栏添加顶部内边距
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
         // 1. Status Bar (Chips)
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // App Logo & Title
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 8.dp)
+            ) {
+                // Use AndroidView to render adaptive icon correctly
+                AndroidView(
+                    factory = { ctx ->
+                        ImageView(ctx).apply {
+                            setImageResource(R.mipmap.ic_launcher_round)
+                        }
+                    },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .padding(end = 12.dp)
+                )
+                Text(
+                    text = "SingBox",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = TextPrimary
+                )
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -194,9 +287,15 @@ fun DashboardScreen(
                     isActive = connectionState == ConnectionState.Connected
                 )
                 
+                val indicatorColor = when (connectionState) {
+                    ConnectionState.Connected -> Color(0xFF4CAF50) // Green
+                    ConnectionState.Error -> Color(0xFFF44336) // Red
+                    else -> Neutral500 // Grey
+                }
+                
                 ModeChip(
                     mode = currentMode,
-                    isRunning = connectionState == ConnectionState.Connected
+                    indicatorColor = indicatorColor
                 ) { showModeDialog = true }
             }
             
@@ -232,9 +331,9 @@ fun DashboardScreen(
             }
         }
 
-        // 2. Main Toggle - 使用 TopCenter 对齐让偏移动画生效
+        // 2. Main Toggle - 居中显示
         Box(
-            contentAlignment = Alignment.TopCenter,
+            contentAlignment = Alignment.Center,
             modifier = Modifier.weight(1f)
         ) {
             BigToggle(
@@ -250,18 +349,13 @@ fun DashboardScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            AnimatedVisibility(
-                visible = connectionState == ConnectionState.Connected || connectionState == ConnectionState.Connecting,
-                enter = fadeIn() + slideInVertically { it / 2 },
-                exit = fadeOut() + slideOutVertically { it / 2 }
-            ) {
-                val isConnected = connectionState == ConnectionState.Connected
-                InfoCard(
-                    uploadSpeed = if (isConnected) "${formatBytes(stats.uploadSpeed)}/s" else "-/s",
-                    downloadSpeed = if (isConnected) "${formatBytes(stats.downloadSpeed)}/s" else "-/s",
-                    ping = if (isConnected) "45 ms" else "-" // Mock ping
-                )
-            }
+            // Always show InfoCard but with placeholder data when not connected
+            val isConnected = connectionState == ConnectionState.Connected
+            InfoCard(
+                uploadSpeed = if (isConnected) "${formatBytes(stats.uploadSpeed)}/s" else "-/s",
+                downloadSpeed = if (isConnected) "${formatBytes(stats.downloadSpeed)}/s" else "-/s",
+                ping = if (isConnected && activeNodeLatency != null) "${activeNodeLatency} ms" else "-"
+            )
             
             Spacer(modifier = Modifier.height(24.dp))
             
@@ -274,6 +368,7 @@ fun DashboardScreen(
                 QuickActionButton(Icons.Rounded.Bolt, "延迟测试") { showTestDialog = true }
                 QuickActionButton(Icons.Rounded.History, "运行日志") { navController.navigate(Screen.Logs.route) }
                 QuickActionButton(Icons.Rounded.BugReport, "网络诊断") { navController.navigate(Screen.Diagnostics.route) }
+                }
             }
         }
     }

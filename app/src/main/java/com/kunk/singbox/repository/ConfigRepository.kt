@@ -904,8 +904,25 @@ class ConfigRepository(private val context: Context) {
         saveProfiles()
     }
     
-    fun setActiveNode(nodeId: String) {
+    suspend fun setActiveNode(nodeId: String) {
         _activeNodeId.value = nodeId
+        
+        // 如果 VPN 正在运行，尝试通过 API 热切换节点
+        if (com.kunk.singbox.service.SingBoxService.isRunning) {
+            val node = _nodes.value.find { it.id == nodeId }
+            if (node != null) {
+                try {
+                    val success = singBoxCore.getClashApiClient().selectProxy("PROXY", node.name)
+                    if (success) {
+                        Log.d(TAG, "Hot switched to node: ${node.name}")
+                    } else {
+                        Log.e(TAG, "Failed to hot switch node: ${node.name}")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error during hot switch", e)
+                }
+            }
+        }
     }
     
     fun deleteProfile(profileId: String) {
@@ -997,6 +1014,19 @@ class ConfigRepository(private val context: Context) {
      * 批量测试所有节点的延迟
      * 使用并发方式提高效率
      */
+    suspend fun clearAllNodesLatency() = withContext(Dispatchers.IO) {
+        _nodes.update { list ->
+            list.map { it.copy(latencyMs = null) }
+        }
+        
+        // Update profileNodes map
+        profileNodes.keys.forEach { profileId ->
+            profileNodes[profileId] = profileNodes[profileId]?.map {
+                it.copy(latencyMs = null)
+            } ?: emptyList()
+        }
+    }
+
     suspend fun testAllNodesLatency() = withContext(Dispatchers.IO) {
         val nodes = _nodes.value
         Log.d(TAG, "Starting latency test for ${nodes.size} nodes")
@@ -1014,21 +1044,34 @@ class ConfigRepository(private val context: Context) {
             tagToProfileId[node.name] = node.sourceProfileId
         }
 
-        singBoxCore.testOutboundsLatency(outbounds) { tag, latency ->
-            val nodeId = tagToNodeId[tag] ?: return@testOutboundsLatency
-            val profileId = tagToProfileId[tag] ?: return@testOutboundsLatency
+        // 顺序测试每个节点
+        for (outbound in outbounds) {
+            val tag = outbound.tag
+            val nodeId = tagToNodeId[tag] ?: continue
+            val profileId = tagToProfileId[tag] ?: continue
 
-            _nodes.update { list ->
-                list.map {
-                    if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else null) else it
+            try {
+                // 测试单个节点延迟
+                val latency = singBoxCore.testOutboundLatency(outbound)
+                
+                // 更新状态
+                _nodes.update { list ->
+                    list.map {
+                        if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else null) else it
+                    }
                 }
+
+                profileNodes[profileId] = profileNodes[profileId]?.map {
+                    if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else null) else it
+                } ?: emptyList()
+
+                Log.d(TAG, "Latency test result for $tag: ${latency}ms")
+                
+                // 短暂延迟以避免UI刷新过快或系统负载过高
+                kotlinx.coroutines.delay(50)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to test latency for $tag", e)
             }
-
-            profileNodes[profileId] = profileNodes[profileId]?.map {
-                if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else null) else it
-            } ?: emptyList()
-
-            Log.d(TAG, "Latency test result for $tag: ${latency}ms")
         }
 
         Log.d(TAG, "Latency test completed for all nodes")
@@ -1411,18 +1454,137 @@ class ConfigRepository(private val context: Context) {
     }
 
     /**
+     * 重命名节点
+     */
+    fun renameNode(nodeId: String, newName: String) {
+        val node = _nodes.value.find { it.id == nodeId } ?: return
+        val profileId = node.sourceProfileId
+        val config = profileConfigs[profileId] ?: return
+
+        // 更新对应节点的 tag
+        val newOutbounds = config.outbounds?.map {
+            if (it.tag == node.name) it.copy(tag = newName) else it
+        }
+        val newConfig = config.copy(outbounds = newOutbounds)
+
+        // 更新内存中的配置
+        profileConfigs[profileId] = newConfig
+        
+        // 重新提取节点列表
+        val newNodes = extractNodesFromConfig(newConfig, profileId)
+        profileNodes[profileId] = newNodes
+
+        // 保存文件
+        try {
+            val configFile = File(configDir, "$profileId.json")
+            configFile.writeText(gson.toJson(newConfig))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // 如果是当前活跃配置，更新UI状态
+        if (_activeProfileId.value == profileId) {
+            _nodes.value = newNodes
+            updateNodeGroups(newNodes)
+            
+            // 如果重命名的是当前选中节点，更新 activeNodeId
+            if (_activeNodeId.value == nodeId) {
+                val newNode = newNodes.find { it.name == newName }
+                if (newNode != null) {
+                    _activeNodeId.value = newNode.id
+                }
+            }
+        }
+        
+        saveProfiles()
+    }
+
+    /**
+     * 更新节点配置
+     */
+    fun updateNode(nodeId: String, newOutbound: Outbound) {
+        val node = _nodes.value.find { it.id == nodeId } ?: return
+        val profileId = node.sourceProfileId
+        val config = profileConfigs[profileId] ?: return
+
+        // 更新对应节点
+        // 注意：这里假设 newOutbound.tag 已经包含了可能的新名称
+        val newOutbounds = config.outbounds?.map {
+            if (it.tag == node.name) newOutbound else it
+        }
+        val newConfig = config.copy(outbounds = newOutbounds)
+
+        // 更新内存中的配置
+        profileConfigs[profileId] = newConfig
+        
+        // 重新提取节点列表
+        val newNodes = extractNodesFromConfig(newConfig, profileId)
+        profileNodes[profileId] = newNodes
+
+        // 保存文件
+        try {
+            val configFile = File(configDir, "$profileId.json")
+            configFile.writeText(gson.toJson(newConfig))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // 如果是当前活跃配置，更新UI状态
+        if (_activeProfileId.value == profileId) {
+            _nodes.value = newNodes
+            updateNodeGroups(newNodes)
+            
+            // 如果更新的是当前选中节点，尝试恢复选中状态
+            if (_activeNodeId.value == nodeId) {
+                val newNode = newNodes.find { it.name == newOutbound.tag }
+                if (newNode != null) {
+                    _activeNodeId.value = newNode.id
+                }
+            }
+        }
+        
+        saveProfiles()
+    }
+
+    /**
      * 导出节点链接
      */
     fun exportNode(nodeId: String): String? {
-        val outbound = getOutboundByNodeId(nodeId) ?: return null
+        val node = _nodes.value.find { it.id == nodeId }
+        if (node == null) {
+             Log.e(TAG, "exportNode: Node not found in UI list: $nodeId")
+             return null
+        }
+        
+        val config = profileConfigs[node.sourceProfileId]
+        if (config == null) {
+             Log.e(TAG, "exportNode: Config not found for profile: ${node.sourceProfileId}")
+             return null
+        }
+        
+        val outbound = config.outbounds?.find { it.tag == node.name }
+        if (outbound == null) {
+             Log.e(TAG, "exportNode: Outbound not found in config with tag: ${node.name}")
+             return null
+        }
+        
+        Log.d(TAG, "exportNode: Found outbound ${outbound.tag} of type ${outbound.type}")
+
         return when (outbound.type) {
             "vless" -> generateVLessLink(outbound)
             "vmess" -> generateVMessLink(outbound)
             "shadowsocks" -> generateShadowsocksLink(outbound)
             "trojan" -> generateTrojanLink(outbound)
-            "hysteria2" -> generateHysteria2Link(outbound)
+            "hysteria2" -> {
+                val link = generateHysteria2Link(outbound)
+                Log.d(TAG, "exportNode: Generated hy2 link: $link")
+                link
+            }
             "hysteria" -> generateHysteriaLink(outbound)
-            else -> null
+            else -> {
+                Log.e(TAG, "exportNode: Unsupported type ${outbound.type}")
+                null
+            }
         }
     }
 

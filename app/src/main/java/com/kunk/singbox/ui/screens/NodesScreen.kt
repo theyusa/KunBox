@@ -2,26 +2,38 @@ package com.kunk.singbox.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Search
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
@@ -41,12 +53,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.kunk.singbox.ui.components.ConfirmDialog
 import com.kunk.singbox.viewmodel.NodesViewModel
 import com.kunk.singbox.ui.components.InputDialog
+import com.kunk.singbox.ui.components.SingleSelectDialog
 import com.kunk.singbox.ui.components.NodeCard
 import com.kunk.singbox.ui.navigation.Screen
 import com.kunk.singbox.ui.theme.AppBackground
@@ -62,6 +76,7 @@ fun NodesScreen(
     navController: NavController,
     viewModel: NodesViewModel = viewModel()
 ) {
+    val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val nodes by viewModel.nodes.collectAsState()
@@ -89,27 +104,41 @@ fun NodesScreen(
         }
     }
     
-    var showSearchDialog by remember { mutableStateOf(false) }
     var showSortDialog by remember { mutableStateOf(false) }
     var exportLink by remember { mutableStateOf<String?>(null) }
+    var isFabExpanded by remember { mutableStateOf(false) }
+    var showAddNodeDialog by remember { mutableStateOf(false) }
 
-    if (showSearchDialog) {
-        InputDialog(
-            title = "搜索节点",
-            placeholder = "输入关键词...",
-            confirmText = "搜索",
-            onConfirm = { showSearchDialog = false },
-            onDismiss = { showSearchDialog = false }
+    if (showSortDialog) {
+        val sortOptions = listOf(
+            "默认" to NodesViewModel.SortType.DEFAULT,
+            "延迟 (低 -> 高)" to NodesViewModel.SortType.LATENCY,
+            "名称 (A -> Z)" to NodesViewModel.SortType.NAME,
+            "地区" to NodesViewModel.SortType.REGION
+        )
+        
+        SingleSelectDialog(
+            title = "排序方式",
+            options = sortOptions.map { it.first },
+            selectedIndex = -1, // No pre-selection highlight needed or could track current sort
+            onSelect = { index ->
+                viewModel.setSortType(sortOptions[index].second)
+                showSortDialog = false
+            },
+            onDismiss = { showSortDialog = false }
         )
     }
     
-    if (showSortDialog) {
-        ConfirmDialog(
-            title = "排序节点",
-            message = "选择排序方式:\n\n• 延迟 (低 -> 高)\n• 名称 (A -> Z)\n• 地区",
-            confirmText = "确定",
-            onConfirm = { showSortDialog = false },
-            onDismiss = { showSortDialog = false }
+    if (showAddNodeDialog) {
+        InputDialog(
+            title = "添加节点",
+            placeholder = "输入节点链接 (vmess://, vless://, ss://, etc)...",
+            confirmText = "添加",
+            onConfirm = {
+                viewModel.addNode(it)
+                showAddNodeDialog = false
+            },
+            onDismiss = { showAddNodeDialog = false }
         )
     }
     
@@ -128,37 +157,110 @@ fun NodesScreen(
 
     Scaffold(
         modifier = Modifier.background(AppBackground),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    if (!isTesting) {
-                        viewModel.testAllLatency()
+            Column(horizontalAlignment = Alignment.End) {
+                AnimatedVisibility(
+                    visible = isFabExpanded,
+                    enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                    exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    ) {
+                        // Clear Latency
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "清空延迟",
+                                color = PureWhite,
+                                modifier = Modifier.padding(end = 8.dp),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                            SmallFloatingActionButton(
+                                onClick = {
+                                    viewModel.clearLatency()
+                                    isFabExpanded = false
+                                },
+                                containerColor = PureWhite,
+                                contentColor = Color.Black
+                            ) {
+                                Icon(Icons.Rounded.Delete, contentDescription = "清空延迟")
+                            }
+                        }
+                        
+                        // Add Node
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "添加节点",
+                                color = PureWhite,
+                                modifier = Modifier.padding(end = 8.dp),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                            SmallFloatingActionButton(
+                                onClick = {
+                                    showAddNodeDialog = true
+                                    isFabExpanded = false
+                                },
+                                containerColor = PureWhite,
+                                contentColor = Color.Black
+                            ) {
+                                Icon(Icons.Rounded.Add, contentDescription = "添加节点")
+                            }
+                        }
+                        
+                        // Test Latency
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = if (isTesting) "停止测试" else "测试延迟",
+                                color = PureWhite,
+                                modifier = Modifier.padding(end = 8.dp),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                            SmallFloatingActionButton(
+                                onClick = {
+                                    viewModel.testAllLatency()
+                                    isFabExpanded = false
+                                },
+                                containerColor = PureWhite,
+                                contentColor = Color.Black
+                            ) {
+                                if (isTesting) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        color = Color.Black,
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(Icons.Rounded.Bolt, contentDescription = "测试延迟")
+                                }
+                            }
+                        }
                     }
-                },
-                containerColor = PureWhite,
-                contentColor = Color.Black
-            ) {
-                if (isTesting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = Color.Black,
-                        strokeWidth = 2.dp
-                    )
-                } else {
+                }
+                
+                FloatingActionButton(
+                    onClick = { isFabExpanded = !isFabExpanded },
+                    containerColor = PureWhite,
+                    contentColor = Color.Black
+                ) {
                     Icon(
-                        imageVector = Icons.Rounded.Speed,
-                        contentDescription = "测试延迟"
+                        imageVector = if (isFabExpanded) Icons.Rounded.Sort else Icons.Rounded.Add, // Using Sort icon for "Menu" feeling or Add
+                        contentDescription = "菜单"
                     )
                 }
             }
         }
     ) { padding ->
+        val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(top = statusBarPadding.calculateTopPadding())
+                .padding(bottom = padding.calculateBottomPadding())
         ) {
-            // 1. Top Bar (Search & Filter)
+            // 1. Top Bar (Filter & Sort)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -173,13 +275,8 @@ fun NodesScreen(
                     color = TextPrimary
                 )
                 
-                Row {
-                    IconButton(onClick = { showSearchDialog = true }) {
-                        Icon(Icons.Rounded.Search, contentDescription = "Search", tint = PureWhite)
-                    }
-                    IconButton(onClick = { showSortDialog = true }) {
-                        Icon(Icons.Rounded.Sort, contentDescription = "Sort", tint = PureWhite)
-                    }
+                IconButton(onClick = { showSortDialog = true }) {
+                    Icon(Icons.Rounded.Sort, contentDescription = "排序", tint = PureWhite)
                 }
             }
 

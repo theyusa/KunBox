@@ -5,16 +5,25 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kunk.singbox.model.NodeUi
 import com.kunk.singbox.repository.ConfigRepository
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class NodesViewModel(application: Application) : AndroidViewModel(application) {
     
+    enum class SortType {
+        DEFAULT, LATENCY, NAME, REGION
+    }
+    
     private val configRepository = ConfigRepository.getInstance(application)
+
+    private var testingJob: Job? = null
 
     private val _isTesting = MutableStateFlow(false)
     val isTesting: StateFlow<Boolean> = _isTesting.asStateFlow()
@@ -22,13 +31,22 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     // 正在测试延迟的节点 ID 集合
     private val _testingNodeIds = MutableStateFlow<Set<String>>(emptySet())
     val testingNodeIds: StateFlow<Set<String>> = _testingNodeIds.asStateFlow()
+    
+    private val _sortType = MutableStateFlow(SortType.DEFAULT)
+    val sortType: StateFlow<SortType> = _sortType.asStateFlow()
 
-    val nodes: StateFlow<List<NodeUi>> = configRepository.nodes
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+    val nodes: StateFlow<List<NodeUi>> = combine(configRepository.nodes, _sortType) { nodes, sortType ->
+        when (sortType) {
+            SortType.DEFAULT -> nodes
+            SortType.LATENCY -> nodes.sortedWith(compareBy<NodeUi> { it.latencyMs == null }.thenBy { it.latencyMs })
+            SortType.NAME -> nodes.sortedBy { it.name }
+            SortType.REGION -> nodes.sortedBy { it.regionFlag ?: "\uFFFF" } // Put no flag at end
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
 
     val nodeGroups: StateFlow<List<String>> = configRepository.nodeGroups
         .stateIn(
@@ -45,7 +63,9 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
         )
 
     fun setActiveNode(nodeId: String) {
-        configRepository.setActiveNode(nodeId)
+        viewModelScope.launch {
+            configRepository.setActiveNode(nodeId)
+        }
     }
     
     fun testLatency(nodeId: String) {
@@ -60,18 +80,35 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun testAllLatency() {
-        if (_isTesting.value) return
+        if (_isTesting.value) {
+            // 如果正在测试，则取消测试
+            testingJob?.cancel()
+            testingJob = null
+            _isTesting.value = false
+            _testingNodeIds.value = emptySet()
+            return
+        }
         
-        viewModelScope.launch {
+        testingJob = viewModelScope.launch {
             _isTesting.value = true
-            // 将所有节点加入测试中
-            val allIds = nodes.value.map { it.id }.toSet()
-            _testingNodeIds.value = allIds
+            val nodeList = nodes.value
             try {
-                configRepository.testAllNodesLatency()
+                for (node in nodeList) {
+                    // 检查协程是否已被取消
+                    if (!isActive) break
+                    
+                    // 只标记当前正在测试的节点
+                    _testingNodeIds.value = setOf(node.id)
+                    try {
+                        configRepository.testNodeLatency(node.id)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
             } finally {
                 _isTesting.value = false
                 _testingNodeIds.value = emptySet()
+                testingJob = null
             }
         }
     }
@@ -84,5 +121,36 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
 
     fun exportNode(nodeId: String): String? {
         return configRepository.exportNode(nodeId)
+    }
+    
+    fun setSortType(type: SortType) {
+        _sortType.value = type
+    }
+    
+    fun clearLatency() {
+        viewModelScope.launch {
+            configRepository.clearAllNodesLatency()
+        }
+    }
+    
+    fun addNode(content: String) {
+        viewModelScope.launch {
+            // Check if it's a link or content
+            if (content.startsWith("vmess://") || content.startsWith("vless://") ||
+                content.startsWith("ss://") || content.startsWith("trojan://") ||
+                content.startsWith("hysteria") || content.startsWith("tuic")) {
+                
+                // For simple link import, we can reuse importFromContent but we might need a dummy profile or "Manual" profile
+                // Currently ConfigRepository.importFromContent creates a new profile.
+                // User wants to add to "Current Group".
+                // However, ConfigRepository structure ties nodes to Profiles.
+                // If "Current Group" is a Profile (Subscription), adding manually might be overwritten on update.
+                // Best practice: Add to a specific "Manual" profile or allow editing subscription (not recommended).
+                
+                // For now, let's treat "Add Node" as creating a new "Imported" profile or appending to one.
+                // To keep it simple and consistent with ConfigRepository structure:
+                configRepository.importFromContent("手动添加", content)
+            }
+        }
     }
 }

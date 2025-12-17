@@ -80,7 +80,7 @@ fun BigToggle(
         transitionSpec = { tween(durationMillis = 300, easing = androidx.compose.animation.core.FastOutSlowInEasing) },
         label = "BackgroundColor"
     ) { running ->
-        if (running) OLEDBlack else PureWhite
+        if (running) Color(0xFF4CAF50) else PureWhite
     }
     
     val iconColor by transition.animateColor(
@@ -94,7 +94,7 @@ fun BigToggle(
         transitionSpec = { tween(durationMillis = 300, easing = androidx.compose.animation.core.FastOutSlowInEasing) },
         label = "BorderColor"
     ) { running ->
-        if (running) OLEDBlack else Color(0xFFE0E0E0)
+        if (running) Color(0xFF4CAF50) else Color(0xFFE0E0E0)
     }
 
     // Ripple/Breathing animation when running
@@ -126,18 +126,15 @@ fun BigToggle(
         label = "RippleVisibility"
     )
 
-    // 使用 Column 来让按钮可以自然地向下偏移
-    androidx.compose.foundation.layout.Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier.padding(top = 60.dp) // 基础顶部间距让按钮看起来居中
+    // 使用 Box 保持居中，移除硬编码的 padding
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
     ) {
-        // 动态 spacer - 关闭时增加顶部空间，让按钮下移 (运行时0dp，关闭时20dp)
-        androidx.compose.foundation.layout.Spacer(
-            modifier = Modifier.height(verticalOffset)
-        )
-        
+        // 动态偏移 - 关闭时下移
         Box(
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.offset(y = verticalOffset)
         ) {
             // Ripple Effect Layer
             Box(

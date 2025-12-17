@@ -6,8 +6,12 @@ import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import java.util.concurrent.TimeUnit
 
 /**
@@ -189,7 +193,7 @@ class ClashApiClient(
 
             val json = gson.toJson(mapOf("name" to proxyName))
             val body = okhttp3.RequestBody.create(
-                okhttp3.MediaType.parse("application/json; charset=utf-8"),
+                "application/json; charset=utf-8".toMediaType(),
                 json
             )
 
@@ -214,7 +218,45 @@ class ClashApiClient(
             false
         }
     }
+    /**
+     * 连接到流量 WebSocket
+     */
+    fun connectTrafficWebSocket(onTraffic: (up: Long, down: Long) -> Unit): WebSocket? {
+        val url = baseUrl.toHttpUrlOrNull()?.newBuilder()
+            ?.addPathSegment("traffic")
+            ?.apply {
+                if (secret.isNotEmpty()) {
+                    addQueryParameter("token", secret)
+                }
+            }
+            ?.build()
+            ?: return null
+
+        val request = Request.Builder()
+            .url(url)
+            .build()
+
+        return client.newWebSocket(request, object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                try {
+                    val traffic = gson.fromJson(text, TrafficResponse::class.java)
+                    onTraffic(traffic.up, traffic.down)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parsing traffic message", e)
+                }
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                Log.e(TAG, "Traffic WebSocket failure", t)
+            }
+        })
+    }
 }
+
+data class TrafficResponse(
+    @SerializedName("up") val up: Long,
+    @SerializedName("down") val down: Long
+)
 
 // API 响应数据类
 data class ProxiesResponse(

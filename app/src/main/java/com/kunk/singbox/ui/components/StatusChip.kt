@@ -64,7 +64,7 @@ fun StatusChip(
 @Composable
 fun ModeChip(
     mode: String,
-    isRunning: Boolean = false,
+    indicatorColor: Color = Neutral500,
     onClick: () -> Unit
 ) {
     StatusChip(
@@ -72,12 +72,12 @@ fun ModeChip(
         icon = {
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.size(16.dp) // Ensure container size matches icon slot
+                modifier = Modifier.size(16.dp)
             ) {
                 Box(
                     modifier = Modifier
                         .size(8.dp)
-                        .background(if (isRunning) PureWhite else Neutral500, CircleShape)
+                        .background(indicatorColor, CircleShape)
                 )
             }
         },

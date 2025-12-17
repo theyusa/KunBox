@@ -120,7 +120,15 @@ data class TlsConfig(
     @SerializedName("insecure") val insecure: Boolean? = null,
     @SerializedName("alpn") val alpn: List<String>? = null,
     @SerializedName("utls") val utls: UtlsConfig? = null,
-    @SerializedName("reality") val reality: RealityConfig? = null
+    @SerializedName("reality") val reality: RealityConfig? = null,
+    @SerializedName("ech") val ech: EchConfig? = null
+)
+
+data class EchConfig(
+    @SerializedName("enabled") val enabled: Boolean? = null,
+    @SerializedName("pq_signature_schemes_enabled") val pqSignatureSchemesEnabled: Boolean? = null,
+    @SerializedName("dynamic_record_sizing_disabled") val dynamicRecordSizingDisabled: Boolean? = null,
+    @SerializedName("config") val config: List<String>? = null
 )
 
 data class UtlsConfig(
@@ -149,7 +157,8 @@ data class MultiplexConfig(
     @SerializedName("protocol") val protocol: String? = null,
     @SerializedName("max_connections") val maxConnections: Int? = null,
     @SerializedName("min_streams") val minStreams: Int? = null,
-    @SerializedName("max_streams") val maxStreams: Int? = null
+    @SerializedName("max_streams") val maxStreams: Int? = null,
+    @SerializedName("padding") val padding: Boolean? = null
 )
 
 data class RouteConfig(

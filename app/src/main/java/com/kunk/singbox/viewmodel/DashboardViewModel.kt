@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.kunk.singbox.model.ConnectionState
 import com.kunk.singbox.model.ConnectionStats
 import com.kunk.singbox.model.ProfileUi
+import com.kunk.singbox.core.SingBoxCore
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.service.SingBoxService
 import kotlinx.coroutines.Job
@@ -19,11 +20,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlin.random.Random
+import okhttp3.WebSocket
 
 class DashboardViewModel(application: Application) : AndroidViewModel(application) {
     
     private val configRepository = ConfigRepository.getInstance(application)
+    private val singBoxCore = SingBoxCore.getInstance(application)
     
     // Connection state
     private val _connectionState = MutableStateFlow(ConnectionState.Idle)
@@ -32,6 +34,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     // Stats
     private val _stats = MutableStateFlow(ConnectionStats(0, 0, 0, 0, 0))
     val stats: StateFlow<ConnectionStats> = _stats.asStateFlow()
+    
+    private var trafficWebSocket: WebSocket? = null
     
     // Active profile and node from ConfigRepository
     val activeProfileId: StateFlow<String?> = configRepository.activeProfileId
@@ -47,6 +51,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = null
         )
+
+    val activeNodeLatency = kotlinx.coroutines.flow.combine(configRepository.nodes, activeNodeId) { nodes, id ->
+        nodes.find { it.id == id }?.latencyMs
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = null
+    )
     
     val profiles: StateFlow<List<ProfileUi>> = configRepository.profiles
         .stateIn(
@@ -118,7 +130,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 delay(2000)
                 if (SingBoxService.isRunning) {
                     _connectionState.value = ConnectionState.Connected
-                    startSimulatingStats()
+                    startTrafficMonitor()
                 } else {
                     _connectionState.value = ConnectionState.Error
                 }
@@ -133,7 +145,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     
     private fun stopVpn() {
         val context = getApplication<Application>()
-        statsJob?.cancel()
+        stopTrafficMonitor()
         _connectionState.value = ConnectionState.Disconnecting
         
         val intent = Intent(context, SingBoxService::class.java).apply {
@@ -176,22 +188,37 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
     
-    private fun startSimulatingStats() {
-        statsJob?.cancel()
+    private fun startTrafficMonitor() {
+        stopTrafficMonitor()
+        
+        // 启动计时器
         statsJob = viewModelScope.launch {
             while (_connectionState.value == ConnectionState.Connected) {
                 delay(1000)
                 _stats.update { current ->
-                    current.copy(
-                        uploadSpeed = Random.nextLong(1024, 1024 * 1024),
-                        downloadSpeed = Random.nextLong(1024 * 10, 1024 * 1024 * 10),
-                        uploadTotal = current.uploadTotal + Random.nextLong(1024, 1024 * 1024),
-                        downloadTotal = current.downloadTotal + Random.nextLong(1024 * 10, 1024 * 1024 * 10),
-                        duration = current.duration + 1000
-                    )
+                    current.copy(duration = current.duration + 1000)
                 }
             }
         }
+        
+        // 连接 WebSocket 获取实时流量
+        trafficWebSocket = singBoxCore.getClashApiClient().connectTrafficWebSocket { up, down ->
+            _stats.update { current ->
+                current.copy(
+                    uploadSpeed = up,
+                    downloadSpeed = down,
+                    uploadTotal = current.uploadTotal + up,
+                    downloadTotal = current.downloadTotal + down
+                )
+            }
+        }
+    }
+    
+    private fun stopTrafficMonitor() {
+        statsJob?.cancel()
+        statsJob = null
+        trafficWebSocket?.close(1000, "Stop monitoring")
+        trafficWebSocket = null
     }
     
     /**
@@ -212,6 +239,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     
     override fun onCleared() {
         super.onCleared()
-        statsJob?.cancel()
+        stopTrafficMonitor()
     }
 }

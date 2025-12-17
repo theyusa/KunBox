@@ -21,6 +21,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.material3.Text
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -111,27 +114,43 @@ fun NodeCard(
                     
                     Spacer(modifier = Modifier.width(8.dp))
                     
-                    if (isTesting) {
-                        // 显示加载动画
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(14.dp),
-                            color = PureWhite,
-                            strokeWidth = 2.dp
-                        )
-                    } else if (latency != null) {
-                        val latencyColor = when {
-                            latency < 0 -> Color.Red
-                            latency < 200 -> Color(0xFF4CAF50) // Green
-                            latency < 500 -> Color(0xFFFFC107) // Amber
-                            else -> Color.Red
+                    // Latency display area
+                    Box {
+                        // Loading indicator
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = isTesting,
+                            enter = fadeIn(),
+                            exit = fadeOut()
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                color = PureWhite,
+                                strokeWidth = 2.dp
+                            )
                         }
-                        
-                        Text(
-                            text = if (latency < 0) "Timeout" else "${latency}ms",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = latencyColor,
-                            fontWeight = FontWeight.Bold
-                        )
+
+                        // Latency text
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = !isTesting && latency != null,
+                            enter = fadeIn(),
+                            exit = fadeOut()
+                        ) {
+                            if (latency != null) {
+                                val latencyColor = when {
+                                    latency < 0 -> Color.Red
+                                    latency < 200 -> Color(0xFF4CAF50) // Green
+                                    latency < 500 -> Color(0xFFFFC107) // Amber
+                                    else -> Color.Red
+                                }
+                                
+                                Text(
+                                    text = if (latency < 0) "Timeout" else "${latency}ms",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = latencyColor,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
                 }
             }
