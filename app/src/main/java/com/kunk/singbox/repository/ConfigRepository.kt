@@ -1307,6 +1307,91 @@ class ConfigRepository(private val context: Context) {
     }
     
     /**
+     * 构建自定义规则集配置
+     */
+    private fun buildCustomRuleSets(settings: AppSettings): List<RuleSetConfig> {
+        return settings.ruleSets.map { ruleSet ->
+            RuleSetConfig(
+                tag = ruleSet.tag,
+                type = ruleSet.type.name.lowercase(),
+                format = ruleSet.format,
+                url = if (ruleSet.type == RuleSetType.REMOTE) ruleSet.url else null,
+                // 本地路径暂未处理，通常需要复制到工作目录或通过 assets 读取
+                // path = if (ruleSet.type == RuleSetType.LOCAL) ruleSet.path else null,
+                downloadDetour = "direct", // 下载规则集走直连
+                updateInterval = "24h"
+            )
+        }
+    }
+
+    /**
+     * 构建自定义规则集路由规则
+     */
+    private fun buildCustomRuleSetRules(
+        settings: AppSettings,
+        defaultProxyTag: String,
+        outbounds: List<Outbound>
+    ): List<RouteRule> {
+        val rules = mutableListOf<RouteRule>()
+
+        settings.ruleSets.filter { it.enabled }.forEach { ruleSet ->
+            val outboundTag = when (ruleSet.outboundMode ?: RuleSetOutboundMode.DIRECT) {
+                RuleSetOutboundMode.DIRECT -> "direct"
+                RuleSetOutboundMode.BLOCK -> "block"
+                RuleSetOutboundMode.NODE -> {
+                    val nodeId = ruleSet.outboundValue
+                    val node = _nodes.value.find { it.id == nodeId }
+                    if (node != null && outbounds.any { it.tag == node.name }) {
+                        node.name
+                    } else {
+                        defaultProxyTag
+                    }
+                }
+                RuleSetOutboundMode.PROFILE -> {
+                     // 暂不支持直接指向 Profile，简化为默认代理
+                     // 如果未来支持 Profile 作为 Outbound (如 Selector)，需在此扩展
+                     defaultProxyTag
+                }
+                RuleSetOutboundMode.GROUP -> {
+                    val groupName = ruleSet.outboundValue
+                    // 假设已为分组创建了 Selector，或者直接查找属于该组的节点
+                    // 目前简化处理：如果在 outbounds 中找到了同名 tag (如 Selector)，则使用，否则默认
+                    if (!groupName.isNullOrEmpty() && outbounds.any { it.tag == groupName }) {
+                         groupName
+                    } else {
+                         // TODO: 为节点组创建专用的 Selector Outbound
+                         defaultProxyTag
+                    }
+                }
+            }
+
+            // 处理入站限制
+            val inboundTags = if (ruleSet.inbounds.isNullOrEmpty()) {
+                null
+            } else {
+                // 将简化的 "tun", "mixed" 映射为实际的 inbound tag
+                ruleSet.inbounds.map {
+                    when(it) {
+                        "tun" -> "tun-in"
+                        "mixed" -> "mixed-in" // 假设有这个 inbound
+                        else -> it
+                    }
+                }
+            }
+
+            rules.add(RouteRule(
+                ruleSet = listOf(ruleSet.tag),
+                outbound = outboundTag,
+                inbound = inboundTags
+            ))
+            
+            Log.d(TAG, "Added rule set rule: ${ruleSet.tag} -> $outboundTag (inbounds: $inboundTags)")
+        }
+
+        return rules
+    }
+
+    /**
      * 构建应用分流路由规则
      */
     private fun buildAppRoutingRules(
@@ -1470,14 +1555,18 @@ class ConfigRepository(private val context: Context) {
         } else {
             emptyList()
         }
+
+        // 构建自定义规则集配置和路由规则
+        val customRuleSets = buildCustomRuleSets(settings)
+        val customRuleSetRules = buildCustomRuleSetRules(settings, selectorTag, fixedOutbounds)
         
         // 添加路由配置（使用在线规则集，sing-box 1.12.0+）
         val route = RouteConfig(
-            ruleSet = adBlockRuleSet,
+            ruleSet = adBlockRuleSet + customRuleSets,
             rules = listOf(
                 // DNS 流量走 dns-out
                 RouteRule(protocol = listOf("dns"), outbound = "dns-out")
-            ) + adBlockRules + appRoutingRules,
+            ) + adBlockRules + customRuleSetRules + appRoutingRules,
             finalOutbound = selectorTag, // 路由指向 Selector
             autoDetectInterface = true
         )
