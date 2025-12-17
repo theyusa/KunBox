@@ -32,16 +32,26 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     private val _showResultDialog = MutableStateFlow(false)
     val showResultDialog = _showResultDialog.asStateFlow()
 
-    private val _isLoading = MutableStateFlow(false)
-    val isLoading = _isLoading.asStateFlow()
+    private val _isConnectivityLoading = MutableStateFlow(false)
+    val isConnectivityLoading = _isConnectivityLoading.asStateFlow()
+
+    private val _isPingLoading = MutableStateFlow(false)
+    val isPingLoading = _isPingLoading.asStateFlow()
+
+    private val _isDnsLoading = MutableStateFlow(false)
+    val isDnsLoading = _isDnsLoading.asStateFlow()
+
+    private val _isRoutingLoading = MutableStateFlow(false)
+    val isRoutingLoading = _isRoutingLoading.asStateFlow()
 
     fun dismissDialog() {
         _showResultDialog.value = false
     }
 
     fun runConnectivityCheck() {
+        if (_isConnectivityLoading.value) return
         viewModelScope.launch {
-            _isLoading.value = true
+            _isConnectivityLoading.value = true
             _resultTitle.value = "连通性检查"
             try {
                 val start = System.currentTimeMillis()
@@ -62,15 +72,16 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             } catch (e: Exception) {
                 _resultMessage.value = "目标: www.google.com\n状态: 连接异常\n错误: ${e.message}"
             } finally {
-                _isLoading.value = false
+                _isConnectivityLoading.value = false
                 _showResultDialog.value = true
             }
         }
     }
 
     fun runPingTest() {
+        if (_isPingLoading.value) return
         viewModelScope.launch {
-            _isLoading.value = true
+            _isPingLoading.value = true
             _resultTitle.value = "Ping 测试"
             val host = "8.8.8.8"
             try {
@@ -86,7 +97,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             } catch (e: Exception) {
                 _resultMessage.value = "Ping 执行失败: ${e.message}"
             } finally {
-                _isLoading.value = false
+                _isPingLoading.value = false
                 _showResultDialog.value = true
             }
         }
@@ -126,8 +137,9 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun runDnsQuery() {
+        if (_isDnsLoading.value) return
         viewModelScope.launch {
-            _isLoading.value = true
+            _isDnsLoading.value = true
             _resultTitle.value = "DNS 查询"
             val host = "www.google.com"
             try {
@@ -140,15 +152,16 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             } catch (e: Exception) {
                 _resultMessage.value = "域名: $host\n\n解析失败: ${e.message}"
             } finally {
-                _isLoading.value = false
+                _isDnsLoading.value = false
                 _showResultDialog.value = true
             }
         }
     }
 
     fun runRoutingTest() {
+        if (_isRoutingLoading.value) return
         viewModelScope.launch {
-            _isLoading.value = true
+            _isRoutingLoading.value = true
             _resultTitle.value = "路由测试"
             val testDomain = "baidu.com"
             
@@ -159,7 +172,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                 val match = findMatch(config, testDomain)
                 _resultMessage.value = "测试域名: $testDomain\n\n匹配结果:\n规则: ${match.rule}\n出站: ${match.outbound}\n\n说明: 此测试模拟 sing-box 路由匹配逻辑，不代表实际流量走向。"
             }
-            _isLoading.value = false
+            _isRoutingLoading.value = false
             _showResultDialog.value = true
         }
     }

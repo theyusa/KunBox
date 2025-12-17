@@ -20,6 +20,7 @@ import com.kunk.singbox.model.AppGroup
 import com.kunk.singbox.model.RuleSet
 import com.kunk.singbox.model.TunStack
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
@@ -227,7 +228,7 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun getRuleSets(): List<RuleSet> {
-        return kotlinx.coroutines.flow.first(settings).ruleSets
+        return settings.first().ruleSets
     }
 
     suspend fun setAppRules(value: List<AppRule>) {
