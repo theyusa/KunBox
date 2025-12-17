@@ -351,19 +351,18 @@ fun NodesScreen(
                     val onLatency = remember(node.id) { { viewModel.testLatency(node.id) } }
                     val onDelete = remember(node.id) { { viewModel.deleteNode(node.id) } }
 
-                    NodeCard(
-                        name = name,
-                        type = node.protocol,
-                        latency = node.latencyMs,
-                        isSelected = isSelected,
-                        isTesting = isTesting,
-                        onClick = onNodeClick,
-                        onEdit = onEdit,
-                        onExport = onExport,
-                        onLatency = onLatency,
-                        onDelete = onDelete,
-                        modifier = Modifier.animateItemPlacement()
-                    )
+                        NodeCard(
+                            name = name,
+                            type = node.protocol,
+                            latency = node.latencyMs,
+                            isSelected = isSelected,
+                            isTesting = isTesting,
+                            onClick = onNodeClick,
+                            onEdit = onEdit,
+                            onExport = onExport,
+                            onLatency = onLatency,
+                            onDelete = onDelete
+                        )
                 }
             }
         }

@@ -1,8 +1,6 @@
 package com.kunk.singbox.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,9 +19,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.material3.Text
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -36,7 +31,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -118,44 +112,32 @@ fun NodeCard(
                         
                         Spacer(modifier = Modifier.width(8.dp))
                         
-                        Box {
-                            androidx.compose.animation.AnimatedVisibility(
-                                visible = isTesting,
-                                enter = fadeIn(),
-                                exit = fadeOut()
-                            ) {
+                        Box(contentAlignment = Alignment.CenterStart) {
+                            if (isTesting) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(14.dp),
                                     color = PureWhite,
                                     strokeWidth = 2.dp
                                 )
-                            }
-
-                            androidx.compose.animation.AnimatedVisibility(
-                                visible = !isTesting && latency != null,
-                                enter = fadeIn(),
-                                exit = fadeOut()
-                            ) {
-                                  if (latency != null) {
-                                      val latencyColor = remember(latency) {
-                                          when {
-                                              latency < 0 -> Color.Red
-                                              latency < 200 -> Color(0xFF4CAF50)
-                                              latency < 500 -> Color(0xFFFFC107)
-                                              else -> Color.Red
-                                          }
-                                      }
-                                      val latencyText = remember(latency) {
-                                          if (latency < 0) "Timeout" else "${latency}ms"
-                                      }
-                                      
-                                      Text(
-                                          text = latencyText,
-                                          style = MaterialTheme.typography.labelSmall,
-                                          color = latencyColor,
-                                          fontWeight = FontWeight.Bold
-                                      )
-                                  }
+                            } else if (latency != null) {
+                                val latencyColor = remember(latency) {
+                                    when {
+                                        latency < 0 -> Color.Red
+                                        latency < 200 -> Color(0xFF4CAF50)
+                                        latency < 500 -> Color(0xFFFFC107)
+                                        else -> Color.Red
+                                    }
+                                }
+                                val latencyText = remember(latency) {
+                                    if (latency < 0) "Timeout" else "${latency}ms"
+                                }
+                                
+                                Text(
+                                    text = latencyText,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = latencyColor,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
@@ -170,9 +152,8 @@ fun NodeCard(
                         tint = TextSecondary
                     )
                 }
-                MaterialTheme(
-                    shapes = MaterialTheme.shapes.copy(extraSmall = RoundedCornerShape(12.dp))
-                ) {
+                
+                if (showMenu) {
                     DropdownMenu(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false },
