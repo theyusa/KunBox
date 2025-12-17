@@ -22,7 +22,7 @@ class VpnTileService : TileService() {
         super.onClick()
         val isRunning = SingBoxService.isRunning
         
-        // Optimistically update tile state immediately
+        // Update tile state immediately for responsive feel
         val tile = qsTile
         if (tile != null) {
             tile.state = if (isRunning) Tile.STATE_INACTIVE else Tile.STATE_ACTIVE
@@ -45,10 +45,16 @@ class VpnTileService : TileService() {
                     }
                     startForegroundService(intent)
                 } else {
-                    // Revert tile state if config generation failed
+                    // Revert tile state if start fails
                     updateTile()
                 }
             }
+        }
+        
+        // Final update after a short delay to ensure synchronization with actual service state
+        serviceScope.launch {
+            kotlinx.coroutines.delay(500)
+            updateTile()
         }
     }
 

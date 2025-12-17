@@ -170,7 +170,7 @@ fun BigToggle(
             ) {
                 Icon(
                     imageVector = Icons.Rounded.PowerSettingsNew,
-                    contentDescription = null,
+                    contentDescription = if (isRunning) "Stop" else "Start",
                     tint = iconColor,
                     modifier = Modifier.size(100.dp)
                 )
