@@ -1,6 +1,13 @@
 package com.kunk.singbox.ui.navigation
 
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -52,6 +59,20 @@ sealed class Screen(val route: String) {
 
 @Composable
 fun AppNavigation(navController: NavHostController) {
+    val animationDuration = 200
+    val enterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
+        slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(animationDuration))
+    }
+    val exitTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
+        slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(animationDuration))
+    }
+    val popEnterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
+        slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(animationDuration))
+    }
+    val popExitTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
+        slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(animationDuration))
+    }
+
     NavHost(
         navController = navController,
         startDestination = Screen.Dashboard.route
@@ -65,31 +86,101 @@ fun AppNavigation(navController: NavHostController) {
         // Sub Screens
         composable(
             route = Screen.ProfileEditor.route,
-            enterTransition = { androidx.compose.animation.slideInHorizontally(initialOffsetX = { 1000 }, animationSpec = androidx.compose.animation.core.tween(300)) },
-            exitTransition = { androidx.compose.animation.slideOutHorizontally(targetOffsetX = { -1000 }, animationSpec = androidx.compose.animation.core.tween(300)) },
-            popEnterTransition = { androidx.compose.animation.slideInHorizontally(initialOffsetX = { -1000 }, animationSpec = androidx.compose.animation.core.tween(300)) },
-            popExitTransition = { androidx.compose.animation.slideOutHorizontally(targetOffsetX = { 1000 }, animationSpec = androidx.compose.animation.core.tween(300)) }
+            enterTransition = enterTransition,
+            exitTransition = exitTransition,
+            popEnterTransition = popEnterTransition,
+            popExitTransition = popExitTransition
         ) { ProfileEditorScreen(navController) }
-        
+
         composable(
             route = Screen.NodeDetail.route,
             arguments = listOf(
                 androidx.navigation.navArgument("nodeId") { type = androidx.navigation.NavType.StringType }
-            )
+            ),
+            enterTransition = enterTransition,
+            exitTransition = exitTransition,
+            popEnterTransition = popEnterTransition,
+            popExitTransition = popExitTransition
         ) { backStackEntry ->
             val nodeId = backStackEntry.arguments?.getString("nodeId") ?: ""
             NodeDetailScreen(navController = navController, nodeId = nodeId)
         }
-        composable(Screen.RoutingSettings.route) { RoutingSettingsScreen(navController) }
-        composable(Screen.DnsSettings.route) { DnsSettingsScreen(navController) }
-        composable(Screen.TunSettings.route) { TunSettingsScreen(navController) }
-        composable(Screen.Diagnostics.route) { DiagnosticsScreen(navController) }
-        composable(Screen.Logs.route) { LogsScreen(navController) }
-        composable(Screen.ConnectionSettings.route) { ConnectionSettingsScreen(navController) }
-        composable(Screen.RuleSets.route) { RuleSetsScreen(navController) }
-        composable(Screen.CustomRules.route) { CustomRulesScreen(navController) }
-        composable(Screen.AppRules.route) { AppGroupsScreen(navController) }
-        composable(Screen.RuleSetHub.route) { RuleSetHubScreen(navController) }
-        composable(Screen.RuleSetRouting.route) { RuleSetRoutingScreen(navController) }
+        composable(
+            route = Screen.RoutingSettings.route,
+            enterTransition = enterTransition,
+            exitTransition = exitTransition,
+            popEnterTransition = popEnterTransition,
+            popExitTransition = popExitTransition
+        ) { RoutingSettingsScreen(navController) }
+        composable(
+            route = Screen.DnsSettings.route,
+            enterTransition = enterTransition,
+            exitTransition = exitTransition,
+            popEnterTransition = popEnterTransition,
+            popExitTransition = popExitTransition
+        ) { DnsSettingsScreen(navController) }
+        composable(
+            route = Screen.TunSettings.route,
+            enterTransition = enterTransition,
+            exitTransition = exitTransition,
+            popEnterTransition = popEnterTransition,
+            popExitTransition = popExitTransition
+        ) { TunSettingsScreen(navController) }
+        composable(
+            route = Screen.Diagnostics.route,
+            enterTransition = enterTransition,
+            exitTransition = exitTransition,
+            popEnterTransition = popEnterTransition,
+            popExitTransition = popExitTransition
+        ) { DiagnosticsScreen(navController) }
+        composable(
+            route = Screen.Logs.route,
+            enterTransition = enterTransition,
+            exitTransition = exitTransition,
+            popEnterTransition = popEnterTransition,
+            popExitTransition = popExitTransition
+        ) { LogsScreen(navController) }
+        composable(
+            route = Screen.ConnectionSettings.route,
+            enterTransition = enterTransition,
+            exitTransition = exitTransition,
+            popEnterTransition = popEnterTransition,
+            popExitTransition = popExitTransition
+        ) { ConnectionSettingsScreen(navController) }
+        composable(
+            route = Screen.RuleSets.route,
+            enterTransition = enterTransition,
+            exitTransition = exitTransition,
+            popEnterTransition = popEnterTransition,
+            popExitTransition = popExitTransition
+        ) { RuleSetsScreen(navController) }
+        composable(
+            route = Screen.CustomRules.route,
+            enterTransition = enterTransition,
+            exitTransition = exitTransition,
+            popEnterTransition = popEnterTransition,
+            popExitTransition = popExitTransition
+        ) { CustomRulesScreen(navController) }
+        composable(
+            route = Screen.AppRules.route,
+            enterTransition = enterTransition,
+            exitTransition = exitTransition,
+            popEnterTransition = popEnterTransition,
+            popExitTransition = popExitTransition
+        ) { AppGroupsScreen(navController) }
+        composable(
+            route = Screen.RuleSetHub.route,
+            enterTransition = enterTransition,
+            exitTransition = exitTransition,
+            popEnterTransition = popEnterTransition,
+            popExitTransition = popExitTransition
+        ) { RuleSetHubScreen(navController) }
+        composable(
+            route = Screen.RuleSetRouting.route,
+            enterTransition = enterTransition,
+            exitTransition = exitTransition,
+            popEnterTransition = popEnterTransition,
+            popExitTransition = popExitTransition
+        ) { RuleSetRoutingScreen(navController) }
     }
 }
