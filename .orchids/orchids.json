@@ -2,6 +2,6 @@
   "projectId": "0db01fac-5bff-4e16-8a9e-526d54f07708",
   "createdAt": 1765958615055,
   "startupCommands": [
-    "cd /d C:\\Users\\33039\\Desktop\\KunK\\SingBoxForAndroid && .\\gradlew.bat assembleDebug"
+    "cd /d C:\\Users\\33039\\Desktop\\KunK\\SingBoxForAndroid; .\\gradlew.bat assembleDebug"
   ]
 }
