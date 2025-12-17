@@ -13,8 +13,12 @@ android {
         applicationId = "com.kunk.singbox"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        
+        val gitCommitCount = project.findProperty("versionCode")?.toString()?.toIntOrNull() ?: 1
+        val gitVersionName = project.findProperty("versionName")?.toString() ?: "1.0"
+        
+        versionCode = gitCommitCount
+        versionName = gitVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
