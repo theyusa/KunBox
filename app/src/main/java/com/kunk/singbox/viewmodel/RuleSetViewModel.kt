@@ -104,7 +104,8 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun fetchFromSagerNet(): List<HubRuleSet> {
-        val url = "https://api.github.com/repos/SagerNet/sing-geosite/contents/rule-set"
+        // SagerNet 的 .srs 文件在 rule-set 分支的根目录，不是主分支的子目录
+        val url = "https://api.github.com/repos/SagerNet/sing-geosite/contents/?ref=rule-set"
         Log.d(TAG, "[SagerNet] 请求 URL: $url")
         return try {
             val request = Request.Builder()
@@ -114,7 +115,6 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
 
             client.newCall(request).execute().use { response ->
                 Log.d(TAG, "[SagerNet] HTTP 状态码: ${response.code}")
-                Log.d(TAG, "[SagerNet] 响应头: ${response.headers}")
                 
                 if (!response.isSuccessful) {
                     val errorBody = response.body?.string() ?: ""
@@ -124,7 +124,6 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
 
                 val json = response.body?.string() ?: "[]"
                 Log.d(TAG, "[SagerNet] 响应长度: ${json.length} 字符")
-                Log.d(TAG, "[SagerNet] 响应前500字符: ${json.take(500)}")
                 
                 val type = object : TypeToken<List<GithubFile>>() {}.type
                 val files: List<GithubFile> = gson.fromJson(json, type)
