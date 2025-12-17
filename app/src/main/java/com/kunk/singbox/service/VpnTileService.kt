@@ -66,7 +66,7 @@ class VpnTileService : TileService() {
         tile.state = if (isRunning) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.label = getString(R.string.app_name)
         try {
-            tile.icon = android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_launcher_foreground)
+            tile.icon = android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_qs_tile)
         } catch (e: Exception) {
             // Fallback to manifest icon if something goes wrong
         }
