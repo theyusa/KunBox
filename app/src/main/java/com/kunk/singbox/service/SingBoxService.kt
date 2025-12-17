@@ -44,6 +44,8 @@ class SingBoxService : VpnService() {
         @Volatile
         var clashApiPort = CLASH_API_PORT
             private set
+
+        private var lastConfigPath: String? = null
     }
     
     private var vpnInterface: ParcelFileDescriptor? = null
@@ -253,6 +255,16 @@ class SingBoxService : VpnService() {
         try {
             val linkProperties = connectivityManager?.getLinkProperties(network)
             val interfaceName = linkProperties?.interfaceName ?: ""
+            
+            // Auto Reconnect 逻辑：当网络可用且开启了自动重连，如果当前未运行但有上次的配置，则尝试重连
+            serviceScope.launch {
+                val settings = SettingsRepository.getInstance(this@SingBoxService).settings.first()
+                if (settings.autoReconnect && !isRunning && lastConfigPath != null) {
+                    Log.d(TAG, "Auto-reconnecting on network available: $interfaceName")
+                    startVpn(lastConfigPath!!)
+                }
+            }
+
             if (interfaceName.isNotEmpty() && interfaceName != defaultInterfaceName) {
                 defaultInterfaceName = interfaceName
                 val index = try {
@@ -297,6 +309,7 @@ class SingBoxService : VpnService() {
             return
         }
         
+        lastConfigPath = configPath
         startForeground(NOTIFICATION_ID, createNotification())
         
         serviceScope.launch {
