@@ -3,10 +3,13 @@ package com.kunk.singbox.ui.navigation
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.IntOffset
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -59,18 +62,22 @@ sealed class Screen(val route: String) {
 
 @Composable
 fun AppNavigation(navController: NavHostController) {
-    val animationDuration = 200
+    val slideSpec = spring<IntOffset>(
+        stiffness = Spring.StiffnessMediumLow,
+        visibilityThreshold = IntOffset.VisibilityThreshold
+    )
+
     val enterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
-        slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(animationDuration))
+        slideInHorizontally(initialOffsetX = { it }, animationSpec = slideSpec)
     }
     val exitTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
-        slideOutHorizontally(targetOffsetX = { -it / 3 }, animationSpec = tween(animationDuration))
+        slideOutHorizontally(targetOffsetX = { -it / 3 }, animationSpec = slideSpec)
     }
     val popEnterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
-        slideInHorizontally(initialOffsetX = { -it / 3 }, animationSpec = tween(animationDuration))
+        slideInHorizontally(initialOffsetX = { -it / 3 }, animationSpec = slideSpec)
     }
     val popExitTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
-        slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(animationDuration))
+        slideOutHorizontally(targetOffsetX = { it }, animationSpec = slideSpec)
     }
 
     NavHost(
