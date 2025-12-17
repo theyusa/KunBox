@@ -1321,8 +1321,8 @@ class ConfigRepository(private val context: Context) {
             tag = "geosite-category-ads-all",
             type = "remote",
             format = "binary",
-            // 使用 jsDelivr CDN 镜像，国内可访问
-            url = "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
+            // 使用 ghfast.top 镜像加速，国内访问更稳定
+            url = "https://ghfast.top/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
             downloadDetour = "direct",
             updateInterval = "24h"
         )

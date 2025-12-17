@@ -104,11 +104,13 @@ class SettingsRepository(private val context: Context) {
                     if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains("ghfast.top")) {
                         updatedUrl = updatedUrl.replace("https://raw.githubusercontent.com/", "https://ghfast.top/https://raw.githubusercontent.com/")
                     }
-                    // 修复之前注入的失效镜像
-                    if (updatedUrl.contains("ghp.ci") || updatedUrl.contains("mirror.ghproxy.com")) {
+                    // 修复之前注入的失效或不稳定的镜像
+                    if (updatedUrl.contains("ghp.ci") || updatedUrl.contains("mirror.ghproxy.com") || updatedUrl.contains("ghproxy.com") || updatedUrl.contains("ghproxy.net")) {
                         updatedUrl = updatedUrl
                             .replace("https://ghp.ci/", "https://ghfast.top/")
                             .replace("https://mirror.ghproxy.com/", "https://ghfast.top/")
+                            .replace("https://ghproxy.com/", "https://ghfast.top/")
+                            .replace("https://ghproxy.net/", "https://ghfast.top/")
                     }
 
                     if (updatedUrl != ruleSet.url || updatedTag != ruleSet.tag) {
@@ -308,10 +310,12 @@ class SettingsRepository(private val context: Context) {
                 if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains("ghfast.top")) {
                     updatedUrl = updatedUrl.replace("https://raw.githubusercontent.com/", "https://ghfast.top/https://raw.githubusercontent.com/")
                 }
-                if (updatedUrl.contains("ghp.ci") || updatedUrl.contains("mirror.ghproxy.com")) {
+                if (updatedUrl.contains("ghp.ci") || updatedUrl.contains("mirror.ghproxy.com") || updatedUrl.contains("ghproxy.com") || updatedUrl.contains("ghproxy.net")) {
                     updatedUrl = updatedUrl
                         .replace("https://ghp.ci/", "https://ghfast.top/")
                         .replace("https://mirror.ghproxy.com/", "https://ghfast.top/")
+                        .replace("https://ghproxy.com/", "https://ghfast.top/")
+                        .replace("https://ghproxy.net/", "https://ghfast.top/")
                 }
 
                 if (updatedUrl != ruleSet.url || updatedTag != ruleSet.tag) {
