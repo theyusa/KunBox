@@ -47,29 +47,29 @@ fun SingBoxApp() {
     SingBoxTheme {
         val navController = rememberNavController()
         var isNavigating by remember { mutableStateOf(false) }
+        var navigationStartTime by remember { mutableStateOf(0L) }
 
-        LaunchedEffect(navController) {
-            navController.addOnDestinationChangedListener { _, _, _ ->
-                isNavigating = true
-            }
-        }
-
-        if (isNavigating) {
-            LaunchedEffect(isNavigating) {
-                // Add a small buffer to ensure animation is fully finished
-                delay(NAV_ANIMATION_DURATION.toLong() + 50)
+        // Reset isNavigating after animation completes
+        LaunchedEffect(navigationStartTime) {
+            if (navigationStartTime > 0) {
+                delay(NAV_ANIMATION_DURATION.toLong() + 100)
                 isNavigating = false
             }
         }
         
-Box(modifier = Modifier.fillMaxSize()) {
-              Scaffold(
-                  bottomBar = { 
-                      AppNavBar(
-                          navController = navController,
-                          onNavigationStart = { isNavigating = true }
-                      ) 
-                  },
+        fun startNavigation() {
+            isNavigating = true
+            navigationStartTime = System.currentTimeMillis()
+        }
+        
+        Box(modifier = Modifier.fillMaxSize()) {
+            Scaffold(
+                bottomBar = { 
+                    AppNavBar(
+                        navController = navController,
+                        onNavigationStart = { startNavigation() }
+                    ) 
+                },
                 contentWindowInsets = WindowInsets(0, 0, 0, 0) // 不自动添加系统栏 insets
             ) { innerPadding ->
                 Surface(

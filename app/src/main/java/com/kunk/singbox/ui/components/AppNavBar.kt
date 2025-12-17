@@ -99,18 +99,16 @@ fun AppNavBar(
                 selected = isSelected,
                 onClick = {
                     val currentTab = getTabForRoute(currentRoute)
+                    // Only navigate if switching to a different tab
                     if (currentTab != screen.route) {
                         onNavigationStart()
-                    }
-                    // Always navigate to the tab's root route, clearing any sub-pages
-                    navController.navigate(screen.route) {
-                        // Pop everything up to and including the start destination
-                        popUpTo(navController.graph.findStartDestination().id) {
-                            saveState = false
-                            inclusive = true
+                        navController.navigate(screen.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = false
+                            }
+                            launchSingleTop = true
+                            restoreState = false
                         }
-                        launchSingleTop = true
-                        restoreState = false
                     }
                 },
                 colors = NavigationBarItemDefaults.colors(
