@@ -82,6 +82,9 @@ fun RuleSetsScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { navController.navigate(Screen.RuleSetHub.route) }) {
+                        Icon(Icons.Rounded.CloudDownload, contentDescription = "导入", tint = PureWhite)
+                    }
                     IconButton(onClick = { showAddDialog = true }) {
                         Icon(Icons.Rounded.Add, contentDescription = "添加", tint = PureWhite)
                     }

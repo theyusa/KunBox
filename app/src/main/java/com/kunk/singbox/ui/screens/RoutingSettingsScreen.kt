@@ -128,7 +128,6 @@ fun RoutingSettingsScreen(
             StandardCard {
                 SettingItem(title = "应用分流", value = "${settings.appRules.size} 条规则", onClick = { navController.navigate(Screen.AppRules.route) })
                 SettingItem(title = "管理规则集", onClick = { navController.navigate(Screen.RuleSets.route) })
-                SettingItem(title = "自定义规则", onClick = { navController.navigate(Screen.CustomRules.route) })
             }
         }
     }
