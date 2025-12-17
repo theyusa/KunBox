@@ -5,20 +5,49 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableBooleanStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.rememberNavController
 import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.viewmodel.DashboardViewModel
 import com.kunk.singbox.model.ConnectionState
+import com.kunk.singbox.service.SingBoxService
+import com.kunk.singbox.ui.components.AppNavBar
+import com.kunk.singbox.ui.navigation.AppNavigation
+import com.kunk.singbox.ui.navigation.NAV_ANIMATION_DURATION
+import com.kunk.singbox.ui.theme.OLEDBlack
+import com.kunk.singbox.ui.theme.PureWhite
+import com.kunk.singbox.ui.theme.SingBoxTheme
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,10 +81,10 @@ fun SingBoxApp() {
         }
     }
 
-    SingBoxTheme {
+        SingBoxTheme {
         val navController = rememberNavController()
-        var isNavigating by remember { mutableStateOf(false) }
-        var navigationStartTime by remember { mutableStateOf(0L) }
+        var isNavigating by remember { mutableBooleanStateOf(false) }
+        var navigationStartTime by remember { mutableLongStateOf(0L) }
 
         // Reset isNavigating after animation completes
         LaunchedEffect(navigationStartTime) {
