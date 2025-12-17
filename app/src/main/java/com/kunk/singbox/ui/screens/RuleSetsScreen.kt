@@ -232,7 +232,7 @@ fun RuleSetsScreen(
                         DropdownMenu(
                             expanded = showAddMenu,
                             onDismissRequest = { showAddMenu = false },
-                            containerColor = Neutral700
+                            modifier = Modifier.background(Neutral700)
                         ) {
                             DropdownMenuItem(
                                 text = { Text("添加规则集", color = TextPrimary) },
