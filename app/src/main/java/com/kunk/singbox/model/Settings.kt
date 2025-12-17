@@ -11,7 +11,7 @@ data class AppSettings(
     // TUN/VPN 设置
     val tunEnabled: Boolean = true,
     val tunStack: TunStack = TunStack.GVISOR,
-    val tunMtu: Int = 9000,
+    val tunMtu: Int = 1500,
     val tunInterfaceName: String = "tun0",
     val autoRoute: Boolean = true,
     val strictRoute: Boolean = true,

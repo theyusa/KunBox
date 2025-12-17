@@ -88,6 +88,7 @@ data class Outbound(
     @SerializedName("security") val security: String? = null,
     @SerializedName("alter_id") val alterId: Int? = null,
     @SerializedName("flow") val flow: String? = null,
+    @SerializedName("packet_encoding") val packetEncoding: String? = null,
     
     // Trojan
     // password 字段已定义
@@ -135,10 +136,12 @@ data class RealityConfig(
 
 data class TransportConfig(
     @SerializedName("type") val type: String? = null,
-    @SerializedName("host") val host: String? = null,
     @SerializedName("path") val path: String? = null,
     @SerializedName("headers") val headers: Map<String, String>? = null,
-    @SerializedName("service_name") val serviceName: String? = null
+    @SerializedName("service_name") val serviceName: String? = null,
+    @SerializedName("host") val host: List<String>? = null,  // HTTP/H2 transport 的 host 列表
+    @SerializedName("early_data_header_name") val earlyDataHeaderName: String? = null,
+    @SerializedName("max_early_data") val maxEarlyData: Int? = null
 )
 
 data class MultiplexConfig(

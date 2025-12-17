@@ -88,6 +88,7 @@ fun NodesScreen(
     var showSearchDialog by remember { mutableStateOf(false) }
     var showSortDialog by remember { mutableStateOf(false) }
     var showMenuDialog by remember { mutableStateOf(false) }
+    var selectedNodeId by remember { mutableStateOf("") }
     var selectedNodeName by remember { mutableStateOf("") }
 
     if (showSearchDialog) {
@@ -117,7 +118,7 @@ fun NodesScreen(
             confirmText = "查看详情",
             onConfirm = {
                 showMenuDialog = false
-                navController.navigate(Screen.NodeDetail.route)
+                navController.navigate(Screen.NodeDetail.createRoute(selectedNodeId))
             },
             onDismiss = { showMenuDialog = false }
         )
@@ -219,6 +220,7 @@ fun NodesScreen(
                         isSelected = node.id == activeNodeId,
                         onClick = { viewModel.setActiveNode(node.id) },
                         onMenuClick = {
+                            selectedNodeId = node.id
                             selectedNodeName = node.name
                             showMenuDialog = true
                         }

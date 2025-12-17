@@ -34,7 +34,9 @@ sealed class Screen(val route: String) {
     // Details & Wizards
     object ProfileWizard : Screen("profile_wizard")
     object ProfileEditor : Screen("profile_editor")
-    object NodeDetail : Screen("node_detail")
+    object NodeDetail : Screen("node_detail/{nodeId}") {
+        fun createRoute(nodeId: String) = "node_detail/$nodeId"
+    }
     object RoutingSettings : Screen("routing_settings")
     object DnsSettings : Screen("dns_settings")
     object TunSettings : Screen("tun_settings")
@@ -75,7 +77,15 @@ fun AppNavigation(navController: NavHostController) {
             popExitTransition = { androidx.compose.animation.slideOutHorizontally(targetOffsetX = { 1000 }, animationSpec = androidx.compose.animation.core.tween(300)) }
         ) { ProfileEditorScreen(navController) }
         
-        composable(Screen.NodeDetail.route) { NodeDetailScreen(navController) }
+        composable(
+            route = Screen.NodeDetail.route,
+            arguments = listOf(
+                androidx.navigation.navArgument("nodeId") { type = androidx.navigation.NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val nodeId = backStackEntry.arguments?.getString("nodeId") ?: ""
+            NodeDetailScreen(navController = navController, nodeId = nodeId)
+        }
         composable(Screen.RoutingSettings.route) { RoutingSettingsScreen(navController) }
         composable(Screen.DnsSettings.route) { DnsSettingsScreen(navController) }
         composable(Screen.TunSettings.route) { TunSettingsScreen(navController) }

@@ -14,6 +14,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -42,6 +43,7 @@ class ConfigRepository(private val context: Context) {
     
     private val gson = Gson()
     private val singBoxCore = SingBoxCore.getInstance(context)
+    private val settingsRepository = SettingsRepository.getInstance(context)
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -365,6 +367,47 @@ class ConfigRepository(private val context: Context) {
             val decoded = String(Base64.decode(base64Part, Base64.DEFAULT))
             val json = gson.fromJson(decoded, VMessLinkConfig::class.java)
             
+            // 如果是 WS 且开启了 TLS，但没有指定 ALPN，默认强制使用 http/1.1
+            val alpn = json.alpn?.split(",")?.filter { it.isNotBlank() }
+            val finalAlpn = if (json.tls == "tls" && json.net == "ws" && (alpn == null || alpn.isEmpty())) {
+                listOf("http/1.1")
+            } else {
+                alpn
+            }
+
+            val tlsConfig = if (json.tls == "tls") {
+                TlsConfig(
+                    enabled = true,
+                    serverName = json.sni ?: json.host ?: json.add,
+                    alpn = finalAlpn,
+                    utls = json.fp?.let { UtlsConfig(enabled = true, fingerprint = it) }
+                )
+            } else null
+            
+            val transport = when (json.net) {
+                "ws" -> {
+                    val host = json.host ?: json.sni ?: json.add
+                    TransportConfig(
+                        type = "ws",
+                        path = json.path ?: "/",
+                        headers = if (!host.isNullOrBlank()) mapOf("Host" to host) else null,
+                        maxEarlyData = 2048,
+                        earlyDataHeaderName = "Sec-WebSocket-Protocol"
+                    )
+                }
+                "grpc" -> TransportConfig(
+                    type = "grpc",
+                    serviceName = json.path ?: ""
+                )
+                "h2" -> TransportConfig(
+                    type = "http",
+                    host = json.host?.let { listOf(it) },
+                    path = json.path
+                )
+                "tcp" -> null
+                else -> null
+            }
+            
             return Outbound(
                 type = "vmess",
                 tag = json.ps ?: "VMess Node",
@@ -373,27 +416,9 @@ class ConfigRepository(private val context: Context) {
                 uuid = json.id,
                 alterId = json.aid?.toIntOrNull() ?: 0,
                 security = json.scy ?: "auto",
-                tls = if (json.tls == "tls") TlsConfig(
-                    enabled = true,
-                    serverName = json.sni ?: json.host
-                ) else null,
-                transport = when (json.net) {
-                    "ws" -> TransportConfig(
-                        type = "ws",
-                        path = json.path,
-                        host = json.host
-                    )
-                    "grpc" -> TransportConfig(
-                        type = "grpc",
-                        serviceName = json.path
-                    )
-                    "h2" -> TransportConfig(
-                        type = "http",
-                        host = json.host,
-                        path = json.path
-                    )
-                    else -> null
-                }
+                tls = tlsConfig,
+                transport = transport,
+                packetEncoding = json.packetEncoding ?: "xudp"
             )
         } catch (e: Exception) {
             e.printStackTrace()
@@ -408,7 +433,7 @@ class ConfigRepository(private val context: Context) {
             val name = java.net.URLDecoder.decode(uri.fragment ?: "VLESS Node", "UTF-8")
             val uuid = uri.userInfo
             val server = uri.host
-            val port = uri.port
+            val port = if (uri.port > 0) uri.port else 443
             
             val params = mutableMapOf<String, String>()
             uri.query?.split("&")?.forEach { param ->
@@ -419,42 +444,56 @@ class ConfigRepository(private val context: Context) {
             }
             
             val security = params["security"] ?: "none"
+            val sni = params["sni"] ?: params["host"] ?: server
+            val insecure = params["allowInsecure"] == "1" || params["insecure"] == "1"
+            val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
+            val fingerprint = params["fp"]
+            val packetEncoding = params["packetEncoding"] ?: "xudp"
+            
             val tlsConfig = when (security) {
                 "tls" -> TlsConfig(
                     enabled = true,
-                    serverName = params["sni"],
-                    alpn = params["alpn"]?.split(","),
-                    utls = params["fp"]?.let { UtlsConfig(enabled = true, fingerprint = it) }
+                    serverName = sni,
+                    insecure = insecure,
+                    alpn = alpnList,
+                    utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
                 )
                 "reality" -> TlsConfig(
                     enabled = true,
-                    serverName = params["sni"],
+                    serverName = sni,
+                    insecure = insecure,
                     reality = RealityConfig(
                         enabled = true,
                         publicKey = params["pbk"],
                         shortId = params["sid"]
                     ),
-                    utls = params["fp"]?.let { UtlsConfig(enabled = true, fingerprint = it) }
+                    utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
                 )
                 else -> null
             }
             
             val transportType = params["type"] ?: "tcp"
             val transport = when (transportType) {
-                "ws" -> TransportConfig(
-                    type = "ws",
-                    path = params["path"],
-                    host = params["host"]
-                )
+                "ws" -> {
+                    val host = params["host"] ?: sni
+                    TransportConfig(
+                        type = "ws",
+                        path = params["path"] ?: "/",
+                        headers = if (!host.isNullOrBlank()) mapOf("Host" to host) else null,
+                        maxEarlyData = 2048,
+                        earlyDataHeaderName = "Sec-WebSocket-Protocol"
+                    )
+                }
                 "grpc" -> TransportConfig(
                     type = "grpc",
-                    serviceName = params["serviceName"]
+                    serviceName = params["serviceName"] ?: params["sn"] ?: ""
                 )
                 "http", "h2" -> TransportConfig(
                     type = "http",
                     path = params["path"],
-                    host = params["host"]
+                    host = params["host"]?.let { listOf(it) }
                 )
+                "tcp" -> null
                 else -> null
             }
             
@@ -466,7 +505,8 @@ class ConfigRepository(private val context: Context) {
                 uuid = uuid,
                 flow = params["flow"],
                 tls = tlsConfig,
-                transport = transport
+                transport = transport,
+                packetEncoding = packetEncoding
             )
         } catch (e: Exception) {
             e.printStackTrace()
@@ -481,7 +521,7 @@ class ConfigRepository(private val context: Context) {
             val name = java.net.URLDecoder.decode(uri.fragment ?: "Trojan Node", "UTF-8")
             val password = uri.userInfo
             val server = uri.host
-            val port = uri.port
+            val port = if (uri.port > 0) uri.port else 443
             
             val params = mutableMapOf<String, String>()
             uri.query?.split("&")?.forEach { param ->
@@ -489,6 +529,31 @@ class ConfigRepository(private val context: Context) {
                 if (parts.size == 2) {
                     params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
                 }
+            }
+            
+            val sni = params["sni"] ?: params["host"] ?: server
+            val insecure = params["allowInsecure"] == "1" || params["insecure"] == "1"
+            val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
+            val fingerprint = params["fp"]
+            
+            val transportType = params["type"] ?: "tcp"
+            val transport = when (transportType) {
+                "ws" -> {
+                    val host = params["host"] ?: sni
+                    TransportConfig(
+                        type = "ws",
+                        path = params["path"] ?: "/",
+                        headers = if (!host.isNullOrBlank()) mapOf("Host" to host) else null,
+                        maxEarlyData = 2048,
+                        earlyDataHeaderName = "Sec-WebSocket-Protocol"
+                    )
+                }
+                "grpc" -> TransportConfig(
+                    type = "grpc",
+                    serviceName = params["serviceName"] ?: params["sn"] ?: ""
+                )
+                "tcp" -> null
+                else -> null
             }
             
             return Outbound(
@@ -499,21 +564,12 @@ class ConfigRepository(private val context: Context) {
                 password = password,
                 tls = TlsConfig(
                     enabled = true,
-                    serverName = params["sni"] ?: server,
-                    alpn = params["alpn"]?.split(",")
+                    serverName = sni,
+                    insecure = insecure,
+                    alpn = alpnList,
+                    utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
                 ),
-                transport = when (params["type"]) {
-                    "ws" -> TransportConfig(
-                        type = "ws",
-                        path = params["path"],
-                        host = params["host"]
-                    )
-                    "grpc" -> TransportConfig(
-                        type = "grpc",
-                        serviceName = params["serviceName"]
-                    )
-                    else -> null
-                }
+                transport = transport
             )
         } catch (e: Exception) {
             e.printStackTrace()
@@ -946,8 +1002,11 @@ class ConfigRepository(private val context: Context) {
             val activeNodeId = _activeNodeId.value
             val activeNode = _nodes.value.find { it.id == activeNodeId }
             
+            // 获取当前设置
+            val settings = settingsRepository.settings.first()
+
             // 构建完整的运行配置
-            val runConfig = buildRunConfig(config, activeNode)
+            val runConfig = buildRunConfig(config, activeNode, settings)
             
             // 写入临时配置文件
             val configFile = File(context.filesDir, "running_config.json")
@@ -964,12 +1023,14 @@ class ConfigRepository(private val context: Context) {
     /**
      * 构建运行时配置
      */
-    private fun buildRunConfig(baseConfig: SingBoxConfig, activeNode: NodeUi?): SingBoxConfig {
+    private fun buildRunConfig(baseConfig: SingBoxConfig, activeNode: NodeUi?, settings: AppSettings): SingBoxConfig {
         // 配置日志级别为 warn 以减少日志量
         val log = LogConfig(
             level = "warn",
             timestamp = true
         )
+
+        val singboxTempDir = File(context.cacheDir, "singbox_temp").also { it.mkdirs() }
 
         // 添加 Clash API 配置
         val experimental = ExperimentalConfig(
@@ -978,8 +1039,8 @@ class ConfigRepository(private val context: Context) {
                 secret = ""
             ),
             cacheFile = CacheFileConfig(
-                enabled = true,
-                path = File(File(context.filesDir, "singbox_work"), "cache.db").absolutePath,
+                enabled = false,
+                path = File(singboxTempDir, "cache_run.db").absolutePath,
                 storeFakeip = false
             )
         )
@@ -989,12 +1050,14 @@ class ConfigRepository(private val context: Context) {
             Inbound(
                 type = "tun",
                 tag = "tun-in",
-                interfaceName = "tun0",
+                interfaceName = settings.tunInterfaceName,
                 inet4Address = listOf("172.19.0.1/30"),
-                mtu = 9000,
-                autoRoute = true,
-                strictRoute = true,
-                sniff = true
+                mtu = settings.tunMtu,
+                autoRoute = settings.autoRoute,
+                strictRoute = settings.strictRoute,
+                stack = settings.tunStack.name.lowercase(), // gvisor/system/mixed/lwip
+                sniff = true,
+                sniffOverrideDestination = true
             )
         )
         
@@ -1013,6 +1076,17 @@ class ConfigRepository(private val context: Context) {
             } else {
                 outbound
             }
+        }?.toMutableList() ?: mutableListOf()
+        
+        // 确保必要的 outbounds 存在
+        if (fixedOutbounds.none { it.tag == "direct" }) {
+            fixedOutbounds.add(Outbound(type = "direct", tag = "direct"))
+        }
+        if (fixedOutbounds.none { it.tag == "block" }) {
+            fixedOutbounds.add(Outbound(type = "block", tag = "block"))
+        }
+        if (fixedOutbounds.none { it.tag == "dns-out" }) {
+            fixedOutbounds.add(Outbound(type = "dns", tag = "dns-out"))
         }
         
         // 使用用户选择的节点，如果没有选择则使用 urltest/selector
@@ -1060,6 +1134,22 @@ class ConfigRepository(private val context: Context) {
         return profileConfigs[profileId]
     }
     
+    /**
+     * 根据节点ID获取节点的Outbound配置
+     */
+    fun getOutboundByNodeId(nodeId: String): Outbound? {
+        val node = _nodes.value.find { it.id == nodeId } ?: return null
+        val config = profileConfigs[node.sourceProfileId] ?: return null
+        return config.outbounds?.find { it.tag == node.name }
+    }
+    
+    /**
+     * 根据节点ID获取NodeUi
+     */
+    fun getNodeById(nodeId: String): NodeUi? {
+        return _nodes.value.find { it.id == nodeId }
+    }
+    
 }
 
 /**
@@ -1088,5 +1178,6 @@ data class VMessLinkConfig(
     val tls: String? = null,     // TLS
     val sni: String? = null,     // SNI
     val alpn: String? = null,
-    val fp: String? = null       // fingerprint
+    val fp: String? = null,      // fingerprint
+    val packetEncoding: String? = null // packet encoding
 )

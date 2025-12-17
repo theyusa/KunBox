@@ -79,17 +79,28 @@ class SingBoxCore private constructor(private val context: Context) {
     private fun initLibbox(): Boolean {
         return try {
             // 尝试加载 libbox 类
-            val libboxClass = Class.forName("io.nekohasekai.libbox.Libbox")
-            Log.d(TAG, "Libbox class loaded successfully")
-            
-            // 尝试 setup
-            try {
-                val setupMethod = libboxClass.getMethod("setup", String::class.java, String::class.java, Boolean::class.javaPrimitiveType)
-                setupMethod.invoke(null, workDir.absolutePath, tempDir.absolutePath, false)
-                Log.d(TAG, "Libbox setup succeeded")
-            } catch (e: Exception) {
-                Log.w(TAG, "Libbox setup failed: ${e.message}")
-            }
+                val libboxClass = Class.forName("io.nekohasekai.libbox.Libbox")
+                Log.d(TAG, "Libbox class loaded successfully")
+                
+                // 尝试 setup
+                try {
+                    // public static void setup(String baseDir, String workingDir, String tempDir, boolean debug)
+                    val setupMethod = libboxClass.getMethod("setup", String::class.java, String::class.java, String::class.java, Boolean::class.javaPrimitiveType)
+                    // Base dir should be passed as the first argument
+                    setupMethod.invoke(null, context.filesDir.absolutePath, workDir.absolutePath, tempDir.absolutePath, false)
+                    Log.d(TAG, "Libbox setup succeeded")
+                } catch (e: NoSuchMethodException) {
+                     // Try old signature if new one fails (String, String, boolean)
+                     try {
+                        val setupMethod = libboxClass.getMethod("setup", String::class.java, String::class.java, Boolean::class.javaPrimitiveType)
+                        setupMethod.invoke(null, workDir.absolutePath, tempDir.absolutePath, false)
+                        Log.d(TAG, "Libbox setup succeeded (legacy)")
+                     } catch (e2: Exception) {
+                         Log.w(TAG, "Libbox setup failed: ${e2.message}")
+                     }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Libbox setup failed: ${e.message}")
+                }
             
             Log.d(TAG, "Libbox available for VPN service")
             true
@@ -195,21 +206,9 @@ class SingBoxCore private constructor(private val context: Context) {
         val clashBaseUrl = "http://127.0.0.1:$clashPort"
         val config = buildBatchTestConfig(outbounds, clashPort)
         val configJson = gson.toJson(config)
+        Log.d(TAG, "Batch test config: $configJson")
         
         try {
-            // Ensure libbox has writable base/working/temp directories.
-            // Without this, libbox/sing-box may try to create cache.db in a read-only CWD.
-            val setupOptions = SetupOptions().apply {
-                basePath = context.filesDir.absolutePath
-                workingPath = workDir.absolutePath
-                tempPath = tempDir.absolutePath
-            }
-            try {
-                Libbox.setup(setupOptions)
-            } catch (e: Exception) {
-                Log.w(TAG, "Libbox setup warning (test service): ${e.message}")
-            }
-
             // Point ClashApiClient to the temporary service controller.
             testServiceClashBaseUrl = clashBaseUrl
             clashApiClient.setBaseUrl(clashBaseUrl)
@@ -259,26 +258,34 @@ class SingBoxCore private constructor(private val context: Context) {
         
         return SingBoxConfig(
             log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true),
+            dns = com.kunk.singbox.model.DnsConfig(
+                servers = listOf(
+                    com.kunk.singbox.model.DnsServer(tag = "google", address = "8.8.8.8", detour = "direct"),
+                    com.kunk.singbox.model.DnsServer(tag = "local", address = "223.5.5.5", detour = "direct")
+                )
+            ),
             experimental = com.kunk.singbox.model.ExperimentalConfig(
                 clashApi = com.kunk.singbox.model.ClashApiConfig(
                     externalController = "127.0.0.1:$clashPort",
                     secret = ""
                 ),
                 cacheFile = com.kunk.singbox.model.CacheFileConfig(
-                    enabled = true,
+                    enabled = false,
                     path = File(tempDir, "cache_test.db").absolutePath,
                     storeFakeip = false
                 )
             ),
             // 不包含 inbounds，这样 libbox 不会尝试打开 TUN
-            inbounds = null, 
+            inbounds = null,
             outbounds = testOutbounds,
             route = com.kunk.singbox.model.RouteConfig(
                 rules = listOf(
                     com.kunk.singbox.model.RouteRule(protocol = listOf("dns"), outbound = "direct")
                 ),
                 finalOutbound = "direct",
-                autoDetectInterface = true
+                autoDetectInterface = true,
+                // 禁用默认接口检测，避免在测试模式下出现权限问题或接口冲突
+                // autoDetectInterface = true
             )
         )
     }

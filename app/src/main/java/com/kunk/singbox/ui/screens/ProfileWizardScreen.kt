@@ -257,12 +257,13 @@ fun Step3Import(
     onBack: () -> Unit
 ) {
     val importState by viewModel.importState.collectAsState()
-    var hasStartedImport by remember { mutableStateOf(false) }
     
-    // 自动开始导入
-    LaunchedEffect(Unit) {
-        if (!hasStartedImport && type == ImportType.Subscription && url.isNotBlank()) {
-            hasStartedImport = true
+    // 使用 key 来确保只执行一次导入
+    // 只在 Idle 状态时触发导入，避免重复
+    LaunchedEffect(url, name) {
+        if (importState is ProfilesViewModel.ImportState.Idle && 
+            type == ImportType.Subscription && 
+            url.isNotBlank()) {
             viewModel.importSubscription(name, url)
         }
     }

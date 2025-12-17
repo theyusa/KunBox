@@ -56,6 +56,11 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
      * 导入订阅配置
      */
     fun importSubscription(name: String, url: String) {
+        // 防止重复导入
+        if (_importState.value is ImportState.Loading) {
+            return
+        }
+        
         viewModelScope.launch {
             _importState.value = ImportState.Loading("正在获取订阅...")
             

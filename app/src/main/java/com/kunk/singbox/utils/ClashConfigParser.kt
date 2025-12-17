@@ -49,24 +49,54 @@ object ClashConfigParser {
         val type = map["type"] as? String ?: return null
         val name = map["name"] as? String ?: "Unknown"
         val server = map["server"] as? String ?: ""
-        val port = (map["port"] as? Int) ?: 443
+        val port = (map["port"] as? Number)?.toInt() ?: 443
         val uuid = map["uuid"] as? String
         val password = map["password"] as? String
         
-        // TLS Config
+        // TLS Config - 检测多种方式
         val tlsEnabled = map["tls"] as? Boolean == true
         val skipCertVerify = map["skip-cert-verify"] as? Boolean == true
         val serverName = map["servername"] as? String ?: map["sni"] as? String
-        val alpn = map["alpn"] as? List<String>
+        val alpn = (map["alpn"] as? List<*>)?.mapNotNull { it?.toString() }
         val fingerprint = map["client-fingerprint"] as? String
         
-        val tlsConfig = if (tlsEnabled || type == "hysteria2" || type == "trojan") {
+        // Packet Encoding
+        val packetEncoding = map["packet-encoding"] as? String
+        
+        // Reality 配置 (VLESS 特有)
+        val realityOpts = map["reality-opts"] as? Map<String, Any>
+        val hasReality = realityOpts != null
+        val realityPublicKey = realityOpts?.get("public-key") as? String
+        val realityShortId = realityOpts?.get("short-id") as? String
+        
+        // Flow 字段 (VLESS XTLS)
+        val flow = map["flow"] as? String
+        
+        // 对于 VLESS，如果有 reality-opts 或 tls=true，都需要启用 TLS
+        // 对于 Trojan，默认启用 TLS
+        // 对于 Hysteria2，默认启用 TLS
+        val needsTls = tlsEnabled || hasReality || type == "trojan" || type == "hysteria2" || type == "hysteria"
+        
+        // 如果是 WS 且开启了 TLS，但没有指定 ALPN，默认强制使用 http/1.1
+        // 这是为了避免服务端尝试协商 h2 导致 WS 握手失败
+        val finalAlpn = if (needsTls && map["network"] as? String == "ws" && (alpn == null || alpn.isEmpty())) {
+            listOf("http/1.1")
+        } else {
+            alpn
+        }
+        
+        val tlsConfig = if (needsTls) {
             TlsConfig(
                 enabled = true,
-                serverName = serverName,
+                serverName = serverName ?: server,
                 insecure = skipCertVerify,
-                alpn = alpn,
-                utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
+                alpn = finalAlpn,
+                utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) },
+                reality = if (hasReality) RealityConfig(
+                    enabled = true,
+                    publicKey = realityPublicKey,
+                    shortId = realityShortId
+                ) else null
             )
         } else null
 
@@ -76,13 +106,41 @@ object ClashConfigParser {
         val grpcOpts = map["grpc-opts"] as? Map<String, Any>
         val h2Opts = map["h2-opts"] as? Map<String, Any>
         val httpOpts = map["http-opts"] as? Map<String, Any>
+        
+        // 从 ws-opts 获取 headers 中的 Host
+        val wsHeaders = wsOpts?.get("headers") as? Map<*, *>
+        val wsPath = wsOpts?.get("path") as? String
+        val wsEarlyDataHeaderName = wsOpts?.get("early-data-header-name") as? String
+        val wsMaxEarlyData = (wsOpts?.get("max-early-data") as? Number)?.toInt()
+        
+        // 查找 Host (忽略大小写)
+        val wsHostKey = wsHeaders?.keys?.find { it.toString().equals("host", ignoreCase = true) }
+        val wsHost = wsHostKey?.let { wsHeaders[it]?.toString() }
 
         val transportConfig = when (network) {
-            "ws" -> TransportConfig(
-                type = "ws",
-                path = wsOpts?.get("path") as? String,
-                headers = (wsOpts?.get("headers") as? Map<*, *>)?.entries?.associate { it.key.toString() to it.value.toString() }
-            )
+            "ws" -> {
+                // WebSocket: host 放入 headers
+                val baseHeaders = wsHeaders?.entries?.associate { it.key.toString() to it.value.toString() } ?: emptyMap()
+                val finalHeaders = if (wsHost != null) {
+                    // 移除旧的 host key (可能是小写)，添加规范的 Host
+                    baseHeaders.filterKeys { !it.equals("host", ignoreCase = true) } + ("Host" to wsHost)
+                } else {
+                    // 如果没有 Host header，尝试使用 SNI
+                    if (!serverName.isNullOrBlank()) {
+                        baseHeaders + ("Host" to serverName)
+                    } else {
+                        baseHeaders
+                    }
+                }
+                
+                TransportConfig(
+                    type = "ws",
+                    path = wsPath ?: "/",
+                    headers = if (finalHeaders.isNotEmpty()) finalHeaders else null,
+                    earlyDataHeaderName = wsEarlyDataHeaderName,
+                    maxEarlyData = wsMaxEarlyData
+                )
+            }
             "grpc" -> TransportConfig(
                 type = "grpc",
                 serviceName = grpcOpts?.get("grpc-service-name") as? String
@@ -90,13 +148,16 @@ object ClashConfigParser {
             "h2" -> TransportConfig(
                 type = "http",
                 path = h2Opts?.get("path") as? String,
-                host = (h2Opts?.get("host") as? List<*>)?.mapNotNull { it?.toString() }?.firstOrNull() // TransportConfig host is String?
+                host = (h2Opts?.get("host") as? List<*>)?.mapNotNull { it?.toString() }
             )
-             "http" -> TransportConfig(
-                type = "http",
-                path = httpOpts?.get("path") as? String,
-                host = ((httpOpts?.get("headers") as? Map<*, *>)?.get("Host") as? List<*>)?.mapNotNull { it?.toString() }?.firstOrNull() // TransportConfig host is String?
-            )
+            "http" -> {
+                val httpHost = (httpOpts?.get("headers") as? Map<*, *>)?.get("Host") as? List<*>
+                TransportConfig(
+                    type = "http",
+                    path = (httpOpts?.get("path") as? List<*>)?.firstOrNull()?.toString(),
+                    host = httpHost?.mapNotNull { it?.toString() }
+                )
+            }
             else -> null
         }
 
@@ -118,7 +179,8 @@ object ClashConfigParser {
                 alterId = (map["alterId"] as? Int) ?: 0,
                 security = map["cipher"] as? String ?: "auto",
                 tls = tlsConfig,
-                transport = transportConfig
+                transport = transportConfig,
+                packetEncoding = packetEncoding
             )
             "vless" -> Outbound(
                 type = "vless",
@@ -126,9 +188,10 @@ object ClashConfigParser {
                 server = server,
                 serverPort = port,
                 uuid = uuid,
-                flow = map["flow"] as? String,
+                flow = flow,
                 tls = tlsConfig,
-                transport = transportConfig
+                transport = transportConfig,
+                packetEncoding = packetEncoding
             )
             "trojan" -> Outbound(
                 type = "trojan",
