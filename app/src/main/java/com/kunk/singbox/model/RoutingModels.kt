@@ -17,7 +17,7 @@ enum class RuleType(val displayName: String) {
 enum class OutboundTag(val displayName: String) {
     @SerializedName("DIRECT") DIRECT("直连"),
     @SerializedName("PROXY") PROXY("代理"),
-    @SerializedName("BLOCK")拦截("拦截")
+    @SerializedName("BLOCK") BLOCK("拦截")
 }
 
 data class CustomRule(
