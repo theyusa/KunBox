@@ -1279,6 +1279,66 @@ class ConfigRepository(private val context: Context) {
     }
 
     /**
+     * 构建广告拦截路由规则
+     */
+    private fun buildAdBlockRules(): List<RouteRule> {
+        Log.d(TAG, "Building ad-block routing rules")
+        
+        return listOf(
+            RouteRule(
+                domainSuffix = listOf(
+                    // 主流广告域名
+                    "doubleclick.net",
+                    "googleadservices.com",
+                    "googlesyndication.com",
+                    "googletagservices.com",
+                    "google-analytics.com",
+                    "googletagmanager.com",
+                    
+                    // Facebook 广告
+                    "facebook.com",
+                    "fbcdn.net",
+                    
+                    // 国内广告平台
+                    "tanx.com",
+                    "alimama.com",
+                    "mmstat.com",
+                    "umeng.com",
+                    "cnzz.com",
+                    "baidu.com",
+                    "bdstatic.com",
+                    "union.qq.com",
+                    "admaster.com.cn",
+                    "irs01.com",
+                    "mob.com",
+                    
+                    // 移动广告 SDK
+                    "admob.com",
+                    "inmobi.com",
+                    "mopub.com",
+                    "applovin.com",
+                    "chartboost.com",
+                    "flurry.com",
+                    "vungle.com"
+                ),
+                outbound = "block"
+            ),
+            RouteRule(
+                domainKeyword = listOf(
+                    "advertisement",
+                    "adservice",
+                    "analytics",
+                    "tracker",
+                    "telemetry"
+                ),
+                outbound = "block"
+            )
+        ).also {
+            Log.d(TAG, "Generated ${it.size} ad-block routing rules")
+        }
+    }
+    
+    /**
      * 构建应用分流路由规则
      */
     private fun buildAppRoutingRules(
@@ -1430,12 +1490,19 @@ class ConfigRepository(private val context: Context) {
         // 构建应用分流规则
         val appRoutingRules = buildAppRoutingRules(settings, selectorTag, fixedOutbounds)
         
+        // 构建广告拦截规则
+        val adBlockRules = if (settings.blockAds) {
+            buildAdBlockRules()
+        } else {
+            emptyList()
+        }
+        
         // 添加路由配置（不使用 geoip，sing-box 1.12.0 已移除）
         val route = RouteConfig(
             rules = listOf(
                 // DNS 流量走 dns-out
                 RouteRule(protocol = listOf("dns"), outbound = "dns-out")
-            ) + appRoutingRules,
+            ) + adBlockRules + appRoutingRules,
             finalOutbound = selectorTag, // 路由指向 Selector
             autoDetectInterface = true
         )
