@@ -76,7 +76,8 @@ fun SingBoxApp() {
         if (settings?.autoConnect == true && 
             connectionState == ConnectionState.Idle && 
             !SingBoxService.isRunning &&
-            !SingBoxService.isStarting
+            !SingBoxService.isStarting &&
+            !SingBoxService.isManuallyStopped
         ) {
             // Delay a bit to ensure everything is initialized
             delay(1000)

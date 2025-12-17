@@ -167,18 +167,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private fun stopVpn() {
         val context = getApplication<Application>()
         stopTrafficMonitor()
-        _connectionState.value = ConnectionState.Disconnecting
+        // Immediately set to Idle for responsive UI
+        _connectionState.value = ConnectionState.Idle
+        _stats.value = ConnectionStats(0, 0, 0, 0, 0)
         
         val intent = Intent(context, SingBoxService::class.java).apply {
             action = SingBoxService.ACTION_STOP
         }
         context.startService(intent)
-        
-        viewModelScope.launch {
-            delay(500)
-            _connectionState.value = ConnectionState.Idle
-            _stats.value = ConnectionStats(0, 0, 0, 0, 0)
-        }
     }
     
     fun onVpnPermissionResult(granted: Boolean) {

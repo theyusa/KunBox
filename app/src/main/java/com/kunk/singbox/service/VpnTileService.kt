@@ -53,10 +53,11 @@ class VpnTileService : TileService() {
         }
         
         // Final update after a short delay to ensure synchronization with actual service state
-        serviceScope.launch {
-            kotlinx.coroutines.delay(500)
-            updateTile()
-        }
+        // Removed to prevent flickering back to old state if service takes time to stop
+        // serviceScope.launch {
+        //     kotlinx.coroutines.delay(500)
+        //     updateTile()
+        // }
     }
 
     private fun updateTile() {
@@ -65,7 +66,7 @@ class VpnTileService : TileService() {
         tile.state = if (isRunning) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.label = getString(R.string.app_name)
         try {
-            tile.icon = android.graphics.drawable.Icon.createWithResource(this, R.mipmap.ic_launcher)
+            tile.icon = android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_launcher_foreground)
         } catch (e: Exception) {
             // Fallback to manifest icon if something goes wrong
         }
