@@ -51,8 +51,14 @@ fun AppNavBar(navController: NavController) {
             val isSelected = currentRoute == screen.route
             
             // Animation for icon scale
+            val targetScale = if (screen == Screen.Profiles) {
+                if (isSelected) 1.5f else 1.2f
+            } else {
+                if (isSelected) 1.2f else 0.9f
+            }
+
             val scale by animateFloatAsState(
-                targetValue = if (isSelected) 1.2f else 0.9f,
+                targetValue = targetScale,
                 label = "iconScale"
             )
 

@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Icon
@@ -366,7 +367,7 @@ fun DashboardScreen(
             ) {
                 QuickActionButton(Icons.Rounded.Refresh, "更新订阅") { showUpdateDialog = true }
                 QuickActionButton(Icons.Rounded.Bolt, "延迟测试") { showTestDialog = true }
-                QuickActionButton(Icons.Rounded.History, "运行日志") { navController.navigate(Screen.Logs.route) }
+                QuickActionButton(Icons.Rounded.Terminal, "运行日志") { navController.navigate(Screen.Logs.route) }
                 QuickActionButton(Icons.Rounded.BugReport, "网络诊断") { navController.navigate(Screen.Diagnostics.route) }
                 }
             }
