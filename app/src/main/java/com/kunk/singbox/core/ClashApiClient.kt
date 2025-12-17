@@ -20,8 +20,9 @@ class ClashApiClient(
 ) {
     companion object {
         private const val TAG = "ClashApiClient"
-        private const val DEFAULT_TEST_URL = "https://www.gstatic.com/generate_204"
-        private const val DEFAULT_TIMEOUT = 5000L
+        // 使用 Cloudflare 的测试 URL，比 gstatic 更快
+        private const val DEFAULT_TEST_URL = "https://cp.cloudflare.com/generate_204"
+        private const val DEFAULT_TIMEOUT = 3000L
     }
     
     private val gson = Gson()
@@ -169,6 +170,47 @@ class ClashApiClient(
                 response.isSuccessful
             }
         } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * 选择代理节点
+     * PUT /proxies/{selectorName}
+     * Body: {"name": "proxyName"}
+     */
+    suspend fun selectProxy(selectorName: String, proxyName: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = baseUrl.toHttpUrlOrNull()?.newBuilder()
+                ?.addPathSegment("proxies")
+                ?.addPathSegment(selectorName)
+                ?.build()
+                ?: return@withContext false
+
+            val json = gson.toJson(mapOf("name" to proxyName))
+            val body = okhttp3.RequestBody.create(
+                okhttp3.MediaType.parse("application/json; charset=utf-8"),
+                json
+            )
+
+            val request = Request.Builder()
+                .url(url)
+                .apply {
+                    if (secret.isNotEmpty()) {
+                        addHeader("Authorization", "Bearer $secret")
+                    }
+                }
+                .put(body)
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Failed to select proxy: ${response.code} ${response.message}")
+                }
+                response.isSuccessful
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error selecting proxy", e)
             false
         }
     }

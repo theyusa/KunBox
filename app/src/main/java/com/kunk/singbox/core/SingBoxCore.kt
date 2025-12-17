@@ -13,6 +13,7 @@ import com.kunk.singbox.service.SingBoxService
 import io.nekohasekai.libbox.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.NetworkInterface
@@ -40,19 +41,31 @@ class SingBoxCore private constructor(private val context: Context) {
     // 临时测试服务（用于在 VPN 未运行时进行延迟测试）
     private var testService: BoxService? = null
     private var testServiceClashBaseUrl: String? = null
+    private var testServiceClashPort: Int = 0
+    
+    // 后台保活相关
+    private var testServiceStartTime: Long = 0
+    private var testServiceOutboundTags: MutableSet<String> = mutableSetOf()
+    private var keepAliveJob: kotlinx.coroutines.Job? = null
+    private val serviceLock = Any()
+    
+    // 基准延迟（非网络开销），用于校准
+    private var baselineLatency: Long = 0
+    private var baselineCalibrated = false
     
     companion object {
         private const val TAG = "SingBoxCore"
         private const val URL_TEST_URL = "https://www.gstatic.com/generate_204"
         private const val URL_TEST_TIMEOUT = 5000 // 5 seconds
+        private const val TEST_SERVICE_KEEP_ALIVE_MS = 30_000L // 保活 30 秒
         
         @Volatile
         private var instance: SingBoxCore? = null
         
         fun getInstance(context: Context): SingBoxCore {
             return instance ?: synchronized(this) {
-                instance ?: SingBoxCore(context.applicationContext).also { 
-                    instance = it 
+                instance ?: SingBoxCore(context.applicationContext).also {
+                    instance = it
                 }
             }
         }
@@ -128,28 +141,14 @@ class SingBoxCore private constructor(private val context: Context) {
             return@withContext testOutboundLatencyWithClashApi(outbound)
         }
         
-        // 如果 VPN 未运行，启动临时服务进行测试
-        // 注意：单个节点测试启动服务开销较大，建议使用 testOutboundsLatency 批量测试
+        // 使用保活服务进行测试
         try {
-            startTestService(listOf(outbound))
-            // 等待服务完全启动和 API 就绪
-            var retry = 0
-            while (retry < 10) {
-                delay(500)
-                if (clashApiClient.isAvailable()) break
-                retry++
-            }
-            if (retry >= 10) {
-                Log.e(TAG, "Temporary service API failed to start")
-                return@withContext -1L
-            }
+            ensureTestServiceRunning(listOf(outbound))
             val latency = testOutboundLatencyWithClashApi(outbound)
             return@withContext latency
         } catch (e: Exception) {
             Log.e(TAG, "Failed to test latency with temporary service", e)
             return@withContext -1L
-        } finally {
-            stopTestService()
         }
     }
     
@@ -162,32 +161,10 @@ class SingBoxCore private constructor(private val context: Context) {
         outbounds: List<Outbound>,
         onResult: (tag: String, latency: Long) -> Unit
     ) = withContext(Dispatchers.IO) {
-        var serviceStartedByMe = false
-        
         try {
             if (!SingBoxService.isRunning) {
-                Log.i(TAG, "VPN not running, starting temporary service for real latency test")
-                try {
-                    startTestService(outbounds)
-                    serviceStartedByMe = true
-                    // 等待服务完全启动和 API 就绪
-                    // 简单的延时，实际应该轮询 API 直到成功
-                    var retry = 0
-                    while (retry < 10) {
-                        delay(500)
-                        if (clashApiClient.isAvailable()) break
-                        retry++
-                    }
-                    if (retry >= 10) {
-                        Log.e(TAG, "Temporary service API failed to start")
-                        outbounds.forEach { onResult(it.tag, -1L) }
-                        return@withContext
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to start temporary test service", e)
-                    outbounds.forEach { onResult(it.tag, -1L) }
-                    return@withContext
-                }
+                Log.i(TAG, "VPN not running, using keep-alive test service")
+                ensureTestServiceRunning(outbounds)
             } else {
                 Log.i(TAG, "VPN is running, using existing service for latency test")
             }
@@ -198,70 +175,160 @@ class SingBoxCore private constructor(private val context: Context) {
                 val latency = testOutboundLatencyWithClashApi(outbound)
                 onResult(outbound.tag, latency)
             }
-        } finally {
-            if (serviceStartedByMe) {
-                stopTestService()
-            }
-        }
-    }
-
-    private fun startTestService(outbounds: List<Outbound>) {
-        if (testService != null) return
-
-        val clashPort = allocateLocalPort()
-        val clashBaseUrl = "http://127.0.0.1:$clashPort"
-        val config = buildBatchTestConfig(outbounds, clashPort)
-        val configJson = gson.toJson(config)
-        Log.d(TAG, "Batch test config: $configJson")
-        
-        try {
-            val setupOptions = SetupOptions().apply {
-                basePath = context.filesDir.absolutePath
-                workingPath = workDir.absolutePath
-                this.tempPath = tempDir.absolutePath
-            }
-            try {
-                Libbox.setup(setupOptions)
-            } catch (e: Exception) {
-                Log.w(TAG, "Libbox setup warning: ${e.message}")
-            }
-
-            // Point ClashApiClient to the temporary service controller.
-            testServiceClashBaseUrl = clashBaseUrl
-            clashApiClient.setBaseUrl(clashBaseUrl)
-
-            // 使用 TestPlatformInterface，它不会尝试建立 TUN
-            val platformInterface = TestPlatformInterface(context)
-            testService = Libbox.newService(configJson, platformInterface)
-            testService?.start()
-            Log.d(TAG, "Temporary test service started")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start temporary test service", e)
-            stopTestService()
-            throw e
+            Log.e(TAG, "Failed to start test service", e)
+            outbounds.forEach { onResult(it.tag, -1L) }
         }
     }
     
-    private fun stopTestService() {
+    /**
+     * 确保测试服务正在运行，如果已运行则检查是否需要更新配置
+     */
+    private suspend fun ensureTestServiceRunning(outbounds: List<Outbound>) {
+        synchronized(serviceLock) {
+            val newTags = outbounds.map { it.tag }.toSet()
+            
+            // 检查是否需要重启服务（新节点不在当前配置中）
+            val needRestart = testService != null && !testServiceOutboundTags.containsAll(newTags)
+            
+            if (testService != null && !needRestart) {
+                // 服务已运行且包含所需节点，重置保活计时器
+                Log.d(TAG, "Reusing existing test service")
+                testServiceStartTime = System.currentTimeMillis()
+                scheduleServiceShutdown()
+                return
+            }
+            
+            if (needRestart) {
+                Log.d(TAG, "Restarting test service with new nodes")
+                stopTestServiceInternal()
+            }
+        }
+        
+        // 启动新服务
+        startTestServiceWithKeepAlive(outbounds)
+    }
+    
+    /**
+     * 启动带保活功能的测试服务
+     */
+    private suspend fun startTestServiceWithKeepAlive(outbounds: List<Outbound>) {
+        synchronized(serviceLock) {
+            if (testService != null) return
+            
+            testServiceClashPort = allocateLocalPort()
+            val clashBaseUrl = "http://127.0.0.1:$testServiceClashPort"
+            val config = buildBatchTestConfig(outbounds, testServiceClashPort)
+            val configJson = gson.toJson(config)
+            Log.d(TAG, "Batch test config: $configJson")
+            
+            try {
+                val setupOptions = SetupOptions().apply {
+                    basePath = context.filesDir.absolutePath
+                    workingPath = workDir.absolutePath
+                    this.tempPath = tempDir.absolutePath
+                }
+                try {
+                    Libbox.setup(setupOptions)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Libbox setup warning: ${e.message}")
+                }
+
+                testServiceClashBaseUrl = clashBaseUrl
+                clashApiClient.setBaseUrl(clashBaseUrl)
+                testServiceOutboundTags = outbounds.map { it.tag }.toMutableSet()
+                testServiceStartTime = System.currentTimeMillis()
+
+                val platformInterface = TestPlatformInterface(context)
+                testService = Libbox.newService(configJson, platformInterface)
+                testService?.start()
+                Log.d(TAG, "Test service started with keep-alive")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start test service", e)
+                stopTestServiceInternal()
+                throw e
+            }
+        }
+        
+        // 等待 API 就绪
+        var retry = 0
+        while (retry < 20) {
+            delay(100)
+            if (clashApiClient.isAvailable()) {
+                Log.d(TAG, "Test service API ready after ${(retry + 1) * 100}ms")
+                break
+            }
+            retry++
+        }
+        if (retry >= 20) {
+            Log.e(TAG, "Test service API failed to start")
+            stopTestService()
+            throw Exception("Test service API failed to start")
+        }
+        
+        // 调度自动关闭
+        scheduleServiceShutdown()
+    }
+    
+    /**
+     * 调度服务自动关闭
+     */
+    private fun scheduleServiceShutdown() {
+        keepAliveJob?.cancel()
+        keepAliveJob = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            delay(TEST_SERVICE_KEEP_ALIVE_MS)
+            synchronized(serviceLock) {
+                val elapsed = System.currentTimeMillis() - testServiceStartTime
+                if (elapsed >= TEST_SERVICE_KEEP_ALIVE_MS) {
+                    Log.d(TAG, "Test service keep-alive expired, stopping")
+                    stopTestServiceInternal()
+                }
+            }
+        }
+    }
+
+    /**
+     * 强制停止测试服务（公开方法，供外部调用）
+     */
+    fun stopTestService() {
+        synchronized(serviceLock) {
+            keepAliveJob?.cancel()
+            keepAliveJob = null
+            stopTestServiceInternal()
+        }
+    }
+    
+    /**
+     * 内部停止服务方法（需要在锁内调用）
+     */
+    private fun stopTestServiceInternal() {
         val serviceToClose = testService
         val oldTestBaseUrl = testServiceClashBaseUrl
         testService = null
         testServiceClashBaseUrl = null
 
+        testServiceOutboundTags.clear()
+        testServiceStartTime = 0
+        testServiceClashPort = 0
+        
         try {
             serviceToClose?.close()
             if (serviceToClose != null) {
-                Log.d(TAG, "Temporary test service stopped")
+                Log.d(TAG, "Test service stopped")
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error stopping test service", e)
         } finally {
-            // Restore default controller for the main service.
             oldTestBaseUrl?.let {
                 clashApiClient.setBaseUrl("http://127.0.0.1:9090")
             }
         }
     }
+    
+    /**
+     * 检查测试服务是否正在运行
+     */
+    fun isTestServiceRunning(): Boolean = synchronized(serviceLock) { testService != null }
 
     private fun buildBatchTestConfig(outbounds: List<Outbound>, clashPort: Int): SingBoxConfig {
         // 创建一个包含所有待测试节点的配置
@@ -314,17 +381,65 @@ class SingBoxCore private constructor(private val context: Context) {
     }
 
     /**
+     * 校准基准延迟（测量非网络开销）
+     * 通过测试 direct 出站访问本地 Clash API 的响应时间
+     */
+    private suspend fun calibrateBaseline() {
+        if (baselineCalibrated) return
+        
+        try {
+            // 测试 direct 出站访问本地 Clash API 的延迟作为基准
+            val startTime = System.currentTimeMillis()
+            val available = clashApiClient.isAvailable()
+            val elapsed = System.currentTimeMillis() - startTime
+            
+            if (available) {
+                // 多次测量取平均值
+                var totalTime = elapsed
+                repeat(2) {
+                    val t1 = System.currentTimeMillis()
+                    clashApiClient.isAvailable()
+                    totalTime += System.currentTimeMillis() - t1
+                }
+                baselineLatency = totalTime / 3
+                baselineCalibrated = true
+                Log.d(TAG, "Baseline latency calibrated: ${baselineLatency}ms")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to calibrate baseline", e)
+        }
+    }
+    
+    /**
+     * 校正延迟值，减去非网络开销
+     */
+    private fun calibrateLatency(rawLatency: Long): Long {
+        if (rawLatency <= 0) return rawLatency
+        if (!baselineCalibrated || baselineLatency <= 0) return rawLatency
+        
+        val calibrated = rawLatency - baselineLatency
+        return if (calibrated > 0) calibrated else rawLatency
+    }
+
+    /**
      * 使用 Clash API 进行真实延迟测试（VPN 运行时）
      */
     private suspend fun testOutboundLatencyWithClashApi(outbound: Outbound): Long {
         return try {
-            val delay = clashApiClient.testProxyDelay(outbound.tag)
-            if (delay > 0) {
-                Log.d(TAG, "Real latency for ${outbound.tag}: ${delay}ms")
-            } else {
-                Log.w(TAG, "Real latency test failed for ${outbound.tag} (result: $delay)")
+            // 如果尚未校准，先校准基准延迟
+            if (!baselineCalibrated) {
+                calibrateBaseline()
             }
-            delay
+            
+            val rawDelay = clashApiClient.testProxyDelay(outbound.tag)
+            if (rawDelay > 0) {
+                val calibratedDelay = calibrateLatency(rawDelay)
+                Log.d(TAG, "Latency for ${outbound.tag}: raw=${rawDelay}ms, calibrated=${calibratedDelay}ms (baseline=${baselineLatency}ms)")
+                calibratedDelay
+            } else {
+                Log.w(TAG, "Latency test failed for ${outbound.tag} (result: $rawDelay)")
+                rawDelay
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Clash API latency test failed for ${outbound.tag}: ${e.message}")
             -1L

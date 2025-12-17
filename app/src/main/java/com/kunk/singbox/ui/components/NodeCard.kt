@@ -17,23 +17,33 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kunk.singbox.ui.theme.AppBackground
 import com.kunk.singbox.ui.theme.Divider
+import com.kunk.singbox.ui.theme.Neutral700
 import com.kunk.singbox.ui.theme.PureWhite
 import com.kunk.singbox.ui.theme.SurfaceCard
 import com.kunk.singbox.ui.theme.TextPrimary
 import com.kunk.singbox.ui.theme.TextSecondary
-import androidx.compose.ui.graphics.Color
 
 @Composable
 fun NodeCard(
@@ -41,10 +51,16 @@ fun NodeCard(
     type: String,
     latency: Long? = null,
     isSelected: Boolean,
+    isTesting: Boolean = false,
     onClick: () -> Unit,
-    onMenuClick: () -> Unit,
+    onEdit: () -> Unit,
+    onExport: () -> Unit,
+    onLatency: () -> Unit,
+    onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -93,8 +109,16 @@ fun NodeCard(
                         color = TextSecondary
                     )
                     
-                    if (latency != null) {
-                        Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    
+                    if (isTesting) {
+                        // 显示加载动画
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            color = PureWhite,
+                            strokeWidth = 2.dp
+                        )
+                    } else if (latency != null) {
                         val latencyColor = when {
                             latency < 0 -> Color.Red
                             latency < 200 -> Color(0xFF4CAF50) // Green
@@ -113,12 +137,70 @@ fun NodeCard(
             }
         }
 
-        IconButton(onClick = onMenuClick) {
-            Icon(
-                imageVector = Icons.Rounded.MoreVert,
-                contentDescription = "More",
-                tint = TextSecondary
-            )
+        Box(modifier = Modifier.wrapContentSize(Alignment.TopStart)) {
+            IconButton(onClick = { showMenu = true }) {
+                Icon(
+                    imageVector = Icons.Rounded.MoreVert,
+                    contentDescription = "More",
+                    tint = TextSecondary
+                )
+            }
+            MaterialTheme(
+                shapes = MaterialTheme.shapes.copy(extraSmall = RoundedCornerShape(12.dp))
+            ) {
+                androidx.compose.material3.DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                    modifier = Modifier
+                        .background(Neutral700)
+                        .width(100.dp)
+                ) {
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = {
+                            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                Text("编辑", color = PureWhite)
+                            }
+                        },
+                        onClick = {
+                            showMenu = false
+                            onEdit()
+                        }
+                    )
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = {
+                            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                Text("导出", color = PureWhite)
+                            }
+                        },
+                        onClick = {
+                            showMenu = false
+                            onExport()
+                        }
+                    )
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = {
+                            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                Text("延迟", color = PureWhite)
+                            }
+                        },
+                        onClick = {
+                            showMenu = false
+                            onLatency()
+                        }
+                    )
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = {
+                            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                Text("删除", color = PureWhite)
+                            }
+                        },
+                        onClick = {
+                            showMenu = false
+                            onDelete()
+                        }
+                    )
+                }
+            }
         }
     }
 }

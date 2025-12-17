@@ -40,6 +40,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.kunk.singbox.ui.components.ConfirmDialog
@@ -60,10 +62,12 @@ fun NodesScreen(
     navController: NavController,
     viewModel: NodesViewModel = viewModel()
 ) {
+    val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val nodes by viewModel.nodes.collectAsState()
     val activeNodeId by viewModel.activeNodeId.collectAsState()
     val groups by viewModel.nodeGroups.collectAsState()
+    val testingNodeIds by viewModel.testingNodeIds.collectAsState()
     
     var selectedGroupIndex by remember { mutableStateOf(0) }
     val isTesting by viewModel.isTesting.collectAsState()
@@ -87,9 +91,7 @@ fun NodesScreen(
     
     var showSearchDialog by remember { mutableStateOf(false) }
     var showSortDialog by remember { mutableStateOf(false) }
-    var showMenuDialog by remember { mutableStateOf(false) }
-    var selectedNodeId by remember { mutableStateOf("") }
-    var selectedNodeName by remember { mutableStateOf("") }
+    var exportLink by remember { mutableStateOf<String?>(null) }
 
     if (showSearchDialog) {
         InputDialog(
@@ -111,16 +113,16 @@ fun NodesScreen(
         )
     }
     
-    if (showMenuDialog) {
-        ConfirmDialog(
-            title = selectedNodeName,
-            message = "选择操作:\n\n• 查看详情\n• 测速\n• 分享节点",
-            confirmText = "查看详情",
-            onConfirm = {
-                showMenuDialog = false
-                navController.navigate(Screen.NodeDetail.createRoute(selectedNodeId))
+    if (exportLink != null) {
+        InputDialog(
+            title = "导出链接",
+            initialValue = exportLink!!,
+            confirmText = "复制",
+            onConfirm = { 
+                clipboardManager.setText(AnnotatedString(it))
+                exportLink = null
             },
-            onDismiss = { showMenuDialog = false }
+            onDismiss = { exportLink = null }
         )
     }
 
@@ -218,11 +220,22 @@ fun NodesScreen(
                         type = node.protocol,
                         latency = node.latencyMs,
                         isSelected = node.id == activeNodeId,
+                        isTesting = node.id in testingNodeIds,
                         onClick = { viewModel.setActiveNode(node.id) },
-                        onMenuClick = {
-                            selectedNodeId = node.id
-                            selectedNodeName = node.name
-                            showMenuDialog = true
+                        onEdit = {
+                            navController.navigate(Screen.NodeDetail.createRoute(node.id))
+                        },
+                        onExport = {
+                             val link = viewModel.exportNode(node.id)
+                             if (link != null) {
+                                 exportLink = link
+                             }
+                        },
+                        onLatency = {
+                            viewModel.testLatency(node.id)
+                        },
+                        onDelete = {
+                            viewModel.deleteNode(node.id)
                         }
                     )
                 }

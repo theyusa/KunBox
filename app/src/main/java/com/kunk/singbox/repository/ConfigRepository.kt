@@ -1300,16 +1300,24 @@ class ConfigRepository(private val context: Context) {
             fixedOutbounds.add(Outbound(type = "dns", tag = "dns-out"))
         }
         
-        // 使用用户选择的节点，如果没有选择则使用 urltest/selector
-        val proxyOutbound = activeNode?.name
-            ?: fixedOutbounds?.firstOrNull { it.type == "urltest" }?.tag
-            ?: fixedOutbounds?.firstOrNull { it.type == "selector" }?.tag
-            ?: fixedOutbounds?.firstOrNull { 
-                it.type in listOf("vless", "vmess", "trojan", "shadowsocks", "hysteria2", "hysteria") 
-            }?.tag
-            ?: "direct"
+        // 收集所有代理节点名称
+        val proxyTags = fixedOutbounds.filter {
+            it.type in listOf("vless", "vmess", "trojan", "shadowsocks", "hysteria2", "hysteria")
+        }.map { it.tag }.toMutableList()
+
+        // 创建一个主 Selector
+        val selectorTag = "PROXY"
+        val selectorOutbound = Outbound(
+            type = "selector",
+            tag = selectorTag,
+            outbounds = proxyTags,
+            default = activeNode?.name // 设置默认选中项
+        )
         
-        Log.d(TAG, "Using outbound: $proxyOutbound")
+        // 将 Selector 添加到 outbounds 列表的最前面（或者合适的位置）
+        fixedOutbounds.add(0, selectorOutbound)
+        
+        Log.d(TAG, "Created selector '$selectorTag' with ${proxyTags.size} nodes. Default: ${activeNode?.name}")
         
         // 添加路由配置（不使用 geoip，sing-box 1.12.0 已移除）
         val route = RouteConfig(
@@ -1317,7 +1325,7 @@ class ConfigRepository(private val context: Context) {
                 // DNS 流量走 dns-out
                 RouteRule(protocol = listOf("dns"), outbound = "dns-out")
             ),
-            finalOutbound = proxyOutbound,
+            finalOutbound = selectorTag, // 路由指向 Selector
             autoDetectInterface = true
         )
         
@@ -1361,11 +1369,230 @@ class ConfigRepository(private val context: Context) {
         return _nodes.value.find { it.id == nodeId }
     }
     
-}
+    /**
+     * 删除节点
+     */
+    fun deleteNode(nodeId: String) {
+        val node = _nodes.value.find { it.id == nodeId } ?: return
+        val profileId = node.sourceProfileId
+        val config = profileConfigs[profileId] ?: return
 
-/**
- * 保存的配置数据
- */
+        // 过滤掉要删除的节点
+        val newOutbounds = config.outbounds?.filter { it.tag != node.name }
+        val newConfig = config.copy(outbounds = newOutbounds)
+
+        // 更新内存中的配置
+        profileConfigs[profileId] = newConfig
+        
+        // 重新提取节点列表
+        val newNodes = extractNodesFromConfig(newConfig, profileId)
+        profileNodes[profileId] = newNodes
+
+        // 保存文件
+        try {
+            val configFile = File(configDir, "$profileId.json")
+            configFile.writeText(gson.toJson(newConfig))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // 如果是当前活跃配置，更新UI状态
+        if (_activeProfileId.value == profileId) {
+            _nodes.value = newNodes
+            updateNodeGroups(newNodes)
+            
+            // 如果删除的是当前选中节点，重置选中
+            if (_activeNodeId.value == nodeId) {
+                _activeNodeId.value = newNodes.firstOrNull()?.id
+            }
+        }
+        
+        saveProfiles()
+    }
+
+    /**
+     * 导出节点链接
+     */
+    fun exportNode(nodeId: String): String? {
+        val outbound = getOutboundByNodeId(nodeId) ?: return null
+        return when (outbound.type) {
+            "vless" -> generateVLessLink(outbound)
+            "vmess" -> generateVMessLink(outbound)
+            "shadowsocks" -> generateShadowsocksLink(outbound)
+            "trojan" -> generateTrojanLink(outbound)
+            "hysteria2" -> generateHysteria2Link(outbound)
+            "hysteria" -> generateHysteriaLink(outbound)
+            else -> null
+        }
+    }
+
+    private fun generateVLessLink(outbound: Outbound): String {
+        val uuid = outbound.uuid ?: return ""
+        val server = outbound.server ?: return ""
+        val port = outbound.serverPort ?: 443
+        val params = mutableListOf<String>()
+        
+        params.add("type=${outbound.transport?.type ?: "tcp"}")
+        params.add("encryption=none")
+        
+        outbound.flow?.let { params.add("flow=$it") }
+        
+        if (outbound.tls?.enabled == true) {
+            if (outbound.tls.reality?.enabled == true) {
+                 params.add("security=reality")
+                 outbound.tls.reality.publicKey?.let { params.add("pbk=$it") }
+                 outbound.tls.reality.shortId?.let { params.add("sid=$it") }
+                 outbound.tls.serverName?.let { params.add("sni=$it") }
+            } else {
+                 params.add("security=tls")
+                 outbound.tls.serverName?.let { params.add("sni=$it") }
+            }
+            outbound.tls.utls?.fingerprint?.let { params.add("fp=$it") }
+            if (outbound.tls.insecure == true) {
+                params.add("allowInsecure=1")
+            }
+            outbound.tls.alpn?.let { 
+                if (it.isNotEmpty()) params.add("alpn=${it.joinToString(",")}") 
+            }
+        } else {
+             // params.add("security=none") // default is none
+        }
+        
+        outbound.packetEncoding?.let { params.add("packetEncoding=$it") }
+        
+        // Transport specific
+        when (outbound.transport?.type) {
+            "ws" -> {
+                val host = outbound.transport.headers?.get("Host") 
+                    ?: outbound.transport.host?.firstOrNull()
+                host?.let { params.add("host=$it") }
+                
+                var path = outbound.transport.path ?: "/"
+                // Handle early data (ed)
+                outbound.transport.maxEarlyData?.let { ed ->
+                    if (ed != 0) { // Only add if not 0, though usually it's 2048 or something
+                        val separator = if (path.contains("?")) "&" else "?"
+                        path = "$path${separator}ed=$ed"
+                    }
+                }
+                
+                params.add("path=${java.net.URLEncoder.encode(path, "UTF-8")}") 
+            }
+            "grpc" -> {
+                outbound.transport.serviceName?.let { 
+                    params.add("serviceName=${java.net.URLEncoder.encode(it, "UTF-8")}") 
+                }
+                params.add("mode=gun")
+            }
+            "http", "h2" -> {
+                 outbound.transport.path?.let { params.add("path=${java.net.URLEncoder.encode(it, "UTF-8")}") }
+                 outbound.transport.host?.firstOrNull()?.let { params.add("host=$it") }
+            }
+        }
+
+        val query = params.joinToString("&")
+        val name = java.net.URLEncoder.encode(outbound.tag, "UTF-8").replace("+", "%20")
+        
+        return "vless://$uuid@$server:$port?$query#$name"
+    }
+
+    private fun generateVMessLink(outbound: Outbound): String {
+        // Simple implementation for VMess
+        try {
+            val json = VMessLinkConfig(
+                v = "2",
+                ps = outbound.tag,
+                add = outbound.server,
+                port = outbound.serverPort?.toString(),
+                id = outbound.uuid,
+                aid = outbound.alterId?.toString(),
+                scy = outbound.security,
+                net = outbound.transport?.type ?: "tcp",
+                type = "none",
+                host = outbound.transport?.headers?.get("Host") ?: outbound.transport?.host?.firstOrNull() ?: "",
+                path = outbound.transport?.path ?: "",
+                tls = if (outbound.tls?.enabled == true) "tls" else "",
+                sni = outbound.tls?.serverName ?: "",
+                alpn = outbound.tls?.alpn?.joinToString(","),
+                fp = outbound.tls?.utls?.fingerprint
+            )
+            val jsonStr = gson.toJson(json)
+            val base64 = Base64.encodeToString(jsonStr.toByteArray(), Base64.NO_WRAP)
+            return "vmess://$base64"
+        } catch (e: Exception) {
+            return ""
+        }
+    }
+
+    private fun generateShadowsocksLink(outbound: Outbound): String {
+        val userInfo = "${outbound.method}:${outbound.password}"
+        val encodedUserInfo = Base64.encodeToString(userInfo.toByteArray(), Base64.NO_WRAP)
+        val serverPart = "${outbound.server}:${outbound.serverPort}"
+        val name = java.net.URLEncoder.encode(outbound.tag, "UTF-8").replace("+", "%20")
+        return "ss://$encodedUserInfo@$serverPart#$name"
+    }
+    
+    private fun generateTrojanLink(outbound: Outbound): String {
+         val password = java.net.URLEncoder.encode(outbound.password ?: "", "UTF-8")
+         val server = outbound.server ?: ""
+         val port = outbound.serverPort ?: 443
+         val name = java.net.URLEncoder.encode(outbound.tag, "UTF-8").replace("+", "%20")
+         
+         val params = mutableListOf<String>()
+         if (outbound.tls?.enabled == true) {
+             params.add("security=tls")
+             outbound.tls.serverName?.let { params.add("sni=$it") }
+             if (outbound.tls.insecure == true) params.add("allowInsecure=1")
+         }
+         
+         val query = params.joinToString("&")
+         return "trojan://$password@$server:$port?$query#$name"
+    }
+
+    private fun generateHysteria2Link(outbound: Outbound): String {
+         val password = java.net.URLEncoder.encode(outbound.password ?: "", "UTF-8")
+         val server = outbound.server ?: ""
+         val port = outbound.serverPort ?: 443
+         val name = java.net.URLEncoder.encode(outbound.tag, "UTF-8").replace("+", "%20")
+         
+         val params = mutableListOf<String>()
+         
+         outbound.tls?.serverName?.let { params.add("sni=$it") }
+         if (outbound.tls?.insecure == true) params.add("insecure=1")
+         
+         outbound.obfs?.let { obfs ->
+             obfs.type?.let { params.add("obfs=$it") }
+             obfs.password?.let { params.add("obfs-password=$it") }
+         }
+         
+         val query = params.joinToString("&")
+         return "hysteria2://$password@$server:$port?$query#$name"
+    }
+
+    private fun generateHysteriaLink(outbound: Outbound): String {
+         val server = outbound.server ?: ""
+         val port = outbound.serverPort ?: 443
+         val name = java.net.URLEncoder.encode(outbound.tag, "UTF-8").replace("+", "%20")
+         
+         val params = mutableListOf<String>()
+         outbound.authStr?.let { params.add("auth=$it") }
+         outbound.upMbps?.let { params.add("upmbps=$it") }
+         outbound.downMbps?.let { params.add("downmbps=$it") }
+         
+         outbound.tls?.serverName?.let { params.add("sni=$it") }
+         if (outbound.tls?.insecure == true) params.add("insecure=1")
+         outbound.tls?.alpn?.let { 
+             if (it.isNotEmpty()) params.add("alpn=${it.joinToString(",")}") 
+         }
+         
+         outbound.obfs?.let { obfs ->
+             obfs.type?.let { params.add("obfs=$it") }
+         }
+
+         val query = params.joinToString("&")
+         return "hysteria://$server:$port?$query#$name"
+    }
+}
 data class SavedProfilesData(
     val profiles: List<ProfileUi>,
     val activeProfileId: String?
