@@ -46,8 +46,8 @@ android {
         abi {
             isEnable = true
             reset()
-            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
-            isUniversalApk = true
+            include("armeabi-v7a", "arm64-v8a") // 现代安卓机通常只需要这两个，x86 可移除
+            isUniversalApk = false // 关闭通用包，强制生成分体包以减小分发体积
         }
     }
     
