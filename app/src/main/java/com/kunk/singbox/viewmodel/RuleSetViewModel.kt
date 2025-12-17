@@ -33,25 +33,53 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
         fetchRuleSets()
     }
 
-      fun fetchRuleSets() {
-          viewModelScope.launch(Dispatchers.IO) {
-              _isLoading.value = true
-              _error.value = null
-              try {
-                  val allRuleSets = mutableListOf<HubRuleSet>()
-                  
-                  allRuleSets.addAll(fetchFromSagerNet())
-                  allRuleSets.addAll(fetchFromLyc8503())
+    fun fetchRuleSets() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isLoading.value = true
+            _error.value = null
+            try {
+                val allRuleSets = mutableListOf<HubRuleSet>()
+                
+                allRuleSets.addAll(fetchFromSagerNet())
+                allRuleSets.addAll(fetchFromLyc8503())
 
-                  _ruleSets.value = allRuleSets.sortedBy { it.name }
-              } catch (e: Exception) {
-                  e.printStackTrace()
-                  _error.value = "加载失败: ${e.message}"
-              } finally {
-                  _isLoading.value = false
-              }
-          }
-      }
+                // 如果在线获取失败，使用预置规则集
+                if (allRuleSets.isEmpty()) {
+                    allRuleSets.addAll(getBuiltInRuleSets())
+                }
+
+                _ruleSets.value = allRuleSets.sortedBy { it.name }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _error.value = "加载失败: ${e.message}"
+                // 出错时也提供预置规则集
+                _ruleSets.value = getBuiltInRuleSets()
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    private fun getBuiltInRuleSets(): List<HubRuleSet> {
+        val baseUrl = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set"
+        val commonRules = listOf(
+            "google", "youtube", "twitter", "facebook", "instagram", "tiktok",
+            "telegram", "whatsapp", "discord", "github", "microsoft", "apple",
+            "amazon", "netflix", "spotify", "bilibili", "zhihu", "baidu",
+            "tencent", "alibaba", "jd", "taobao", "weibo", "douyin",
+            "cn", "geolocation-cn", "geolocation-!cn", "private", "ads"
+        )
+        return commonRules.map { name ->
+            HubRuleSet(
+                name = "geosite-$name",
+                ruleCount = 0,
+                tags = listOf("预置", "geosite"),
+                description = "常用规则集",
+                sourceUrl = "$baseUrl/geosite-$name.json",
+                binaryUrl = "$baseUrl/geosite-$name.srs"
+            )
+        }
+    }
 
       private fun fetchFromSagerNet(): List<HubRuleSet> {
           return try {
