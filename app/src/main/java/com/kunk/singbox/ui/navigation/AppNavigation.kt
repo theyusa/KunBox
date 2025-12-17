@@ -23,6 +23,7 @@ import com.kunk.singbox.ui.screens.AppRulesScreen
 import com.kunk.singbox.ui.screens.AppGroupsScreen
 import com.kunk.singbox.ui.screens.SplashScreen
 import com.kunk.singbox.ui.screens.RuleSetHubScreen
+import com.kunk.singbox.ui.screens.RuleSetRoutingScreen
 
 sealed class Screen(val route: String) {
     object Splash : Screen("splash")
@@ -46,6 +47,7 @@ sealed class Screen(val route: String) {
     object CustomRules : Screen("custom_rules")
     object AppRules : Screen("app_rules")
     object RuleSetHub : Screen("rule_set_hub")
+    object RuleSetRouting : Screen("rule_set_routing")
 }
 
 @Composable
@@ -88,5 +90,6 @@ fun AppNavigation(navController: NavHostController) {
         composable(Screen.CustomRules.route) { CustomRulesScreen(navController) }
         composable(Screen.AppRules.route) { AppGroupsScreen(navController) }
         composable(Screen.RuleSetHub.route) { RuleSetHubScreen(navController) }
+        composable(Screen.RuleSetRouting.route) { RuleSetRoutingScreen(navController) }
     }
 }

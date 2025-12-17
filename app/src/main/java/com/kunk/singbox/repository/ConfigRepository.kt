@@ -1279,6 +1279,71 @@ class ConfigRepository(private val context: Context) {
     }
 
     /**
+     * 构建应用分流路由规则
+     */
+    private fun buildAppRoutingRules(
+        settings: AppSettings,
+        defaultProxyTag: String,
+        outbounds: List<Outbound>
+    ): List<RouteRule> {
+        val rules = mutableListOf<RouteRule>()
+        
+        // 1. 处理应用规则（单个应用）
+        settings.appRules.filter { it.enabled }.forEach { rule ->
+            val outboundTag = when (rule.outbound) {
+                OutboundTag.DIRECT -> "direct"
+                OutboundTag.PROXY -> {
+                    // 如果指定了特定节点，使用该节点；否则使用默认代理选择器
+                    if (!rule.specificNodeId.isNullOrEmpty() && 
+                        outbounds.any { it.tag == rule.specificNodeId }) {
+                        rule.specificNodeId
+                    } else {
+                        defaultProxyTag
+                    }
+                }
+                OutboundTag.BLOCK -> "block"
+            }
+            
+            rules.add(RouteRule(
+                packageName = listOf(rule.packageName),
+                outbound = outboundTag
+            ))
+            
+            Log.d(TAG, "Added app rule: ${rule.appName} (${rule.packageName}) -> $outboundTag")
+        }
+        
+        // 2. 处理应用分组
+        settings.appGroups.filter { it.enabled }.forEach { group ->
+            val outboundTag = when (group.outbound) {
+                OutboundTag.DIRECT -> "direct"
+                OutboundTag.PROXY -> {
+                    if (!group.specificNodeId.isNullOrEmpty() && 
+                        outbounds.any { it.tag == group.specificNodeId }) {
+                        group.specificNodeId
+                    } else {
+                        defaultProxyTag
+                    }
+                }
+                OutboundTag.BLOCK -> "block"
+            }
+            
+            // 将分组中的所有应用包名添加到一条规则中
+            val packageNames = group.apps.map { it.packageName }
+            if (packageNames.isNotEmpty()) {
+                rules.add(RouteRule(
+                    packageName = packageNames,
+                    outbound = outboundTag
+                ))
+                
+                Log.d(TAG, "Added app group rule: ${group.name} (${packageNames.size} apps) -> $outboundTag")
+            }
+        }
+        
+        Log.d(TAG, "Generated ${rules.size} app routing rules")
+        return rules
+    }
+    
+    /**
      * 构建运行时配置
      */
     private fun buildRunConfig(baseConfig: SingBoxConfig, activeNode: NodeUi?, settings: AppSettings): SingBoxConfig {
@@ -1362,12 +1427,15 @@ class ConfigRepository(private val context: Context) {
         
         Log.d(TAG, "Created selector '$selectorTag' with ${proxyTags.size} nodes. Default: ${activeNode?.name}")
         
+        // 构建应用分流规则
+        val appRoutingRules = buildAppRoutingRules(settings, selectorTag, fixedOutbounds)
+        
         // 添加路由配置（不使用 geoip，sing-box 1.12.0 已移除）
         val route = RouteConfig(
             rules = listOf(
                 // DNS 流量走 dns-out
                 RouteRule(protocol = listOf("dns"), outbound = "dns-out")
-            ),
+            ) + appRoutingRules,
             finalOutbound = selectorTag, // 路由指向 Selector
             autoDetectInterface = true
         )

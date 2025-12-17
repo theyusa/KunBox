@@ -181,6 +181,9 @@ data class RouteRule(
     @SerializedName("port_range") val portRange: List<String>? = null,
     @SerializedName("rule_set") val ruleSet: List<String>? = null,
     @SerializedName("inbound") val inbound: List<String>? = null,
+    @SerializedName("package_name") val packageName: List<String>? = null,
+    @SerializedName("process_name") val processName: List<String>? = null,
+    @SerializedName("user_id") val userId: List<Int>? = null,
     @SerializedName("outbound") val outbound: String? = null
 )
 

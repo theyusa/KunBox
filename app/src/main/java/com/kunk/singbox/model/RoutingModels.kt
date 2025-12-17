@@ -33,6 +33,14 @@ enum class RuleSetType(val displayName: String) {
     LOCAL("本地")
 }
 
+enum class RuleSetOutboundMode(val displayName: String) {
+    DIRECT("直连"),
+    BLOCK("拦截"),
+    NODE("单节点"),
+    PROFILE("配置"),
+    GROUP("节点组")
+}
+
 data class RuleSet(
     val id: String = UUID.randomUUID().toString(),
     val tag: String, // Unique identifier in config
@@ -40,7 +48,10 @@ data class RuleSet(
     val format: String = "binary", // "binary" or "source"
     val url: String = "", // For remote
     val path: String = "", // For local
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    val outboundMode: RuleSetOutboundMode = RuleSetOutboundMode.DIRECT,
+    val outboundValue: String? = null, // ID for Node/Profile, or Name for Group
+    val inbounds: List<String> = emptyList() // List of inbound tags
 )
 
 /**

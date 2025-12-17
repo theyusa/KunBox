@@ -130,7 +130,7 @@ fun RuleSetHubScreen(
                                     tag = ruleSet.name,
                                     type = RuleSetType.REMOTE,
                                     format = "source",
-                                    url = ruleSet.sourceUrl.ifEmpty { "https://example.com/rules/${ruleSet.name}.json" }
+                                    url = ruleSet.sourceUrl.ifEmpty { "https://raw.githubusercontent.com/lyc8503/sing-box-rules/master/rule-set-geosite/${ruleSet.name}.json" }
                                 )
                             )
                             navController.popBackStack()
@@ -141,7 +141,7 @@ fun RuleSetHubScreen(
                                     tag = ruleSet.name,
                                     type = RuleSetType.REMOTE,
                                     format = "binary",
-                                    url = ruleSet.binaryUrl.ifEmpty { "https://example.com/rules/${ruleSet.name}.srs" }
+                                    url = ruleSet.binaryUrl.ifEmpty { "https://raw.githubusercontent.com/lyc8503/sing-box-rules/master/rule-set-geosite/${ruleSet.name}.srs" }
                                 )
                             )
                             navController.popBackStack()
