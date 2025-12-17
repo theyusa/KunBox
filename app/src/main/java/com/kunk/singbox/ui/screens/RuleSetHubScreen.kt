@@ -34,13 +34,15 @@ import com.kunk.singbox.viewmodel.RuleSetViewModel
 import com.kunk.singbox.viewmodel.SettingsViewModel
 import kotlinx.coroutines.launch
 
+import com.google.gson.annotations.SerializedName
+
 data class HubRuleSet(
-    val name: String,
-    val ruleCount: Int,
-    val tags: List<String>,
-    val description: String = "",
-    val sourceUrl: String = "",
-    val binaryUrl: String = ""
+    @SerializedName("name") val name: String,
+    @SerializedName("ruleCount") val ruleCount: Int,
+    @SerializedName("tags") val tags: List<String>,
+    @SerializedName("description") val description: String = "",
+    @SerializedName("sourceUrl") val sourceUrl: String = "",
+    @SerializedName("binaryUrl") val binaryUrl: String = ""
 )
 
 @OptIn(ExperimentalMaterial3Api::class)

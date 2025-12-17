@@ -68,7 +68,7 @@ class SettingsRepository(private val context: Context) {
         val customRulesJson = preferences[PreferencesKeys.CUSTOM_RULES]
         val customRules = if (customRulesJson != null) {
             try {
-                gson.fromJson<List<CustomRule>>(customRulesJson, object : TypeToken<List<CustomRule>>() {}.type)
+                gson.fromJson<List<CustomRule>>(customRulesJson, object : TypeToken<List<CustomRule>>() {}.type) ?: emptyList()
             } catch (e: Exception) {
                 emptyList()
             }
@@ -79,7 +79,7 @@ class SettingsRepository(private val context: Context) {
         val ruleSetsJson = preferences[PreferencesKeys.RULE_SETS]
         val ruleSets = if (ruleSetsJson != null) {
             try {
-                gson.fromJson<List<RuleSet>>(ruleSetsJson, object : TypeToken<List<RuleSet>>() {}.type)
+                gson.fromJson<List<RuleSet>>(ruleSetsJson, object : TypeToken<List<RuleSet>>() {}.type) ?: emptyList()
             } catch (e: Exception) {
                 emptyList()
             }
@@ -90,7 +90,7 @@ class SettingsRepository(private val context: Context) {
         val appRulesJson = preferences[PreferencesKeys.APP_RULES]
         val appRules = if (appRulesJson != null) {
             try {
-                gson.fromJson<List<AppRule>>(appRulesJson, object : TypeToken<List<AppRule>>() {}.type)
+                gson.fromJson<List<AppRule>>(appRulesJson, object : TypeToken<List<AppRule>>() {}.type) ?: emptyList()
             } catch (e: Exception) {
                 emptyList()
             }
@@ -101,7 +101,7 @@ class SettingsRepository(private val context: Context) {
         val appGroupsJson = preferences[PreferencesKeys.APP_GROUPS]
         val appGroups = if (appGroupsJson != null) {
             try {
-                gson.fromJson<List<AppGroup>>(appGroupsJson, object : TypeToken<List<AppGroup>>() {}.type)
+                gson.fromJson<List<AppGroup>>(appGroupsJson, object : TypeToken<List<AppGroup>>() {}.type) ?: emptyList()
             } catch (e: Exception) {
                 emptyList()
             }

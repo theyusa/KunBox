@@ -1,47 +1,49 @@
 package com.kunk.singbox.model
 
+import com.google.gson.annotations.SerializedName
+
 /**
  * 所有应用设置的数据模型
  */
 data class AppSettings(
     // 通用设置
-    val autoConnect: Boolean = false,
-    val autoReconnect: Boolean = true,
-    val excludeFromRecent: Boolean = false,
+    @SerializedName("autoConnect") val autoConnect: Boolean = false,
+    @SerializedName("autoReconnect") val autoReconnect: Boolean = true,
+    @SerializedName("excludeFromRecent") val excludeFromRecent: Boolean = false,
     
     // TUN/VPN 设置
-    val tunEnabled: Boolean = true,
-    val tunStack: TunStack = TunStack.GVISOR,
-    val tunMtu: Int = 1500,
-    val tunInterfaceName: String = "tun0",
-    val autoRoute: Boolean = true,
-    val strictRoute: Boolean = true,
+    @SerializedName("tunEnabled") val tunEnabled: Boolean = true,
+    @SerializedName("tunStack") val tunStack: TunStack = TunStack.GVISOR,
+    @SerializedName("tunMtu") val tunMtu: Int = 1500,
+    @SerializedName("tunInterfaceName") val tunInterfaceName: String = "tun0",
+    @SerializedName("autoRoute") val autoRoute: Boolean = true,
+    @SerializedName("strictRoute") val strictRoute: Boolean = true,
     
     // DNS 设置
-    val localDns: String = "8.8.8.8",
-    val remoteDns: String = "1.1.1.1",
-    val fakeDnsEnabled: Boolean = true,
-    val fakeIpRange: String = "198.18.0.0/15",
-    val dnsStrategy: DnsStrategy = DnsStrategy.PREFER_IPV4,
-    val dnsCacheEnabled: Boolean = true,
+    @SerializedName("localDns") val localDns: String = "8.8.8.8",
+    @SerializedName("remoteDns") val remoteDns: String = "1.1.1.1",
+    @SerializedName("fakeDnsEnabled") val fakeDnsEnabled: Boolean = true,
+    @SerializedName("fakeIpRange") val fakeIpRange: String = "198.18.0.0/15",
+    @SerializedName("dnsStrategy") val dnsStrategy: DnsStrategy = DnsStrategy.PREFER_IPV4,
+    @SerializedName("dnsCacheEnabled") val dnsCacheEnabled: Boolean = true,
     
     // 路由设置
-    val routingMode: RoutingMode = RoutingMode.RULE,
-    val defaultRule: DefaultRule = DefaultRule.DIRECT,
-    val blockAds: Boolean = true,
-    val bypassLan: Boolean = true,
+    @SerializedName("routingMode") val routingMode: RoutingMode = RoutingMode.RULE,
+    @SerializedName("defaultRule") val defaultRule: DefaultRule = DefaultRule.DIRECT,
+    @SerializedName("blockAds") val blockAds: Boolean = true,
+    @SerializedName("bypassLan") val bypassLan: Boolean = true,
     
     // 高级路由
-    val customRules: List<CustomRule> = emptyList(),
-    val ruleSets: List<RuleSet> = emptyList(),
-    val appRules: List<AppRule> = emptyList(),
-    val appGroups: List<AppGroup> = emptyList()
+    @SerializedName("customRules") val customRules: List<CustomRule> = emptyList(),
+    @SerializedName("ruleSets") val ruleSets: List<RuleSet> = emptyList(),
+    @SerializedName("appRules") val appRules: List<AppRule> = emptyList(),
+    @SerializedName("appGroups") val appGroups: List<AppGroup> = emptyList()
 )
 
 enum class TunStack(val displayName: String) {
-    SYSTEM("System"),
-    GVISOR("gVisor"),
-    MIXED("Mixed");
+    @SerializedName("SYSTEM") SYSTEM("System"),
+    @SerializedName("GVISOR") GVISOR("gVisor"),
+    @SerializedName("MIXED") MIXED("Mixed");
     
     companion object {
         fun fromDisplayName(name: String): TunStack {
@@ -51,10 +53,10 @@ enum class TunStack(val displayName: String) {
 }
 
 enum class DnsStrategy(val displayName: String) {
-    PREFER_IPV4("优先 IPv4"),
-    PREFER_IPV6("优先 IPv6"),
-    ONLY_IPV4("仅 IPv4"),
-    ONLY_IPV6("仅 IPv6");
+    @SerializedName("PREFER_IPV4") PREFER_IPV4("优先 IPv4"),
+    @SerializedName("PREFER_IPV6") PREFER_IPV6("优先 IPv6"),
+    @SerializedName("ONLY_IPV4") ONLY_IPV4("仅 IPv4"),
+    @SerializedName("ONLY_IPV6") ONLY_IPV6("仅 IPv6");
     
     companion object {
         fun fromDisplayName(name: String): DnsStrategy {
@@ -64,9 +66,9 @@ enum class DnsStrategy(val displayName: String) {
 }
 
 enum class RoutingMode(val displayName: String) {
-    RULE("规则模式"),
-    GLOBAL_PROXY("全局代理"),
-    GLOBAL_DIRECT("全局直连");
+    @SerializedName("RULE") RULE("规则模式"),
+    @SerializedName("GLOBAL_PROXY") GLOBAL_PROXY("全局代理"),
+    @SerializedName("GLOBAL_DIRECT") GLOBAL_DIRECT("全局直连");
     
     companion object {
         fun fromDisplayName(name: String): RoutingMode {
@@ -76,9 +78,9 @@ enum class RoutingMode(val displayName: String) {
 }
 
 enum class DefaultRule(val displayName: String) {
-    DIRECT("直连"),
-    PROXY("代理"),
-    BLOCK("拦截");
+    @SerializedName("DIRECT") DIRECT("直连"),
+    @SerializedName("PROXY") PROXY("代理"),
+    @SerializedName("BLOCK") BLOCK("拦截");
     
     companion object {
         fun fromDisplayName(name: String): DefaultRule {

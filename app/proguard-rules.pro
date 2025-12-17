@@ -17,3 +17,11 @@
 
 # Generic rules for missing classes reported in the error
 -dontwarn d0.**
+
+# Gson rules
+-keepattributes Signature, EnclosingMethod, InnerClasses
+-keep class com.google.gson.** { *; }
+-keep class com.google.gson.reflect.TypeToken { *; }
+-keep class * extends com.google.gson.reflect.TypeToken
+-keep public class * implements java.lang.reflect.Type
+

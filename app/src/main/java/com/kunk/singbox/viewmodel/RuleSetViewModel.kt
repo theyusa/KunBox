@@ -109,7 +109,7 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
                 Log.d(TAG, "[SagerNet] 响应长度: ${json.length} 字符")
                 
                 val type = object : TypeToken<List<GithubFile>>() {}.type
-                val files: List<GithubFile> = gson.fromJson(json, type)
+                val files: List<GithubFile> = gson.fromJson(json, type) ?: emptyList()
                 Log.d(TAG, "[SagerNet] 解析到 ${files.size} 个文件")
                 
                 val srsFiles = files.filter { it.name.endsWith(".srs") }
@@ -138,9 +138,9 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
     }
 
     data class GithubFile(
-        val name: String,
-        val path: String,
-        val size: Long,
-        val download_url: String?
+        @SerializedName("name") val name: String,
+        @SerializedName("path") val path: String,
+        @SerializedName("size") val size: Long,
+        @SerializedName("download_url") val download_url: String?
     )
 }
