@@ -26,7 +26,10 @@ import com.kunk.singbox.repository.SettingsRepository
 import io.nekohasekai.libbox.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import java.io.File
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -126,6 +129,11 @@ class SingBoxService : VpnService() {
     private var currentSettings: AppSettings? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     @Volatile private var connectionOwnerPermissionDeniedLogged = false
+
+    @Volatile private var autoReconnectEnabled: Boolean = false
+    @Volatile private var lastAutoReconnectAttemptMs: Long = 0L
+    private var autoReconnectJob: Job? = null
+    private val autoReconnectDebounceMs: Long = 3000L
     
     // Network monitoring
     private var connectivityManager: ConnectivityManager? = null
@@ -510,14 +518,24 @@ class SingBoxService : VpnService() {
         try {
             val linkProperties = connectivityManager?.getLinkProperties(network)
             val interfaceName = linkProperties?.interfaceName ?: ""
-            
-            // Auto Reconnect 逻辑：当网络可用且开启了自动重连，如果当前未运行但有上次的配置，则尝试重连
-            serviceScope.launch {
-                val settings = SettingsRepository.getInstance(this@SingBoxService).settings.first()
-                // 增加 !isStarting 判断，避免在启动过程中重复触发
-                if (settings.autoReconnect && !isRunning && !isStarting && !isManuallyStopped && lastConfigPath != null) {
-                    Log.i(TAG, "Auto-reconnecting on network available: $interfaceName")
-                    startVpn(lastConfigPath!!)
+
+            val now = System.currentTimeMillis()
+            if (
+                autoReconnectEnabled &&
+                !isRunning &&
+                !isStarting &&
+                !isManuallyStopped &&
+                lastConfigPath != null &&
+                now - lastAutoReconnectAttemptMs >= autoReconnectDebounceMs
+            ) {
+                lastAutoReconnectAttemptMs = now
+                autoReconnectJob?.cancel()
+                autoReconnectJob = serviceScope.launch {
+                    delay(800)
+                    if (!isRunning && !isStarting && !isManuallyStopped && lastConfigPath != null) {
+                        Log.i(TAG, "Auto-reconnecting on network available: $interfaceName")
+                        startVpn(lastConfigPath!!)
+                    }
                 }
             }
 
@@ -542,6 +560,16 @@ class SingBoxService : VpnService() {
         createNotificationChannel()
         // 初始化 ConnectivityManager
         connectivityManager = getSystemService(ConnectivityManager::class.java)
+
+        serviceScope.launch {
+            SettingsRepository.getInstance(this@SingBoxService)
+                .settings
+                .map { it.autoReconnect }
+                .distinctUntilChanged()
+                .collect { enabled ->
+                    autoReconnectEnabled = enabled
+                }
+        }
         
         // 监听活动节点变化，更新通知
         serviceScope.launch {
@@ -564,7 +592,7 @@ class SingBoxService : VpnService() {
             }
             ACTION_STOP -> {
                 isManuallyStopped = true
-                stopVpn()
+                stopVpn(stopService = true)
             }
             ACTION_SWITCH_NODE -> {
                 switchNextNode()
@@ -676,7 +704,7 @@ class SingBoxService : VpnService() {
                 Log.e(TAG, "Failed to start VPN: ${e.message}", e)
                 withContext(Dispatchers.Main) {
                     isRunning = false
-                    stopVpn()
+                    stopVpn(stopService = true)
                 }
                 // 启动失败后，尝试重试一次（如果是自动重连触发的，可能因为网络刚切换还不稳定）
                 if (lastConfigPath != null && !isManuallyStopped) {
@@ -692,7 +720,15 @@ class SingBoxService : VpnService() {
         }
     }
     
-    private fun stopVpn() {
+    private fun stopVpn(stopService: Boolean) {
+        autoReconnectJob?.cancel()
+        autoReconnectJob = null
+
+        try {
+            platformInterface.closeDefaultInterfaceMonitor(currentInterfaceListener)
+        } catch (_: Exception) {
+        }
+
         try {
             boxService?.close()
         } catch (e: Exception) {
@@ -706,7 +742,9 @@ class SingBoxService : VpnService() {
         isRunning = false
         
         stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        if (stopService) {
+            stopSelf()
+        }
         
         Log.i(TAG, "VPN stopped")
     }
@@ -793,12 +831,12 @@ class SingBoxService : VpnService() {
     
     override fun onDestroy() {
         serviceScope.cancel()
-        stopVpn()
+        stopVpn(stopService = false)
         super.onDestroy()
     }
     
     override fun onRevoke() {
-        stopVpn()
+        stopVpn(stopService = true)
         super.onRevoke()
     }
 }

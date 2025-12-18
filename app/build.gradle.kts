@@ -7,12 +7,12 @@ plugins {
 
 android {
     namespace = "com.kunk.singbox"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.kunk.singbox"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 36
         
         val gitCommitCount = project.findProperty("versionCode")?.toString()?.toIntOrNull() ?: 1
         val gitVersionName = project.findProperty("versionName")?.toString() ?: "1.0"
