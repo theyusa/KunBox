@@ -2,6 +2,14 @@
 
 一个基于 Sing-box 核心的现代、极简 Android 代理客户端。专为追求极致性能和简约设计的用户打造。
 
+## 📱 界面预览
+
+<div align="center">
+  <img src="https://beone.kuz7.com/p/bTJJUBRl5tjaUX5kWJ5JBnrCK-IWOGwzx32fL8mGuB0" width="30%" alt="首页概览" />
+  <img src="https://beone.kuz7.com/p/J47jgAo14XU34TXAyXwo-8zaAIWoKfqUytzI0UGzpws" width="30%" alt="节点列表" />
+  <img src="https://beone.kuz7.com/p/n3Vrqqq9qtrC1qCMiClQYz6OlNmm1mGl-crt_zuPyxE" width="30%" alt="设置页面" />
+</div>
+
 ## ✨ 核心功能
 
 *   **极简设计**: 采用 OLED 友好的纯黑白灰配色，无干扰的 UI 设计，专注于核心体验。
