@@ -112,13 +112,20 @@ object SecurityUtils {
     }
 
     fun encryptSensitiveConfig(context: Context, config: String): String {
-        return encrypt(config) ?: config
+        val encrypted = encrypt(config) ?: return config
+        return "ENC:$encrypted"
     }
 
     fun decryptSensitiveConfig(context: Context, encryptedConfig: String): String {
-        if (!encryptedConfig.startsWith("ENC:")) {
+        if (encryptedConfig.startsWith("ENC:")) {
+            return decrypt(encryptedConfig.removePrefix("ENC:")) ?: encryptedConfig
+        }
+
+        val trimmed = encryptedConfig.trimStart()
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
             return encryptedConfig
         }
-        return decrypt(encryptedConfig.removePrefix("ENC:")) ?: encryptedConfig
+
+        return decrypt(encryptedConfig) ?: encryptedConfig
     }
 }

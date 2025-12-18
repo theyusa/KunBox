@@ -2430,9 +2430,27 @@ class ConfigRepository(private val context: Context) {
         }
     }
 
+    private fun encodeUrlComponent(value: String): String {
+        return java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")
+    }
+
+    private fun formatServerHost(server: String): String {
+        val s = server.trim()
+        return if (s.contains(":") && !s.startsWith("[") && !s.endsWith("]")) {
+            "[$s]"
+        } else {
+            s
+        }
+    }
+
+    private fun buildOptionalQuery(params: List<String>): String {
+        val query = params.filter { it.isNotBlank() }.joinToString("&")
+        return if (query.isNotEmpty()) "?$query" else ""
+    }
+
     private fun generateVLessLink(outbound: Outbound): String {
         val uuid = outbound.uuid ?: return ""
-        val server = outbound.server ?: return ""
+        val server = outbound.server?.let { formatServerHost(it) } ?: return ""
         val port = outbound.serverPort ?: 443
         val params = mutableListOf<String>()
         
@@ -2444,19 +2462,19 @@ class ConfigRepository(private val context: Context) {
         if (outbound.tls?.enabled == true) {
             if (outbound.tls.reality?.enabled == true) {
                  params.add("security=reality")
-                 outbound.tls.reality.publicKey?.let { params.add("pbk=$it") }
-                 outbound.tls.reality.shortId?.let { params.add("sid=$it") }
-                 outbound.tls.serverName?.let { params.add("sni=$it") }
+                 outbound.tls.reality.publicKey?.let { params.add("pbk=${encodeUrlComponent(it)}") }
+                 outbound.tls.reality.shortId?.let { params.add("sid=${encodeUrlComponent(it)}") }
+                 outbound.tls.serverName?.let { params.add("sni=${encodeUrlComponent(it)}") }
             } else {
                  params.add("security=tls")
-                 outbound.tls.serverName?.let { params.add("sni=$it") }
+                 outbound.tls.serverName?.let { params.add("sni=${encodeUrlComponent(it)}") }
             }
-            outbound.tls.utls?.fingerprint?.let { params.add("fp=$it") }
+            outbound.tls.utls?.fingerprint?.let { params.add("fp=${encodeUrlComponent(it)}") }
             if (outbound.tls.insecure == true) {
                 params.add("allowInsecure=1")
             }
             outbound.tls.alpn?.let { 
-                if (it.isNotEmpty()) params.add("alpn=${it.joinToString(",")}") 
+                if (it.isNotEmpty()) params.add("alpn=${encodeUrlComponent(it.joinToString(","))}") 
             }
         } else {
              // params.add("security=none") // default is none
@@ -2469,7 +2487,7 @@ class ConfigRepository(private val context: Context) {
             "ws" -> {
                 val host = outbound.transport.headers?.get("Host") 
                     ?: outbound.transport.host?.firstOrNull()
-                host?.let { params.add("host=$it") }
+                host?.let { params.add("host=${encodeUrlComponent(it)}") }
                 
                 var path = outbound.transport.path ?: "/"
                 // Handle early data (ed)
@@ -2480,24 +2498,23 @@ class ConfigRepository(private val context: Context) {
                     }
                 }
                 
-                params.add("path=${java.net.URLEncoder.encode(path, "UTF-8")}") 
+                params.add("path=${encodeUrlComponent(path)}") 
             }
             "grpc" -> {
                 outbound.transport.serviceName?.let { 
-                    params.add("serviceName=${java.net.URLEncoder.encode(it, "UTF-8")}") 
+                    params.add("serviceName=${encodeUrlComponent(it)}") 
                 }
                 params.add("mode=gun")
             }
             "http", "h2" -> {
-                 outbound.transport.path?.let { params.add("path=${java.net.URLEncoder.encode(it, "UTF-8")}") }
-                 outbound.transport.host?.firstOrNull()?.let { params.add("host=$it") }
+                 outbound.transport.path?.let { params.add("path=${encodeUrlComponent(it)}") }
+                 outbound.transport.host?.firstOrNull()?.let { params.add("host=${encodeUrlComponent(it)}") }
             }
         }
 
-        val query = params.joinToString("&")
-        val name = java.net.URLEncoder.encode(outbound.tag, "UTF-8").replace("+", "%20")
-        
-        return "vless://$uuid@$server:$port?$query#$name"
+        val name = encodeUrlComponent(outbound.tag)
+        val queryPart = buildOptionalQuery(params)
+        return "vless://$uuid@$server:$port${queryPart}#$name"
     }
 
     private fun generateVMessLink(outbound: Outbound): String {
@@ -2531,96 +2548,97 @@ class ConfigRepository(private val context: Context) {
     private fun generateShadowsocksLink(outbound: Outbound): String {
         val userInfo = "${outbound.method}:${outbound.password}"
         val encodedUserInfo = Base64.encodeToString(userInfo.toByteArray(), Base64.NO_WRAP)
-        val serverPart = "${outbound.server}:${outbound.serverPort}"
-        val name = java.net.URLEncoder.encode(outbound.tag, "UTF-8").replace("+", "%20")
+        val server = outbound.server?.let { formatServerHost(it) } ?: ""
+        val serverPart = "$server:${outbound.serverPort}"
+        val name = encodeUrlComponent(outbound.tag)
         return "ss://$encodedUserInfo@$serverPart#$name"
     }
     
     private fun generateTrojanLink(outbound: Outbound): String {
-         val password = java.net.URLEncoder.encode(outbound.password ?: "", "UTF-8")
-         val server = outbound.server ?: ""
+         val password = encodeUrlComponent(outbound.password ?: "")
+         val server = outbound.server?.let { formatServerHost(it) } ?: ""
          val port = outbound.serverPort ?: 443
-         val name = java.net.URLEncoder.encode(outbound.tag, "UTF-8").replace("+", "%20")
+         val name = encodeUrlComponent(outbound.tag)
          
          val params = mutableListOf<String>()
          if (outbound.tls?.enabled == true) {
              params.add("security=tls")
-             outbound.tls.serverName?.let { params.add("sni=$it") }
+             outbound.tls.serverName?.let { params.add("sni=${encodeUrlComponent(it)}") }
              if (outbound.tls.insecure == true) params.add("allowInsecure=1")
          }
-         
-         val query = params.joinToString("&")
-         return "trojan://$password@$server:$port?$query#$name"
+
+         val queryPart = buildOptionalQuery(params)
+         return "trojan://$password@$server:$port${queryPart}#$name"
     }
 
     private fun generateHysteria2Link(outbound: Outbound): String {
-         val password = java.net.URLEncoder.encode(outbound.password ?: "", "UTF-8")
-         val server = outbound.server ?: ""
+         val password = encodeUrlComponent(outbound.password ?: "")
+         val server = outbound.server?.let { formatServerHost(it) } ?: ""
          val port = outbound.serverPort ?: 443
-         val name = java.net.URLEncoder.encode(outbound.tag, "UTF-8").replace("+", "%20")
+         val name = encodeUrlComponent(outbound.tag)
          
          val params = mutableListOf<String>()
          
-         outbound.tls?.serverName?.let { params.add("sni=$it") }
+         outbound.tls?.serverName?.let { params.add("sni=${encodeUrlComponent(it)}") }
          if (outbound.tls?.insecure == true) params.add("insecure=1")
          
          outbound.obfs?.let { obfs ->
-             obfs.type?.let { params.add("obfs=$it") }
-             obfs.password?.let { params.add("obfs-password=$it") }
+             obfs.type?.let { params.add("obfs=${encodeUrlComponent(it)}") }
+             obfs.password?.let { params.add("obfs-password=${encodeUrlComponent(it)}") }
          }
-         
-         val query = params.joinToString("&")
-         return "hysteria2://$password@$server:$port?$query#$name"
+
+         val queryPart = buildOptionalQuery(params)
+         return "hysteria2://$password@$server:$port${queryPart}#$name"
     }
 
     private fun generateHysteriaLink(outbound: Outbound): String {
-         val server = outbound.server ?: ""
+         val server = outbound.server?.let { formatServerHost(it) } ?: ""
          val port = outbound.serverPort ?: 443
-         val name = java.net.URLEncoder.encode(outbound.tag, "UTF-8").replace("+", "%20")
+         val name = encodeUrlComponent(outbound.tag)
          
          val params = mutableListOf<String>()
-         outbound.authStr?.let { params.add("auth=$it") }
+         outbound.authStr?.let { params.add("auth=${encodeUrlComponent(it)}") }
          outbound.upMbps?.let { params.add("upmbps=$it") }
          outbound.downMbps?.let { params.add("downmbps=$it") }
          
-         outbound.tls?.serverName?.let { params.add("sni=$it") }
+         outbound.tls?.serverName?.let { params.add("sni=${encodeUrlComponent(it)}") }
          if (outbound.tls?.insecure == true) params.add("insecure=1")
          outbound.tls?.alpn?.let { 
-             if (it.isNotEmpty()) params.add("alpn=${it.joinToString(",")}") 
+             if (it.isNotEmpty()) params.add("alpn=${encodeUrlComponent(it.joinToString(","))}") 
          }
          
          outbound.obfs?.let { obfs ->
-             obfs.type?.let { params.add("obfs=$it") }
+             obfs.type?.let { params.add("obfs=${encodeUrlComponent(it)}") }
          }
 
-         val query = params.joinToString("&")
-         return "hysteria://$server:$port?$query#$name"
+         val queryPart = buildOptionalQuery(params)
+         return "hysteria://$server:$port${queryPart}#$name"
     }
     
     /**
      * 生成 AnyTLS 链接
      */
     private fun generateAnyTLSLink(outbound: Outbound): String {
-        val password = java.net.URLEncoder.encode(outbound.password ?: "", "UTF-8")
-        val server = outbound.server ?: ""
+        val password = encodeUrlComponent(outbound.password ?: "")
+        val server = outbound.server?.let { formatServerHost(it) } ?: ""
         val port = outbound.serverPort ?: 443
-        val name = java.net.URLEncoder.encode(outbound.tag, "UTF-8").replace("+", "%20")
+        val name = encodeUrlComponent(outbound.tag)
         
         val params = mutableListOf<String>()
         
-        outbound.tls?.serverName?.let { params.add("sni=$it") }
+        outbound.tls?.serverName?.let { params.add("sni=${encodeUrlComponent(it)}") }
         if (outbound.tls?.insecure == true) params.add("insecure=1")
         outbound.tls?.alpn?.let {
-            if (it.isNotEmpty()) params.add("alpn=${it.joinToString(",")}")
+            if (it.isNotEmpty()) params.add("alpn=${encodeUrlComponent(it.joinToString(","))}")
         }
-        outbound.tls?.utls?.fingerprint?.let { params.add("fp=$it") }
+        outbound.tls?.utls?.fingerprint?.let { params.add("fp=${encodeUrlComponent(it)}") }
         
         outbound.idleSessionCheckInterval?.let { params.add("idle_session_check_interval=$it") }
         outbound.idleSessionTimeout?.let { params.add("idle_session_timeout=$it") }
         outbound.minIdleSession?.let { params.add("min_idle_session=$it") }
         
-        val query = params.joinToString("&")
-        return "anytls://$password@$server:$port?$query#$name"
+        val queryPart = buildOptionalQuery(params)
+        return "anytls://$password@$server:$port${queryPart}#$name"
     }
     
     /**
@@ -2628,26 +2646,26 @@ class ConfigRepository(private val context: Context) {
      */
     private fun generateTuicLink(outbound: Outbound): String {
         val uuid = outbound.uuid ?: ""
-        val password = java.net.URLEncoder.encode(outbound.password ?: "", "UTF-8")
-        val server = outbound.server ?: ""
+        val password = encodeUrlComponent(outbound.password ?: "")
+        val server = outbound.server?.let { formatServerHost(it) } ?: ""
         val port = outbound.serverPort ?: 443
-        val name = java.net.URLEncoder.encode(outbound.tag, "UTF-8").replace("+", "%20")
+        val name = encodeUrlComponent(outbound.tag)
         
         val params = mutableListOf<String>()
         
-        outbound.congestionControl?.let { params.add("congestion_control=$it") }
-        outbound.udpRelayMode?.let { params.add("udp_relay_mode=$it") }
+        outbound.congestionControl?.let { params.add("congestion_control=${encodeUrlComponent(it)}") }
+        outbound.udpRelayMode?.let { params.add("udp_relay_mode=${encodeUrlComponent(it)}") }
         if (outbound.zeroRttHandshake == true) params.add("reduce_rtt=1")
         
-        outbound.tls?.serverName?.let { params.add("sni=$it") }
+        outbound.tls?.serverName?.let { params.add("sni=${encodeUrlComponent(it)}") }
         if (outbound.tls?.insecure == true) params.add("allow_insecure=1")
         outbound.tls?.alpn?.let {
-            if (it.isNotEmpty()) params.add("alpn=${it.joinToString(",")}")
+            if (it.isNotEmpty()) params.add("alpn=${encodeUrlComponent(it.joinToString(","))}")
         }
-        outbound.tls?.utls?.fingerprint?.let { params.add("fp=$it") }
+        outbound.tls?.utls?.fingerprint?.let { params.add("fp=${encodeUrlComponent(it)}") }
         
-        val query = params.joinToString("&")
-        return "tuic://$uuid:$password@$server:$port?$query#$name"
+        val queryPart = buildOptionalQuery(params)
+        return "tuic://$uuid:$password@$server:$port${queryPart}#$name"
     }
 }
 data class SavedProfilesData(
