@@ -435,7 +435,12 @@ class SingBoxService : VpnService() {
         
         override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener?) {
             Log.v(TAG, "closeDefaultInterfaceMonitor")
-            networkCallback?.let { connectivityManager?.unregisterNetworkCallback(it) }
+            networkCallback?.let {
+                try {
+                    connectivityManager?.unregisterNetworkCallback(it)
+                } catch (_: Exception) {
+                }
+            }
             networkCallback = null
             currentInterfaceListener = null
         }

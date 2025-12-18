@@ -14,6 +14,7 @@ import com.kunk.singbox.core.SingBoxCore
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.service.SingBoxService
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.WebSocket
 
@@ -211,10 +213,11 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             try {
                 // 在生成配置前先执行强制迁移，修复可能导致 404 的旧配置
-                val settingsRepository = com.kunk.singbox.repository.SettingsRepository.getInstance(context)
-                settingsRepository.checkAndMigrateRuleSets()
-                
-                val configPath = configRepository.generateConfigFile()
+                val configPath = withContext(Dispatchers.IO) {
+                    val settingsRepository = com.kunk.singbox.repository.SettingsRepository.getInstance(context)
+                    settingsRepository.checkAndMigrateRuleSets()
+                    configRepository.generateConfigFile()
+                }
                 if (configPath == null) {
                     _connectionState.value = ConnectionState.Error
                     _testStatus.value = "配置生成失败"

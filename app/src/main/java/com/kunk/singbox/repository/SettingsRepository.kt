@@ -23,12 +23,14 @@ import com.kunk.singbox.model.TunStack
 import com.kunk.singbox.model.VpnAppMode
 import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.model.GhProxyMirror
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.flowOn
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
@@ -96,7 +98,7 @@ class SettingsRepository(private val context: Context) {
         val ruleSetsJson = preferences[PreferencesKeys.RULE_SETS]
         val ruleSets = if (ruleSetsJson != null) {
             try {
-                Log.d("SettingsRepository", "Loading rule sets from JSON: $ruleSetsJson")
+                Log.d("SettingsRepository", "Loading rule sets from JSON (length=${ruleSetsJson.length})")
                 val list = gson.fromJson<List<RuleSet>>(ruleSetsJson, object : TypeToken<List<RuleSet>>() {}.type) ?: emptyList()
                 Log.d("SettingsRepository", "Parsed ${list.size} rule sets")
                 
@@ -228,7 +230,7 @@ class SettingsRepository(private val context: Context) {
             appRules = appRules,
             appGroups = appGroups
         )
-    }
+    }.flowOn(Dispatchers.Default)
     
     // 通用设置
     suspend fun setAutoConnect(value: Boolean) {

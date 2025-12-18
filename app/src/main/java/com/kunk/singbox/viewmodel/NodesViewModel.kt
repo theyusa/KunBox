@@ -98,6 +98,7 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     }
     
     fun testLatency(nodeId: String) {
+        if (_testingNodeIds.value.contains(nodeId)) return
         viewModelScope.launch {
             _testingNodeIds.value = _testingNodeIds.value + nodeId
             try {

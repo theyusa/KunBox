@@ -156,6 +156,14 @@ class ConfigRepository(private val context: Context) {
         _allNodeGroups.value = groups
     }
 
+    private fun updateLatencyInAllNodes(nodeId: String, latency: Long) {
+        _allNodes.update { list ->
+            list.map {
+                if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else null) else it
+            }
+        }
+    }
+
     private fun loadSavedProfiles() {
         try {
             if (profilesFile.exists()) {
@@ -1129,36 +1137,40 @@ class ConfigRepository(private val context: Context) {
         
         // 如果 VPN 正在运行，尝试通过 API 热切换节点
         if (com.kunk.singbox.service.SingBoxService.isRunning) {
-            val node = _nodes.value.find { it.id == nodeId }
-            if (node != null) {
-                try {
-                    val clashApi = singBoxCore.getClashApiClient()
-                    
-                    // 先获取当前选中的节点
-                    val beforeSwitch = clashApi.getCurrentSelection("PROXY")
-                    Log.v(TAG, "Before switch: current selection = $beforeSwitch, target = ${node.name}")
-                    
-                    val success = clashApi.selectProxy("PROXY", node.name)
-                    
-                    if (success) {
-                        // 验证切换是否生效
-                        val afterSwitch = clashApi.getCurrentSelection("PROXY")
-                        Log.v(TAG, "After switch: current selection = $afterSwitch")
-                        
-                        if (afterSwitch == node.name) {
-                            Log.i(TAG, "Hot switched to node: ${node.name} - VERIFIED")
-                            return true
+            return withContext(Dispatchers.IO) {
+                val node = _nodes.value.find { it.id == nodeId }
+                if (node != null) {
+                    try {
+                        val clashApi = singBoxCore.getClashApiClient()
+
+                        // 先获取当前选中的节点
+                        val beforeSwitch = clashApi.getCurrentSelection("PROXY")
+                        Log.v(TAG, "Before switch: current selection = $beforeSwitch, target = ${node.name}")
+
+                        val success = clashApi.selectProxy("PROXY", node.name)
+
+                        if (success) {
+                            // 验证切换是否生效
+                            val afterSwitch = clashApi.getCurrentSelection("PROXY")
+                            Log.v(TAG, "After switch: current selection = $afterSwitch")
+
+                            if (afterSwitch == node.name) {
+                                Log.i(TAG, "Hot switched to node: ${node.name} - VERIFIED")
+                                true
+                            } else {
+                                Log.e(TAG, "Switch verification failed! Expected: ${node.name}, Got: $afterSwitch")
+                                false
+                            }
                         } else {
-                            Log.e(TAG, "Switch verification failed! Expected: ${node.name}, Got: $afterSwitch")
-                            return false
+                            Log.e(TAG, "Failed to hot switch node: ${node.name}")
+                            false
                         }
-                    } else {
-                        Log.e(TAG, "Failed to hot switch node: ${node.name}")
-                        return false
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error during hot switch", e)
+                        false
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error during hot switch", e)
-                    return false
+                } else {
+                    true
                 }
             }
         }
@@ -1245,7 +1257,7 @@ class ConfigRepository(private val context: Context) {
                 profileNodes[node.sourceProfileId] = profileNodes[node.sourceProfileId]?.map {
                     if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else null) else it
                 } ?: emptyList()
-                updateAllNodesAndGroups()
+                updateLatencyInAllNodes(nodeId, latency)
                 
                 Log.v(TAG, "Latency test result for ${node.name}: ${latency}ms")
                 latency
@@ -1271,7 +1283,9 @@ class ConfigRepository(private val context: Context) {
                 it.copy(latencyMs = null)
             } ?: emptyList()
         }
-        updateAllNodesAndGroups()
+        _allNodes.update { list ->
+            list.map { it.copy(latencyMs = null) }
+        }
     }
 
     suspend fun testAllNodesLatency() = withContext(Dispatchers.IO) {
@@ -1311,7 +1325,7 @@ class ConfigRepository(private val context: Context) {
                 profileNodes[profileId] = profileNodes[profileId]?.map {
                     if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else null) else it
                 } ?: emptyList()
-                updateAllNodesAndGroups()
+                updateLatencyInAllNodes(nodeId, latency)
 
                 Log.v(TAG, "Latency test result for $tag: ${latency}ms")
                 
