@@ -72,7 +72,6 @@ fun ProfilesScreen(
     val profiles by viewModel.profiles.collectAsState()
     val activeProfileId by viewModel.activeProfileId.collectAsState()
     val importState by viewModel.importState.collectAsState()
-    val updateStatus by viewModel.updateStatus.collectAsState()
     
     var showSearchDialog by remember { mutableStateOf(false) }
     var showImportSelection by remember { mutableStateOf(false) }
@@ -97,13 +96,6 @@ fun ProfilesScreen(
                 Toast.makeText(context, state.message, Toast.LENGTH_SHORT).show()
             }
             else -> {}
-        }
-    }
-    
-    // Handle update status feedback
-    androidx.compose.runtime.LaunchedEffect(updateStatus) {
-        updateStatus?.let {
-            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
         }
     }
 
