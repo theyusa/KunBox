@@ -26,6 +26,12 @@ android {
         }
 
         resConfigs("zh", "en") // 仅保留中文和英文资源，减少体积
+        
+        // 过滤 AAR 中的 native 库，只保留 arm64-v8a 架构
+        // libbox.aar 包含 4 个架构(arm64-v8a, armeabi-v7a, x86, x86_64)，每个约 10MB+
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     signingConfigs {
@@ -58,14 +64,8 @@ android {
         }
     }
     
-    splits {
-        abi {
-            isEnable = true
-            reset()
-            include("arm64-v8a") // 仅保留 arm64-v8a，现代设备都是64位
-            isUniversalApk = false // 关闭通用包，强制生成分体包以减小分发体积
-        }
-    }
+    // 注意：不使用 splits.abi，因为与 ndk.abiFilters 冲突
+    // 使用 ndk.abiFilters 来过滤 AAR 中的 native 库
     
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
