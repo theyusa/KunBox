@@ -88,7 +88,7 @@ android {
         // useLegacyPackaging = false 让系统直接从 APK 读取 .so 文件，无需提取到 lib 目录
         // 要求 minSdk >= 23 (Android 6.0+)，当前 minSdk=24 满足要求
         jniLibs {
-            useLegacyPackaging = false
+            useLegacyPackaging = true
         }
     }
     
