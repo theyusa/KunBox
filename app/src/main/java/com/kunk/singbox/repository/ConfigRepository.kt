@@ -7,6 +7,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
 import com.kunk.singbox.core.SingBoxCore
 import com.kunk.singbox.model.*
+import com.kunk.singbox.service.SingBoxService
 import com.kunk.singbox.utils.ClashConfigParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -78,7 +79,12 @@ class ConfigRepository(private val context: Context) {
     val activeNodeId: StateFlow<String?> = _activeNodeId.asStateFlow()
     
     // 存储每个配置对应的原始配置和节点
-    private val profileConfigs = mutableMapOf<String, SingBoxConfig>()
+    private val maxConfigCacheSize = 2
+    private val configCache = object : LinkedHashMap<String, SingBoxConfig>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, SingBoxConfig>?): Boolean {
+            return size > maxConfigCacheSize
+        }
+    }
     private val profileNodes = mutableMapOf<String, List<NodeUi>>()
     
     private val configDir: File
@@ -89,6 +95,51 @@ class ConfigRepository(private val context: Context) {
     
     init {
         loadSavedProfiles()
+    }
+    
+    private fun loadConfig(profileId: String): SingBoxConfig? {
+        synchronized(configCache) {
+            configCache[profileId]?.let { return it }
+        }
+
+        val configFile = File(configDir, "$profileId.json")
+        if (!configFile.exists()) return null
+
+        return try {
+            val configJson = configFile.readText()
+            val config = gson.fromJson(configJson, SingBoxConfig::class.java)
+            synchronized(configCache) {
+                configCache[profileId] = config
+            }
+            config
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load config for profile: $profileId", e)
+            null
+        }
+    }
+
+    private fun cacheConfig(profileId: String, config: SingBoxConfig) {
+        synchronized(configCache) {
+            configCache[profileId] = config
+        }
+    }
+
+    private fun removeCachedConfig(profileId: String) {
+        synchronized(configCache) {
+            configCache.remove(profileId)
+        }
+    }
+
+    private fun saveProfiles() {
+        try {
+            val data = SavedProfilesData(
+                profiles = _profiles.value,
+                activeProfileId = _activeProfileId.value
+            )
+            profilesFile.writeText(gson.toJson(data))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
     
     private fun loadSavedProfiles() {
@@ -106,9 +157,12 @@ class ConfigRepository(private val context: Context) {
                         try {
                             val configJson = configFile.readText()
                             val config = gson.fromJson(configJson, SingBoxConfig::class.java)
-                            profileConfigs[profile.id] = config
                             val nodes = extractNodesFromConfig(config, profile.id)
                             profileNodes[profile.id] = nodes
+
+                            if (profile.id == savedData.activeProfileId) {
+                                cacheConfig(profile.id, config)
+                            }
                         } catch (e: Exception) {
                             e.printStackTrace()
                         }
@@ -126,18 +180,6 @@ class ConfigRepository(private val context: Context) {
                     }
                 }
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-    
-    private fun saveProfiles() {
-        try {
-            val data = SavedProfilesData(
-                profiles = _profiles.value,
-                activeProfileId = _activeProfileId.value
-            )
-            profilesFile.writeText(gson.toJson(data))
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -245,7 +287,7 @@ class ConfigRepository(private val context: Context) {
             )
             
             // 保存到内存
-            profileConfigs[profileId] = config
+            cacheConfig(profileId, config)
             profileNodes[profileId] = nodes
             
             // 更新状态
@@ -301,7 +343,7 @@ class ConfigRepository(private val context: Context) {
                 updateStatus = UpdateStatus.Idle
             )
 
-            profileConfigs[profileId] = config
+            cacheConfig(profileId, config)
             profileNodes[profileId] = nodes
 
             _profiles.update { it + profile }
@@ -1107,7 +1149,7 @@ class ConfigRepository(private val context: Context) {
     
     fun deleteProfile(profileId: String) {
         _profiles.update { list -> list.filter { it.id != profileId } }
-        profileConfigs.remove(profileId)
+        removeCachedConfig(profileId)
         profileNodes.remove(profileId)
         
         // 删除配置文件
@@ -1152,7 +1194,7 @@ class ConfigRepository(private val context: Context) {
                 }
                 
                 // 从配置中获取对应的 Outbound
-                val config = profileConfigs[node.sourceProfileId]
+                val config = loadConfig(node.sourceProfileId)
                 if (config == null) {
                     Log.e(TAG, "Config not found for profile: ${node.sourceProfileId}")
                     return@withContext -1L
@@ -1168,6 +1210,10 @@ class ConfigRepository(private val context: Context) {
                 Log.v(TAG, "Testing latency for node: ${node.name} (${outbound.type})")
                 val fixedOutbound = fixOutboundForRuntime(outbound)
                 val latency = singBoxCore.testOutboundLatency(fixedOutbound)
+                
+                if (!SingBoxService.isRunning) {
+                    singBoxCore.stopTestService()
+                }
                 
                 // 更新节点延迟
                 _nodes.update { list ->
@@ -1217,7 +1263,7 @@ class ConfigRepository(private val context: Context) {
         val tagToProfileId = HashMap<String, String>()
 
         for (node in nodes) {
-            val config = profileConfigs[node.sourceProfileId] ?: continue
+            val config = loadConfig(node.sourceProfileId) ?: continue
             val outbound = config.outbounds?.find { it.tag == node.name } ?: continue
             outbounds.add(fixOutboundForRuntime(outbound))
             tagToNodeId[node.name] = node.id
@@ -1255,6 +1301,10 @@ class ConfigRepository(private val context: Context) {
         }
 
         Log.v(TAG, "Latency test completed for all nodes")
+
+        if (!SingBoxService.isRunning) {
+            singBoxCore.stopTestService()
+        }
     }
 
     suspend fun updateAllProfiles() {
@@ -1326,7 +1376,7 @@ class ConfigRepository(private val context: Context) {
             val configFile = File(configDir, "${profile.id}.json")
             configFile.writeText(gson.toJson(config))
             
-            profileConfigs[profile.id] = config
+            cacheConfig(profile.id, config)
             profileNodes[profile.id] = nodes
             
             // 如果是当前活跃配置，更新节点列表
@@ -1349,7 +1399,7 @@ class ConfigRepository(private val context: Context) {
     suspend fun generateConfigFile(): String? = withContext(Dispatchers.IO) {
         try {
             val activeId = _activeProfileId.value ?: return@withContext null
-            val config = profileConfigs[activeId] ?: return@withContext null
+            val config = loadConfig(activeId) ?: return@withContext null
             val activeNodeId = _activeNodeId.value
             val activeNode = _nodes.value.find { it.id == activeNodeId }
             
@@ -1432,6 +1482,7 @@ class ConfigRepository(private val context: Context) {
                 .replace(Regex("""&ed=\d+"""), "")
                 .trimEnd('?', '&')
                 .ifEmpty { "/" }
+            
             val pathChanged = cleanPath != rawPath
             
             if (needUpdate || pathChanged) {
@@ -1876,14 +1927,15 @@ class ConfigRepository(private val context: Context) {
      * 获取当前活跃配置的原始 JSON
      */
     fun getActiveConfig(): SingBoxConfig? {
-        return _activeProfileId.value?.let { profileConfigs[it] }
+        val id = _activeProfileId.value ?: return null
+        return loadConfig(id)
     }
     
     /**
      * 获取指定配置的原始 JSON
      */
     fun getConfig(profileId: String): SingBoxConfig? {
-        return profileConfigs[profileId]
+        return loadConfig(profileId)
     }
     
     /**
@@ -1891,7 +1943,7 @@ class ConfigRepository(private val context: Context) {
      */
     fun getOutboundByNodeId(nodeId: String): Outbound? {
         val node = _nodes.value.find { it.id == nodeId } ?: return null
-        val config = profileConfigs[node.sourceProfileId] ?: return null
+        val config = loadConfig(node.sourceProfileId) ?: return null
         return config.outbounds?.find { it.tag == node.name }
     }
     
@@ -1908,14 +1960,14 @@ class ConfigRepository(private val context: Context) {
     fun deleteNode(nodeId: String) {
         val node = _nodes.value.find { it.id == nodeId } ?: return
         val profileId = node.sourceProfileId
-        val config = profileConfigs[profileId] ?: return
+        val config = loadConfig(profileId) ?: return
 
         // 过滤掉要删除的节点
         val newOutbounds = config.outbounds?.filter { it.tag != node.name }
         val newConfig = config.copy(outbounds = newOutbounds)
 
         // 更新内存中的配置
-        profileConfigs[profileId] = newConfig
+        cacheConfig(profileId, newConfig)
         
         // 重新提取节点列表
         val newNodes = extractNodesFromConfig(newConfig, profileId)
@@ -1949,7 +2001,7 @@ class ConfigRepository(private val context: Context) {
     fun renameNode(nodeId: String, newName: String) {
         val node = _nodes.value.find { it.id == nodeId } ?: return
         val profileId = node.sourceProfileId
-        val config = profileConfigs[profileId] ?: return
+        val config = loadConfig(profileId) ?: return
 
         // 更新对应节点的 tag
         val newOutbounds = config.outbounds?.map {
@@ -1958,7 +2010,7 @@ class ConfigRepository(private val context: Context) {
         val newConfig = config.copy(outbounds = newOutbounds)
 
         // 更新内存中的配置
-        profileConfigs[profileId] = newConfig
+        cacheConfig(profileId, newConfig)
         
         // 重新提取节点列表
         val newNodes = extractNodesFromConfig(newConfig, profileId)
@@ -1995,7 +2047,7 @@ class ConfigRepository(private val context: Context) {
     fun updateNode(nodeId: String, newOutbound: Outbound) {
         val node = _nodes.value.find { it.id == nodeId } ?: return
         val profileId = node.sourceProfileId
-        val config = profileConfigs[profileId] ?: return
+        val config = loadConfig(profileId) ?: return
 
         // 更新对应节点
         // 注意：这里假设 newOutbound.tag 已经包含了可能的新名称
@@ -2005,7 +2057,7 @@ class ConfigRepository(private val context: Context) {
         val newConfig = config.copy(outbounds = newOutbounds)
 
         // 更新内存中的配置
-        profileConfigs[profileId] = newConfig
+        cacheConfig(profileId, newConfig)
         
         // 重新提取节点列表
         val newNodes = extractNodesFromConfig(newConfig, profileId)
@@ -2046,7 +2098,7 @@ class ConfigRepository(private val context: Context) {
              return null
         }
         
-        val config = profileConfigs[node.sourceProfileId]
+        val config = loadConfig(node.sourceProfileId)
         if (config == null) {
              Log.e(TAG, "exportNode: Config not found for profile: ${node.sourceProfileId}")
              return null

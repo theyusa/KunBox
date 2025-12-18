@@ -7,16 +7,33 @@ import com.kunk.singbox.R
 import com.kunk.singbox.repository.ConfigRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 class VpnTileService : TileService() {
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var stateObserverJob: Job? = null
 
     override fun onStartListening() {
         super.onStartListening()
         updateTile()
+        
+        // 订阅VPN状态变化，确保磁贴状态与实际VPN状态同步
+        stateObserverJob?.cancel()
+        stateObserverJob = serviceScope.launch {
+            SingBoxService.isRunningFlow.collect { isRunning ->
+                updateTile()
+            }
+        }
+    }
+
+    override fun onStopListening() {
+        super.onStopListening()
+        // 停止监听时取消订阅
+        stateObserverJob?.cancel()
+        stateObserverJob = null
     }
 
     override fun onClick() {

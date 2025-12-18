@@ -3,6 +3,7 @@ package com.kunk.singbox.viewmodel
 import android.app.Application
 import android.content.Intent
 import android.net.VpnService
+import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -14,11 +15,16 @@ import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.service.SingBoxService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -39,8 +45,30 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
     
     // Stats
-    private val _stats = MutableStateFlow(ConnectionStats(0, 0, 0, 0, 0))
-    val stats: StateFlow<ConnectionStats> = _stats.asStateFlow()
+    private val _statsBase = MutableStateFlow(ConnectionStats(0, 0, 0, 0, 0))
+    private val _connectedAtElapsedMs = MutableStateFlow<Long?>(null)
+
+    private val durationMsFlow: Flow<Long> = connectionState.flatMapLatest { state ->
+        if (state == ConnectionState.Connected) {
+            flow {
+                while (true) {
+                    val start = _connectedAtElapsedMs.value
+                    emit(if (start != null) SystemClock.elapsedRealtime() - start else 0L)
+                    delay(1000)
+                }
+            }
+        } else {
+            flowOf(0L)
+        }
+    }
+
+    val stats: StateFlow<ConnectionStats> = combine(_statsBase, durationMsFlow) { base, duration ->
+        base.copy(duration = duration)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = ConnectionStats(0, 0, 0, 0, 0)
+    )
     
     // 当前节点的实时延迟（VPN启动后测得的）
     private val _currentNodePing = MutableStateFlow<Long?>(null)
@@ -83,7 +111,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             initialValue = emptyList()
         )
     
-    private var statsJob: Job? = null
     private var trafficSmoothingJob: Job? = null
     
     // Status
@@ -103,14 +130,16 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             SingBoxService.isRunningFlow.collect { running ->
                 if (running) {
                     _connectionState.value = ConnectionState.Connected
+                    _connectedAtElapsedMs.value = SystemClock.elapsedRealtime()
                     startTrafficMonitor()
                     // VPN 启动后自动对当前节点进行测速
                     startPingTest()
                 } else if (!SingBoxService.isStarting) {
                     _connectionState.value = ConnectionState.Idle
+                    _connectedAtElapsedMs.value = null
                     stopTrafficMonitor()
                     stopPingTest()
-                    _stats.value = ConnectionStats(0, 0, 0, 0, 0)
+                    _statsBase.value = ConnectionStats(0, 0, 0, 0, 0)
                     _currentNodePing.value = null
                 }
             }
@@ -223,7 +252,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         stopPingTest()
         // Immediately set to Idle for responsive UI
         _connectionState.value = ConnectionState.Idle
-        _stats.value = ConnectionStats(0, 0, 0, 0, 0)
+        _connectedAtElapsedMs.value = null
+        _statsBase.value = ConnectionStats(0, 0, 0, 0, 0)
         _currentNodePing.value = null
         
         val intent = Intent(context, SingBoxService::class.java).apply {
@@ -324,16 +354,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         lastUploadSpeed = 0
         lastDownloadSpeed = 0
         
-        // 启动计时器
-        statsJob = viewModelScope.launch {
-            while (_connectionState.value == ConnectionState.Connected) {
-                delay(1000)
-                _stats.update { current ->
-                    current.copy(duration = current.duration + 1000)
-                }
-            }
-        }
-        
         // 连接 WebSocket 获取实时流量，使用平滑处理
         trafficWebSocket = singBoxCore.getClashApiClient().connectTrafficWebSocket { up, down ->
             // 使用指数移动平均进行平滑处理，减少闪烁
@@ -344,7 +364,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             lastUploadSpeed = smoothedUp
             lastDownloadSpeed = smoothedDown
             
-            _stats.update { current ->
+            _statsBase.update { current ->
                 current.copy(
                     uploadSpeed = smoothedUp,
                     downloadSpeed = smoothedDown,
@@ -356,8 +376,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
     
     private fun stopTrafficMonitor() {
-        statsJob?.cancel()
-        statsJob = null
         trafficSmoothingJob?.cancel()
         trafficSmoothingJob = null
         trafficWebSocket?.close(1000, "Stop monitoring")

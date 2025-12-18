@@ -11,7 +11,9 @@ import com.kunk.singbox.model.Outbound
 import com.kunk.singbox.model.SingBoxConfig
 import com.kunk.singbox.service.SingBoxService
 import io.nekohasekai.libbox.*
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -19,6 +21,7 @@ import java.io.File
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.util.Collections
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Sing-box 核心封装类
@@ -58,6 +61,8 @@ class SingBoxCore private constructor(private val context: Context) {
         private const val URL_TEST_URL = "https://www.gstatic.com/generate_204"
         private const val URL_TEST_TIMEOUT = 5000 // 5 seconds
         private const val TEST_SERVICE_KEEP_ALIVE_MS = 30_000L // 保活 30 秒
+
+        private val libboxSetupDone = AtomicBoolean(false)
         
         @Volatile
         private var instance: SingBoxCore? = null
@@ -67,6 +72,28 @@ class SingBoxCore private constructor(private val context: Context) {
                 instance ?: SingBoxCore(context.applicationContext).also {
                     instance = it
                 }
+            }
+        }
+
+        fun ensureLibboxSetup(context: Context) {
+            if (libboxSetupDone.get()) return
+
+            val appContext = context.applicationContext
+            val workDir = File(appContext.filesDir, "singbox_work").also { it.mkdirs() }
+            val tempDir = File(appContext.cacheDir, "singbox_temp").also { it.mkdirs() }
+
+            val setupOptions = SetupOptions().apply {
+                basePath = appContext.filesDir.absolutePath
+                workingPath = workDir.absolutePath
+                this.tempPath = tempDir.absolutePath
+            }
+
+            if (!libboxSetupDone.compareAndSet(false, true)) return
+            try {
+                Libbox.setup(setupOptions)
+            } catch (e: Exception) {
+                libboxSetupDone.set(false)
+                Log.w(TAG, "Libbox setup warning: ${e.message}")
             }
         }
     }
@@ -92,30 +119,8 @@ class SingBoxCore private constructor(private val context: Context) {
     private fun initLibbox(): Boolean {
         return try {
             // 尝试加载 libbox 类
-                val libboxClass = Class.forName("io.nekohasekai.libbox.Libbox")
-                Log.v(TAG, "Libbox class loaded successfully")
-                
-                // 尝试 setup
-                try {
-                    // public static void setup(String baseDir, String workingDir, String tempDir, boolean debug)
-                    val setupMethod = libboxClass.getMethod("setup", String::class.java, String::class.java, String::class.java, Boolean::class.javaPrimitiveType)
-                    // Base dir should be passed as the first argument
-                    setupMethod.invoke(null, context.filesDir.absolutePath, workDir.absolutePath, tempDir.absolutePath, false)
-                    Log.v(TAG, "Libbox setup succeeded")
-                } catch (e: NoSuchMethodException) {
-                     // Try old signature if new one fails (String, String, boolean)
-                     try {
-                        val setupMethod = libboxClass.getMethod("setup", String::class.java, String::class.java, Boolean::class.javaPrimitiveType)
-                        setupMethod.invoke(null, workDir.absolutePath, tempDir.absolutePath, false)
-                        Log.v(TAG, "Libbox setup succeeded (legacy)")
-                     } catch (e2: Exception) {
-                         Log.w(TAG, "Libbox setup failed: ${e2.message}")
-                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Libbox setup failed: ${e.message}")
-                }
-            
-            Log.v(TAG, "Libbox available for VPN service")
+            Class.forName("io.nekohasekai.libbox.Libbox")
+            ensureLibboxSetup(context)
             true
         } catch (e: ClassNotFoundException) {
             Log.w(TAG, "Libbox class not found - AAR not included")
@@ -143,14 +148,14 @@ class SingBoxCore private constructor(private val context: Context) {
             return@withContext testOutboundLatencyWithClashApi(outbound)
         }
         
-        // 使用保活服务进行测试
         try {
             ensureTestServiceRunning(listOf(outbound))
-            val latency = testOutboundLatencyWithClashApi(outbound)
-            return@withContext latency
+            testOutboundLatencyWithClashApi(outbound)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to test latency with temporary service", e)
-            return@withContext -1L
+            -1L
+        } finally {
+            stopTestService()
         }
     }
     
@@ -165,16 +170,11 @@ class SingBoxCore private constructor(private val context: Context) {
     ) = withContext(Dispatchers.IO) {
         try {
             if (!SingBoxService.isRunning) {
-                Log.i(TAG, "VPN not running, using keep-alive test service")
                 ensureTestServiceRunning(outbounds)
             } else {
-                Log.i(TAG, "VPN is running, using existing service for latency test")
-                // VPN 运行时，确保使用正确的 Clash API 地址
                 clashApiClient.setBaseUrl("http://127.0.0.1:9090")
             }
 
-            Log.i(TAG, "Starting real latency test for ${outbounds.size} nodes via Clash API")
-            
             for (outbound in outbounds) {
                 val latency = testOutboundLatencyWithClashApi(outbound)
                 onResult(outbound.tag, latency)
@@ -182,6 +182,10 @@ class SingBoxCore private constructor(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start test service", e)
             outbounds.forEach { onResult(it.tag, -1L) }
+        } finally {
+            if (!SingBoxService.isRunning) {
+                stopTestService()
+            }
         }
     }
     
@@ -224,19 +228,12 @@ class SingBoxCore private constructor(private val context: Context) {
             val clashBaseUrl = "http://127.0.0.1:$testServiceClashPort"
             val config = buildBatchTestConfig(outbounds, testServiceClashPort)
             val configJson = gson.toJson(config)
-            Log.v(TAG, "Batch test config: $configJson")
+            if (Log.isLoggable(TAG, Log.VERBOSE)) {
+                Log.v(TAG, "Batch test config length: ${configJson.length}")
+            }
             
             try {
-                val setupOptions = SetupOptions().apply {
-                    basePath = context.filesDir.absolutePath
-                    workingPath = workDir.absolutePath
-                    this.tempPath = tempDir.absolutePath
-                }
-                try {
-                    Libbox.setup(setupOptions)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Libbox setup warning: ${e.message}")
-                }
+                ensureLibboxSetup(context)
 
                 testServiceClashBaseUrl = clashBaseUrl
                 clashApiClient.setBaseUrl(clashBaseUrl)

@@ -17,6 +17,7 @@ import android.os.Process
 import android.system.OsConstants
 import android.util.Log
 import com.kunk.singbox.MainActivity
+import com.kunk.singbox.core.SingBoxCore
 import com.kunk.singbox.model.AppSettings
 import com.kunk.singbox.model.VpnAppMode
 import com.kunk.singbox.model.VpnRouteMode
@@ -129,6 +130,9 @@ class SingBoxService : VpnService() {
     private var currentSettings: AppSettings? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     @Volatile private var connectionOwnerPermissionDeniedLogged = false
+
+    @Volatile private var lastRuleSetCheckMs: Long = 0L
+    private val ruleSetCheckIntervalMs: Long = 6 * 60 * 60 * 1000L
 
     @Volatile private var autoReconnectEnabled: Boolean = false
     @Volatile private var lastAutoReconnectAttemptMs: Long = 0L
@@ -500,10 +504,11 @@ class SingBoxService : VpnService() {
         override fun systemCertificates(): StringIterator? = null
         
         override fun writeLog(message: String?) {
-            Log.d(TAG, "libbox: $message")
-            message?.let { 
-                com.kunk.singbox.repository.LogRepository.getInstance().addLog(it)
+            if (message.isNullOrBlank()) return
+            if (Log.isLoggable(TAG, Log.DEBUG)) {
+                Log.d(TAG, "libbox: $message")
             }
+            com.kunk.singbox.repository.LogRepository.getInstance().addLog(message)
         }
     }
     
@@ -647,13 +652,17 @@ class SingBoxService : VpnService() {
                 // 1. 确保规则集就绪（预下载）
                 // 即使下载失败也继续启动，使用旧缓存或空文件，避免阻塞启动
                 try {
-                    Log.i(TAG, "Checking rule sets...")
-                    val ruleSetRepo = RuleSetRepository.getInstance(this@SingBoxService)
-                    val allReady = ruleSetRepo.ensureRuleSetsReady(allowNetwork = false) { progress ->
-                        Log.v(TAG, "Rule set update: $progress")
-                    }
-                    if (!allReady) {
-                        Log.w(TAG, "Some rule sets are not ready, proceeding with available cache")
+                    val now = System.currentTimeMillis()
+                    val shouldCheck = now - lastRuleSetCheckMs >= ruleSetCheckIntervalMs
+                    if (shouldCheck) {
+                        lastRuleSetCheckMs = now
+                        val ruleSetRepo = RuleSetRepository.getInstance(this@SingBoxService)
+                        val allReady = ruleSetRepo.ensureRuleSetsReady(allowNetwork = false) { progress ->
+                            Log.v(TAG, "Rule set update: $progress")
+                        }
+                        if (!allReady) {
+                            Log.w(TAG, "Some rule sets are not ready, proceeding with available cache")
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to update rule sets", e)
@@ -673,21 +682,8 @@ class SingBoxService : VpnService() {
                 val configContent = configFile.readText()
                 Log.v(TAG, "Config loaded, length: ${configContent.length}")
                 
-                // 初始化 libbox
-                val workDir = File(filesDir, "singbox_work")
-                val tempDir = File(cacheDir, "singbox_temp")
-                workDir.mkdirs()
-                tempDir.mkdirs()
-                
-                val setupOptions = SetupOptions().apply {
-                    basePath = filesDir.absolutePath
-                    workingPath = workDir.absolutePath
-                    this.tempPath = tempDir.absolutePath
-                }
-                
                 try {
-                    Libbox.setup(setupOptions)
-                    Log.i(TAG, "Libbox setup completed")
+                    SingBoxCore.ensureLibboxSetup(this@SingBoxService)
                 } catch (e: Exception) {
                     Log.w(TAG, "Libbox setup warning: ${e.message}")
                 }
