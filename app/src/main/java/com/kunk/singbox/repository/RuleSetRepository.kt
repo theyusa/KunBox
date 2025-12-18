@@ -53,41 +53,55 @@ class RuleSetRepository(private val context: Context) {
      * @param forceUpdate 是否强制更新（忽略过期时间）
      * @return 是否所有规则集都可用（至少有旧缓存）
      */
-    suspend fun ensureRuleSetsReady(forceUpdate: Boolean = false, onProgress: (String) -> Unit = {}): Boolean = withContext(Dispatchers.IO) {
+    suspend fun ensureRuleSetsReady(
+        forceUpdate: Boolean = false,
+        allowNetwork: Boolean = false,
+        onProgress: (String) -> Unit = {}
+    ): Boolean = withContext(Dispatchers.IO) {
         val settings = settingsRepository.settings.first()
         var allReady = true
 
         // 1. 处理广告拦截规则集
         if (settings.blockAds) {
             val adBlockFile = getRuleSetFile(AD_BLOCK_TAG)
-            
+
             // 尝试从 assets 安装 baseline
             if (!adBlockFile.exists()) {
                 onProgress("正在安装基础规则集...")
                 installBaselineRuleSet(AD_BLOCK_TAG, adBlockFile)
             }
 
-            // 仅在强制更新或文件仍不存在时尝试下载
-            if (!adBlockFile.exists() || (forceUpdate && isExpired(adBlockFile))) {
+            if (allowNetwork && (!adBlockFile.exists() || (forceUpdate && isExpired(adBlockFile)))) {
                 onProgress("正在更新广告规则集...")
                 val success = downloadAdBlockRuleSet(settings)
                 if (!success && !adBlockFile.exists()) {
                     allReady = false
                     Log.e(TAG, "Failed to download ad block rule set and no cache available")
                 }
+            } else if (!adBlockFile.exists()) {
+                allReady = false
+                Log.w(TAG, "Ad block rule set missing, and network download is disabled")
             }
         }
 
         // 2. 处理自定义远程规则集
         settings.ruleSets.filter { it.enabled && it.type == RuleSetType.REMOTE }.forEach { ruleSet ->
             val file = getRuleSetFile(ruleSet.tag)
-            if (!file.exists() || (forceUpdate && isExpired(file))) {
+
+            if (!file.exists()) {
+                installBaselineRuleSet(ruleSet.tag, file)
+            }
+
+            if (allowNetwork && (!file.exists() || (forceUpdate && isExpired(file)))) {
                 onProgress("正在更新规则集: ${ruleSet.tag}...")
                 val success = downloadCustomRuleSet(ruleSet)
                 if (!success && !file.exists()) {
                     allReady = false
                     Log.e(TAG, "Failed to download rule set ${ruleSet.tag} and no cache available")
                 }
+            } else if (!file.exists()) {
+                allReady = false
+                Log.w(TAG, "Rule set ${ruleSet.tag} missing, and network download is disabled")
             }
         }
 

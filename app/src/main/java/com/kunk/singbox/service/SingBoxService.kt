@@ -621,7 +621,7 @@ class SingBoxService : VpnService() {
                 try {
                     Log.i(TAG, "Checking rule sets...")
                     val ruleSetRepo = RuleSetRepository.getInstance(this@SingBoxService)
-                    val allReady = ruleSetRepo.ensureRuleSetsReady { progress ->
+                    val allReady = ruleSetRepo.ensureRuleSetsReady(allowNetwork = false) { progress ->
                         Log.v(TAG, "Rule set update: $progress")
                     }
                     if (!allReady) {

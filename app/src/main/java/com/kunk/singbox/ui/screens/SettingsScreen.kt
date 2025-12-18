@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -129,7 +131,7 @@ fun SettingsScreen(navController: NavController) {
                 trailing = {
                     if (isUpdatingRuleSets) {
                         CircularProgressIndicator(
-                            modifier = Modifier.height(24.dp).padding(end = 8.dp),
+                            modifier = Modifier.size(18.dp).padding(end = 8.dp),
                             strokeWidth = 2.dp
                         )
                     }
@@ -140,12 +142,25 @@ fun SettingsScreen(navController: NavController) {
                         updateMessage = "准备更新..."
                         scope.launch {
                             try {
-                                val success = RuleSetRepository.getInstance(context).ensureRuleSetsReady(forceUpdate = true) {
+                                val success = RuleSetRepository.getInstance(context).ensureRuleSetsReady(
+                                    forceUpdate = true,
+                                    allowNetwork = true
+                                ) {
                                     updateMessage = it
                                 }
                                 updateMessage = if (success) "更新成功" else "更新失败"
+                                Toast.makeText(
+                                    context,
+                                    if (success) "规则集更新成功" else "规则集更新失败",
+                                    Toast.LENGTH_SHORT
+                                ).show()
                             } catch (e: Exception) {
                                 updateMessage = "发生错误: ${e.message}"
+                                Toast.makeText(
+                                    context,
+                                    "规则集更新失败: ${e.message}",
+                                    Toast.LENGTH_SHORT
+                                ).show()
                             } finally {
                                 kotlinx.coroutines.delay(1000)
                                 isUpdatingRuleSets = false

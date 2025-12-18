@@ -53,13 +53,8 @@ import com.kunk.singbox.ui.navigation.NAV_ANIMATION_DURATION
 import com.kunk.singbox.ui.theme.OLEDBlack
 import com.kunk.singbox.ui.theme.PureWhite
 import com.kunk.singbox.ui.theme.SingBoxTheme
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import androidx.work.Constraints
-import androidx.work.NetworkType
 import com.kunk.singbox.worker.RuleSetUpdateWorker
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -73,26 +68,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             SingBoxApp()
         }
-        
-        scheduleRuleSetUpdate()
+
+        cancelRuleSetUpdateWork()
     }
-    
-    private fun scheduleRuleSetUpdate() {
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .build()
-            
-        val workRequest = PeriodicWorkRequestBuilder<RuleSetUpdateWorker>(
-            24, TimeUnit.HOURS // Repeat interval: every 24 hours
-        )
-            .setConstraints(constraints)
-            .build()
-            
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            RuleSetUpdateWorker.WORK_NAME,
-            ExistingPeriodicWorkPolicy.KEEP, // Keep existing work if already scheduled
-            workRequest
-        )
+
+    private fun cancelRuleSetUpdateWork() {
+        WorkManager.getInstance(this).cancelUniqueWork(RuleSetUpdateWorker.WORK_NAME)
     }
 }
 

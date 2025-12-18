@@ -21,7 +21,7 @@ class RuleSetUpdateWorker(
         return try {
             val repository = RuleSetRepository.getInstance(applicationContext)
             // Force update to check for new versions
-            val success = repository.ensureRuleSetsReady(forceUpdate = true) { progress ->
+            val success = repository.ensureRuleSetsReady(forceUpdate = true, allowNetwork = false) { progress ->
                 Log.d(TAG, "Update progress: $progress")
             }
 
@@ -30,11 +30,11 @@ class RuleSetUpdateWorker(
                 Result.success()
             } else {
                 Log.w(TAG, "Rule set update finished with some failures")
-                Result.retry()
+                Result.success()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error updating rule sets", e)
-            Result.retry()
+            Result.success()
         }
     }
 }
