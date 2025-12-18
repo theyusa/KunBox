@@ -61,6 +61,16 @@ sealed class Screen(val route: String) {
 
 const val NAV_ANIMATION_DURATION = 450
 
+private fun tabIndex(route: String?): Int {
+    return when {
+        route == Screen.Dashboard.route -> 0
+        route == Screen.Nodes.route -> 1
+        route == Screen.Profiles.route -> 2
+        route == Screen.Settings.route -> 3
+        else -> 0
+    }
+}
+
 // Map sub-routes to their parent tab
 fun getTabForRoute(route: String?): String {
     if (route == null) return Screen.Dashboard.route
@@ -104,10 +114,24 @@ fun AppNavigation(navController: NavHostController) {
         slideOutHorizontally(targetOffsetX = { -it / 3 }, animationSpec = slideSpec)
     }
     val popEnterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
-        slideInHorizontally(initialOffsetX = { -it / 3 }, animationSpec = slideSpec)
+        EnterTransition.None
     }
     val popExitTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
         slideOutHorizontally(targetOffsetX = { it }, animationSpec = slideSpec)
+    }
+
+    val tabEnterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
+        val from = tabIndex(initialState.destination.route)
+        val to = tabIndex(targetState.destination.route)
+        val direction = if (to >= from) 1 else -1
+        slideInHorizontally(initialOffsetX = { direction * it }, animationSpec = slideSpec)
+    }
+
+    val tabExitTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
+        val from = tabIndex(initialState.destination.route)
+        val to = tabIndex(targetState.destination.route)
+        val direction = if (to >= from) 1 else -1
+        slideOutHorizontally(targetOffsetX = { -direction * it }, animationSpec = slideSpec)
     }
 
     NavHost(
@@ -115,10 +139,34 @@ fun AppNavigation(navController: NavHostController) {
         startDestination = Screen.Dashboard.route
     ) {
         // Main Tabs
-        composable(Screen.Dashboard.route) { DashboardScreen(navController) }
-        composable(Screen.Nodes.route) { NodesScreen(navController) }
-        composable(Screen.Profiles.route) { ProfilesScreen(navController) }
-        composable(Screen.Settings.route) { SettingsScreen(navController) }
+        composable(
+            route = Screen.Dashboard.route,
+            enterTransition = tabEnterTransition,
+            exitTransition = tabExitTransition,
+            popEnterTransition = { EnterTransition.None },
+            popExitTransition = { ExitTransition.None }
+        ) { DashboardScreen(navController) }
+        composable(
+            route = Screen.Nodes.route,
+            enterTransition = tabEnterTransition,
+            exitTransition = tabExitTransition,
+            popEnterTransition = { EnterTransition.None },
+            popExitTransition = { ExitTransition.None }
+        ) { NodesScreen(navController) }
+        composable(
+            route = Screen.Profiles.route,
+            enterTransition = tabEnterTransition,
+            exitTransition = tabExitTransition,
+            popEnterTransition = { EnterTransition.None },
+            popExitTransition = { ExitTransition.None }
+        ) { ProfilesScreen(navController) }
+        composable(
+            route = Screen.Settings.route,
+            enterTransition = tabEnterTransition,
+            exitTransition = tabExitTransition,
+            popEnterTransition = { EnterTransition.None },
+            popExitTransition = { ExitTransition.None }
+        ) { SettingsScreen(navController) }
         
         // Sub Screens
         composable(

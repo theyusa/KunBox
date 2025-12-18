@@ -122,7 +122,7 @@ class ClashApiClient(
                 if (response.isSuccessful) {
                     response.body?.string()?.let { body ->
                         val result = gson.fromJson(body, DelayResponse::class.java)
-                        Log.d(TAG, "Delay for $proxyName: ${result.delay}ms")
+                        Log.v(TAG, "Delay for $proxyName: ${result.delay}ms")
                         result.delay.toLong()
                     } ?: -1L
                 } else {
@@ -197,7 +197,7 @@ class ClashApiClient(
                 json
             )
 
-            Log.d(TAG, "Selecting proxy: selector=$selectorName, proxy=$proxyName, url=$url")
+            Log.v(TAG, "Selecting proxy: selector=$selectorName, proxy=$proxyName, url=$url")
 
             val request = Request.Builder()
                 .url(url)
@@ -213,7 +213,7 @@ class ClashApiClient(
                 if (!response.isSuccessful) {
                     Log.e(TAG, "Failed to select proxy: ${response.code} ${response.message}")
                 } else {
-                    Log.d(TAG, "Successfully selected proxy: $proxyName")
+                    Log.i(TAG, "Successfully selected proxy: $proxyName")
                 }
                 response.isSuccessful
             }
@@ -230,7 +230,7 @@ class ClashApiClient(
         try {
             val proxies = getProxies() ?: return@withContext null
             val selector = proxies.proxies[selectorName]
-            Log.d(TAG, "Current selection for $selectorName: ${selector?.now}")
+            Log.v(TAG, "Current selection for $selectorName: ${selector?.now}")
             selector?.now
         } catch (e: Exception) {
             Log.e(TAG, "Error getting current selection", e)

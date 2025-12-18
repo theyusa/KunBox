@@ -80,7 +80,7 @@ class SingBoxCore private constructor(private val context: Context) {
         libboxAvailable = initLibbox()
         
         if (libboxAvailable) {
-            Log.d(TAG, "Libbox initialized successfully")
+            Log.i(TAG, "Libbox initialized successfully")
         } else {
             Log.w(TAG, "Libbox not available, using fallback mode")
         }
@@ -93,7 +93,7 @@ class SingBoxCore private constructor(private val context: Context) {
         return try {
             // 尝试加载 libbox 类
                 val libboxClass = Class.forName("io.nekohasekai.libbox.Libbox")
-                Log.d(TAG, "Libbox class loaded successfully")
+                Log.v(TAG, "Libbox class loaded successfully")
                 
                 // 尝试 setup
                 try {
@@ -101,13 +101,13 @@ class SingBoxCore private constructor(private val context: Context) {
                     val setupMethod = libboxClass.getMethod("setup", String::class.java, String::class.java, String::class.java, Boolean::class.javaPrimitiveType)
                     // Base dir should be passed as the first argument
                     setupMethod.invoke(null, context.filesDir.absolutePath, workDir.absolutePath, tempDir.absolutePath, false)
-                    Log.d(TAG, "Libbox setup succeeded")
+                    Log.v(TAG, "Libbox setup succeeded")
                 } catch (e: NoSuchMethodException) {
                      // Try old signature if new one fails (String, String, boolean)
                      try {
                         val setupMethod = libboxClass.getMethod("setup", String::class.java, String::class.java, Boolean::class.javaPrimitiveType)
                         setupMethod.invoke(null, workDir.absolutePath, tempDir.absolutePath, false)
-                        Log.d(TAG, "Libbox setup succeeded (legacy)")
+                        Log.v(TAG, "Libbox setup succeeded (legacy)")
                      } catch (e2: Exception) {
                          Log.w(TAG, "Libbox setup failed: ${e2.message}")
                      }
@@ -115,7 +115,7 @@ class SingBoxCore private constructor(private val context: Context) {
                     Log.w(TAG, "Libbox setup failed: ${e.message}")
                 }
             
-            Log.d(TAG, "Libbox available for VPN service")
+            Log.v(TAG, "Libbox available for VPN service")
             true
         } catch (e: ClassNotFoundException) {
             Log.w(TAG, "Libbox class not found - AAR not included")
@@ -197,7 +197,7 @@ class SingBoxCore private constructor(private val context: Context) {
             
             if (testService != null && !needRestart) {
                 // 服务已运行且包含所需节点，重置保活计时器
-                Log.d(TAG, "Reusing existing test service")
+                Log.v(TAG, "Reusing existing test service")
                 testServiceStartTime = System.currentTimeMillis()
                 scheduleServiceShutdown()
                 return
@@ -224,7 +224,7 @@ class SingBoxCore private constructor(private val context: Context) {
             val clashBaseUrl = "http://127.0.0.1:$testServiceClashPort"
             val config = buildBatchTestConfig(outbounds, testServiceClashPort)
             val configJson = gson.toJson(config)
-            Log.d(TAG, "Batch test config: $configJson")
+            Log.v(TAG, "Batch test config: $configJson")
             
             try {
                 val setupOptions = SetupOptions().apply {
@@ -246,7 +246,7 @@ class SingBoxCore private constructor(private val context: Context) {
                 val platformInterface = TestPlatformInterface(context)
                 testService = Libbox.newService(configJson, platformInterface)
                 testService?.start()
-                Log.d(TAG, "Test service started with keep-alive")
+                Log.i(TAG, "Test service started with keep-alive")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start test service", e)
                 stopTestServiceInternal()
@@ -259,7 +259,7 @@ class SingBoxCore private constructor(private val context: Context) {
         while (retry < 20) {
             delay(100)
             if (clashApiClient.isAvailable()) {
-                Log.d(TAG, "Test service API ready after ${(retry + 1) * 100}ms")
+                Log.v(TAG, "Test service API ready after ${(retry + 1) * 100}ms")
                 break
             }
             retry++
@@ -284,7 +284,7 @@ class SingBoxCore private constructor(private val context: Context) {
             synchronized(serviceLock) {
                 val elapsed = System.currentTimeMillis() - testServiceStartTime
                 if (elapsed >= TEST_SERVICE_KEEP_ALIVE_MS) {
-                    Log.d(TAG, "Test service keep-alive expired, stopping")
+                    Log.v(TAG, "Test service keep-alive expired, stopping")
                     stopTestServiceInternal()
                 }
             }
@@ -318,7 +318,7 @@ class SingBoxCore private constructor(private val context: Context) {
         try {
             serviceToClose?.close()
             if (serviceToClose != null) {
-                Log.d(TAG, "Test service stopped")
+                Log.i(TAG, "Test service stopped")
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error stopping test service", e)
@@ -407,7 +407,7 @@ class SingBoxCore private constructor(private val context: Context) {
                 }
                 baselineLatency = totalTime / 3
                 baselineCalibrated = true
-                Log.d(TAG, "Baseline latency calibrated: ${baselineLatency}ms")
+                Log.v(TAG, "Baseline latency calibrated: ${baselineLatency}ms")
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to calibrate baseline", e)
@@ -438,7 +438,7 @@ class SingBoxCore private constructor(private val context: Context) {
             val rawDelay = clashApiClient.testProxyDelay(outbound.tag)
             if (rawDelay > 0) {
                 val calibratedDelay = calibrateLatency(rawDelay)
-                Log.d(TAG, "Latency for ${outbound.tag}: raw=${rawDelay}ms, calibrated=${calibratedDelay}ms (baseline=${baselineLatency}ms)")
+                Log.v(TAG, "Latency for ${outbound.tag}: raw=${rawDelay}ms, calibrated=${calibratedDelay}ms (baseline=${baselineLatency}ms)")
                 calibratedDelay
             } else {
                 Log.w(TAG, "Latency test failed for ${outbound.tag} (result: $rawDelay)")
@@ -604,8 +604,8 @@ class SingBoxCore private constructor(private val context: Context) {
         override fun localDNSTransport(): LocalDNSTransport? = null
         override fun systemCertificates(): StringIterator? = null
         override fun writeLog(message: String?) {
-            Log.d("SingBoxCoreTest", "libbox: $message")
-            message?.let { 
+            Log.v("SingBoxCoreTest", "libbox: $message")
+            message?.let {
                 com.kunk.singbox.repository.LogRepository.getInstance().addLog("[Test] $it")
             }
         }

@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -86,11 +87,11 @@ class SingBoxService : VpnService() {
     private val platformInterface = object : PlatformInterface {
         override fun autoDetectInterfaceControl(fd: Int) {
             val result = protect(fd)
-            Log.d(TAG, "autoDetectInterfaceControl: $fd, protect result: $result")
+            // Log.v(TAG, "autoDetectInterfaceControl: $fd, protect result: $result")
         }
         
         override fun openTun(options: TunOptions?): Int {
-            Log.d(TAG, "openTun called")
+            Log.v(TAG, "openTun called")
             if (options == null) return -1
             
             val settings = currentSettings
@@ -129,13 +130,13 @@ class SingBoxService : VpnService() {
                 val activeNetwork = connectivityManager?.activeNetwork
                 if (activeNetwork != null) {
                     builder.setUnderlyingNetworks(arrayOf(activeNetwork))
-                    Log.d(TAG, "Set underlying network: $activeNetwork")
+                    Log.v(TAG, "Set underlying network: $activeNetwork")
                 }
             }
             
             vpnInterface = builder.establish()
             val fd = vpnInterface?.fd ?: -1
-            Log.d(TAG, "TUN interface established with fd: $fd")
+            Log.i(TAG, "TUN interface established with fd: $fd")
             return fd
         }
         
@@ -151,12 +152,27 @@ class SingBoxService : VpnService() {
             destinationPort: Int
         ): Int = 0
         
-        override fun packageNameByUid(uid: Int): String = ""
+        override fun packageNameByUid(uid: Int): String {
+            return try {
+                val pkgs = packageManager.getPackagesForUid(uid)
+                if (!pkgs.isNullOrEmpty()) pkgs[0] else ""
+            } catch (e: Exception) {
+                ""
+            }
+        }
         
-        override fun uidByPackageName(packageName: String?): Int = 0
+        override fun uidByPackageName(packageName: String?): Int {
+            if (packageName.isNullOrBlank()) return 0
+            return try {
+                val appInfo = packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
+                appInfo.uid
+            } catch (e: Exception) {
+                0
+            }
+        }
         
         override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener?) {
-            Log.d(TAG, "startDefaultInterfaceMonitor")
+            Log.v(TAG, "startDefaultInterfaceMonitor")
             currentInterfaceListener = listener
             
             connectivityManager = getSystemService(ConnectivityManager::class.java)
@@ -167,7 +183,7 @@ class SingBoxService : VpnService() {
                 }
                 
                 override fun onLost(network: Network) {
-                    Log.d(TAG, "Network lost")
+                    Log.i(TAG, "Network lost")
                     currentInterfaceListener?.updateDefaultInterface("", 0, false, false)
                 }
                 
@@ -188,7 +204,7 @@ class SingBoxService : VpnService() {
         }
         
         override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener?) {
-            Log.d(TAG, "closeDefaultInterfaceMonitor")
+            Log.v(TAG, "closeDefaultInterfaceMonitor")
             networkCallback?.let { connectivityManager?.unregisterNetworkCallback(it) }
             networkCallback = null
             currentInterfaceListener = null
@@ -283,7 +299,7 @@ class SingBoxService : VpnService() {
             serviceScope.launch {
                 val settings = SettingsRepository.getInstance(this@SingBoxService).settings.first()
                 if (settings.autoReconnect && !isRunning && !isManuallyStopped && lastConfigPath != null) {
-                    Log.d(TAG, "Auto-reconnecting on network available: $interfaceName")
+                    Log.i(TAG, "Auto-reconnecting on network available: $interfaceName")
                     startVpn(lastConfigPath!!)
                 }
             }
@@ -296,7 +312,7 @@ class SingBoxService : VpnService() {
                 val caps = connectivityManager?.getNetworkCapabilities(network)
                 val isExpensive = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) != true
                 val isConstrained = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_CONGESTED) != true
-                Log.d(TAG, "Default interface updated: $interfaceName (index: $index, expensive: $isExpensive)")
+                Log.i(TAG, "Default interface updated: $interfaceName (index: $index, expensive: $isExpensive)")
                 currentInterfaceListener?.updateDefaultInterface(interfaceName, index, isExpensive, isConstrained)
             }
         } catch (e: Exception) {
@@ -309,6 +325,15 @@ class SingBoxService : VpnService() {
         createNotificationChannel()
         // 初始化 ConnectivityManager
         connectivityManager = getSystemService(ConnectivityManager::class.java)
+        
+        // 监听活动节点变化，更新通知
+        serviceScope.launch {
+            ConfigRepository.getInstance(this@SingBoxService).activeNodeId.collect { activeNodeId ->
+                if (isRunning) {
+                    updateNotification()
+                }
+            }
+        }
     }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -363,13 +388,20 @@ class SingBoxService : VpnService() {
         }
         
         lastConfigPath = configPath
-        startForeground(NOTIFICATION_ID, createNotification())
+        Log.d(TAG, "Attempting to start foreground service with ID: $NOTIFICATION_ID")
+        try {
+            val notification = createNotification()
+            startForeground(NOTIFICATION_ID, notification)
+            Log.d(TAG, "startForeground called successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to call startForeground", e)
+        }
         
         serviceScope.launch {
             try {
                 // 加载最新设置
                 currentSettings = SettingsRepository.getInstance(this@SingBoxService).settings.first()
-                Log.d(TAG, "Settings loaded: tunEnabled=${currentSettings?.tunEnabled}")
+                Log.v(TAG, "Settings loaded: tunEnabled=${currentSettings?.tunEnabled}")
 
                 // 读取配置文件
                 val configFile = File(configPath)
@@ -379,7 +411,7 @@ class SingBoxService : VpnService() {
                     return@launch
                 }
                 val configContent = configFile.readText()
-                Log.d(TAG, "Config loaded, length: ${configContent.length}")
+                Log.v(TAG, "Config loaded, length: ${configContent.length}")
                 
                 // 初始化 libbox
                 val workDir = File(filesDir, "singbox_work")
@@ -395,7 +427,7 @@ class SingBoxService : VpnService() {
                 
                 try {
                     Libbox.setup(setupOptions)
-                    Log.d(TAG, "Libbox setup completed")
+                    Log.i(TAG, "Libbox setup completed")
                 } catch (e: Exception) {
                     Log.w(TAG, "Libbox setup warning: ${e.message}")
                 }
@@ -403,7 +435,7 @@ class SingBoxService : VpnService() {
                 // 创建并启动 BoxService
                 boxService = Libbox.newService(configContent, platformInterface)
                 boxService?.start()
-                Log.d(TAG, "BoxService started")
+                Log.i(TAG, "BoxService started")
                 
                 isRunning = true
                 Log.i(TAG, "SingBox VPN started successfully")
@@ -441,6 +473,7 @@ class SingBoxService : VpnService() {
     
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Log.d(TAG, "Creating notification channel: $CHANNEL_ID")
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "SingBox VPN",
@@ -450,6 +483,7 @@ class SingBoxService : VpnService() {
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
+            Log.d(TAG, "Notification channel created")
         }
     }
     

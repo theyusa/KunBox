@@ -916,17 +916,17 @@ class ConfigRepository(private val context: Context) {
                     
                     // 先获取当前选中的节点
                     val beforeSwitch = clashApi.getCurrentSelection("PROXY")
-                    Log.d(TAG, "Before switch: current selection = $beforeSwitch, target = ${node.name}")
+                    Log.v(TAG, "Before switch: current selection = $beforeSwitch, target = ${node.name}")
                     
                     val success = clashApi.selectProxy("PROXY", node.name)
                     
                     if (success) {
                         // 验证切换是否生效
                         val afterSwitch = clashApi.getCurrentSelection("PROXY")
-                        Log.d(TAG, "After switch: current selection = $afterSwitch")
+                        Log.v(TAG, "After switch: current selection = $afterSwitch")
                         
                         if (afterSwitch == node.name) {
-                            Log.d(TAG, "Hot switched to node: ${node.name} - VERIFIED")
+                            Log.i(TAG, "Hot switched to node: ${node.name} - VERIFIED")
                             return true
                         } else {
                             Log.e(TAG, "Switch verification failed! Expected: ${node.name}, Got: $afterSwitch")
@@ -1005,7 +1005,7 @@ class ConfigRepository(private val context: Context) {
                 }
                 
                 // 使用 SingBoxCore 进行真正的延迟测试
-                Log.d(TAG, "Testing latency for node: ${node.name} (${outbound.type})")
+                Log.v(TAG, "Testing latency for node: ${node.name} (${outbound.type})")
                 val fixedOutbound = fixOutboundForRuntime(outbound)
                 val latency = singBoxCore.testOutboundLatency(fixedOutbound)
                 
@@ -1021,7 +1021,7 @@ class ConfigRepository(private val context: Context) {
                     if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else null) else it
                 } ?: emptyList()
                 
-                Log.d(TAG, "Latency test result for ${node.name}: ${latency}ms")
+                Log.v(TAG, "Latency test result for ${node.name}: ${latency}ms")
                 latency
             } catch (e: Exception) {
                 Log.e(TAG, "Latency test error for $nodeId", e)
@@ -1049,7 +1049,7 @@ class ConfigRepository(private val context: Context) {
 
     suspend fun testAllNodesLatency() = withContext(Dispatchers.IO) {
         val nodes = _nodes.value
-        Log.d(TAG, "Starting latency test for ${nodes.size} nodes")
+        Log.v(TAG, "Starting latency test for ${nodes.size} nodes")
 
         // 构建需要测试的 outbounds 列表，使用 singBoxCore 批量测试，避免并发启动多个临时服务导致崩溃
         val outbounds = ArrayList<com.kunk.singbox.model.Outbound>()
@@ -1085,7 +1085,7 @@ class ConfigRepository(private val context: Context) {
                     if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else null) else it
                 } ?: emptyList()
 
-                Log.d(TAG, "Latency test result for $tag: ${latency}ms")
+                Log.v(TAG, "Latency test result for $tag: ${latency}ms")
                 
                 // 短暂延迟以避免UI刷新过快或系统负载过高
                 kotlinx.coroutines.delay(50)
@@ -1094,7 +1094,7 @@ class ConfigRepository(private val context: Context) {
             }
         }
 
-        Log.d(TAG, "Latency test completed for all nodes")
+        Log.v(TAG, "Latency test completed for all nodes")
     }
 
     suspend fun updateAllProfiles() {
@@ -1302,7 +1302,7 @@ class ConfigRepository(private val context: Context) {
      * 构建广告拦截路由规则（使用在线规则集）
      */
     private fun buildAdBlockRules(): List<RouteRule> {
-        Log.d(TAG, "Building ad-block routing rules with rule-set")
+        Log.v(TAG, "Building ad-block routing rules with rule-set")
         
         return listOf(
             RouteRule(
@@ -1358,7 +1358,7 @@ class ConfigRepository(private val context: Context) {
 
         // 记录所有可用的 outbound tags，用于调试
         val availableTags = outbounds.map { it.tag }
-        Log.d(TAG, "Available outbound tags for rule matching: $availableTags")
+        Log.v(TAG, "Available outbound tags for rule matching: $availableTags")
         
         // 对规则集进行排序：更具体的规则应该排在前面
         // 优先级：单节点/分组 > 代理 > 直连 > 拦截
@@ -1389,10 +1389,10 @@ class ConfigRepository(private val context: Context) {
             )
         )
         
-        Log.d(TAG, "Sorted rule sets order: ${sortedRuleSets.map { "${it.tag}(${it.outboundMode})" }}")
+        Log.v(TAG, "Sorted rule sets order: ${sortedRuleSets.map { "${it.tag}(${it.outboundMode})" }}")
         
         sortedRuleSets.forEach { ruleSet ->
-            Log.d(TAG, "Processing rule set: ${ruleSet.tag}, mode=${ruleSet.outboundMode}, value=${ruleSet.outboundValue}")
+            Log.v(TAG, "Processing rule set: ${ruleSet.tag}, mode=${ruleSet.outboundMode}, value=${ruleSet.outboundValue}")
             
             val outboundTag = when (ruleSet.outboundMode ?: RuleSetOutboundMode.DIRECT) {
                 RuleSetOutboundMode.DIRECT -> "direct"
@@ -1401,7 +1401,7 @@ class ConfigRepository(private val context: Context) {
                 RuleSetOutboundMode.NODE -> {
                     val nodeName = ruleSet.outboundValue
                     val found = outbounds.any { it.tag == nodeName }
-                    Log.d(TAG, "NODE mode: nodeName='$nodeName', found=$found")
+                    Log.v(TAG, "NODE mode: nodeName='$nodeName', found=$found")
                     if (!nodeName.isNullOrEmpty() && found) {
                         nodeName
                     } else {
@@ -1447,7 +1447,7 @@ class ConfigRepository(private val context: Context) {
                 inbound = inboundTags
             ))
             
-            Log.d(TAG, "Added rule set rule: ${ruleSet.tag} -> $outboundTag (inbounds: $inboundTags)")
+            Log.v(TAG, "Added rule set rule: ${ruleSet.tag} -> $outboundTag (inbounds: $inboundTags)")
         }
 
         return rules
@@ -1484,7 +1484,7 @@ class ConfigRepository(private val context: Context) {
                 outbound = outboundTag
             ))
             
-            Log.d(TAG, "Added app rule: ${rule.appName} (${rule.packageName}) -> $outboundTag")
+            Log.v(TAG, "Added app rule: ${rule.appName} (${rule.packageName}) -> $outboundTag")
         }
         
         // 2. 处理应用分组
@@ -1510,11 +1510,11 @@ class ConfigRepository(private val context: Context) {
                     outbound = outboundTag
                 ))
                 
-                Log.d(TAG, "Added app group rule: ${group.name} (${packageNames.size} apps) -> $outboundTag")
+                Log.v(TAG, "Added app group rule: ${group.name} (${packageNames.size} apps) -> $outboundTag")
             }
         }
         
-        Log.d(TAG, "Generated ${rules.size} app routing rules")
+        Log.v(TAG, "Generated ${rules.size} app routing rules")
         return rules
     }
     
@@ -1693,7 +1693,7 @@ class ConfigRepository(private val context: Context) {
         ) + appRoutingRules + adBlockRules + customRuleSetRules
         
         // 记录所有生成的路由规则
-        Log.d(TAG, "=== Generated Route Rules (${allRules.size} total) ===")
+        Log.v(TAG, "=== Generated Route Rules (${allRules.size} total) ===")
         allRules.forEachIndexed { index, rule ->
             val ruleDesc = buildString {
                 rule.protocol?.let { append("protocol=$it ") }
@@ -1703,9 +1703,9 @@ class ConfigRepository(private val context: Context) {
                 rule.inbound?.let { append("inbound=$it ") }
                 append("-> ${rule.outbound}")
             }
-            Log.d(TAG, "  Rule[$index]: $ruleDesc")
+            Log.v(TAG, "  Rule[$index]: $ruleDesc")
         }
-        Log.d(TAG, "=== Final outbound: $selectorTag ===")
+        Log.v(TAG, "=== Final outbound: $selectorTag ===")
         
         val route = RouteConfig(
             ruleSet = filteredAdBlockRuleSets + customRuleSets,
