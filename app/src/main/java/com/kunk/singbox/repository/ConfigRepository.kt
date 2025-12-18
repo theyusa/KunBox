@@ -95,6 +95,7 @@ class ConfigRepository(private val context: Context) {
     private val configCache = ConcurrentHashMap<String, SingBoxConfig>()
     private val configCacheOrder = java.util.concurrent.ConcurrentLinkedDeque<String>()
     private val profileNodes = ConcurrentHashMap<String, List<NodeUi>>()
+    private val profileResetJobs = ConcurrentHashMap<String, kotlinx.coroutines.Job>()
     
     private val configDir: File
         get() = File(context.filesDir, "configs").also { it.mkdirs() }
@@ -1451,11 +1452,16 @@ class ConfigRepository(private val context: Context) {
         }
 
         // 异步延迟重置状态，不阻塞当前方法返回
-        scope.launch {
+        profileResetJobs.remove(profileId)?.cancel()
+        profileResetJobs[profileId] = scope.launch {
             kotlinx.coroutines.delay(2000)
             _profiles.update { list ->
                 list.map {
-                    if (it.id == profileId) it.copy(updateStatus = UpdateStatus.Idle) else it
+                    if (it.id == profileId && it.updateStatus != UpdateStatus.Updating) {
+                        it.copy(updateStatus = UpdateStatus.Idle)
+                    } else {
+                        it
+                    }
                 }
             }
         }
@@ -2410,15 +2416,15 @@ class ConfigRepository(private val context: Context) {
         
         Log.d(TAG, "exportNode: Found outbound ${outbound.tag} of type ${outbound.type}")
 
-        return when (outbound.type) {
+        val link = when (outbound.type) {
             "vless" -> generateVLessLink(outbound)
             "vmess" -> generateVMessLink(outbound)
             "shadowsocks" -> generateShadowsocksLink(outbound)
             "trojan" -> generateTrojanLink(outbound)
             "hysteria2" -> {
-                val link = generateHysteria2Link(outbound)
-                Log.d(TAG, "exportNode: Generated hy2 link: $link")
-                link
+                val hy2 = generateHysteria2Link(outbound)
+                Log.d(TAG, "exportNode: Generated hy2 link: $hy2")
+                hy2
             }
             "hysteria" -> generateHysteriaLink(outbound)
             "anytls" -> generateAnyTLSLink(outbound)
@@ -2428,6 +2434,8 @@ class ConfigRepository(private val context: Context) {
                 null
             }
         }
+
+        return link?.takeIf { it.isNotBlank() }
     }
 
     private fun encodeUrlComponent(value: String): String {
@@ -2546,17 +2554,20 @@ class ConfigRepository(private val context: Context) {
     }
 
     private fun generateShadowsocksLink(outbound: Outbound): String {
-        val userInfo = "${outbound.method}:${outbound.password}"
+        val method = outbound.method ?: return ""
+        val password = outbound.password ?: return ""
+        val server = outbound.server?.let { formatServerHost(it) } ?: return ""
+        val port = outbound.serverPort ?: return ""
+        val userInfo = "$method:$password"
         val encodedUserInfo = Base64.encodeToString(userInfo.toByteArray(), Base64.NO_WRAP)
-        val server = outbound.server?.let { formatServerHost(it) } ?: ""
-        val serverPart = "$server:${outbound.serverPort}"
+        val serverPart = "$server:$port"
         val name = encodeUrlComponent(outbound.tag)
         return "ss://$encodedUserInfo@$serverPart#$name"
     }
     
     private fun generateTrojanLink(outbound: Outbound): String {
          val password = encodeUrlComponent(outbound.password ?: "")
-         val server = outbound.server?.let { formatServerHost(it) } ?: ""
+         val server = outbound.server?.let { formatServerHost(it) } ?: return ""
          val port = outbound.serverPort ?: 443
          val name = encodeUrlComponent(outbound.tag)
          
@@ -2573,7 +2584,7 @@ class ConfigRepository(private val context: Context) {
 
     private fun generateHysteria2Link(outbound: Outbound): String {
          val password = encodeUrlComponent(outbound.password ?: "")
-         val server = outbound.server?.let { formatServerHost(it) } ?: ""
+         val server = outbound.server?.let { formatServerHost(it) } ?: return ""
          val port = outbound.serverPort ?: 443
          val name = encodeUrlComponent(outbound.tag)
          
@@ -2592,7 +2603,7 @@ class ConfigRepository(private val context: Context) {
     }
 
     private fun generateHysteriaLink(outbound: Outbound): String {
-         val server = outbound.server?.let { formatServerHost(it) } ?: ""
+         val server = outbound.server?.let { formatServerHost(it) } ?: return ""
          val port = outbound.serverPort ?: 443
          val name = encodeUrlComponent(outbound.tag)
          
@@ -2620,7 +2631,7 @@ class ConfigRepository(private val context: Context) {
      */
     private fun generateAnyTLSLink(outbound: Outbound): String {
         val password = encodeUrlComponent(outbound.password ?: "")
-        val server = outbound.server?.let { formatServerHost(it) } ?: ""
+        val server = outbound.server?.let { formatServerHost(it) } ?: return ""
         val port = outbound.serverPort ?: 443
         val name = encodeUrlComponent(outbound.tag)
         
@@ -2647,7 +2658,7 @@ class ConfigRepository(private val context: Context) {
     private fun generateTuicLink(outbound: Outbound): String {
         val uuid = outbound.uuid ?: ""
         val password = encodeUrlComponent(outbound.password ?: "")
-        val server = outbound.server?.let { formatServerHost(it) } ?: ""
+        val server = outbound.server?.let { formatServerHost(it) } ?: return ""
         val port = outbound.serverPort ?: 443
         val name = encodeUrlComponent(outbound.tag)
         
