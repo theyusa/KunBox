@@ -24,13 +24,11 @@ jobs:
         with:
           java-version: "17"
           distribution: "temurin"
-          cache: gradle
 
-      - name: Fix gradlew line endings and permissions
-        run: |
-          # Fix CRLF to LF line endings (in case file was created on Windows)
-          sed -i 's/\r$//' gradlew
-          chmod +x gradlew
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
 
       - name: Calculate Version
         id: version
@@ -47,7 +45,7 @@ jobs:
           echo "name=$VERSION_NAME" >> $GITHUB_OUTPUT
 
       - name: Build with Gradle
-        run: ./gradlew assembleRelease -PversionCode=${{ env.COMMIT_COUNT }} -PversionName=${{ env.VERSION_NAME }}
+        run: gradle assembleRelease -PversionCode=${{ env.COMMIT_COUNT }} -PversionName=${{ env.VERSION_NAME }}
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
