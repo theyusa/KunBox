@@ -216,8 +216,10 @@ fun ProfilesScreen(
             ) {
                 itemsIndexed(profiles, key = { _, profile -> profile.id }) { index, profile ->
                     var visible by remember { mutableStateOf(false) }
-                    LaunchedEffect(Unit) {
-                        delay(index * 50L)
+                    androidx.compose.runtime.LaunchedEffect(Unit) {
+                        if (index < 15) {
+                            delay(index * 50L)
+                        }
                         visible = true
                     }
 
