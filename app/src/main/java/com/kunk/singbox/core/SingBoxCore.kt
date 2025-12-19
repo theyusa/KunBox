@@ -37,6 +37,7 @@ import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.lang.reflect.Modifier
+import java.lang.reflect.Method
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -211,6 +212,24 @@ class SingBoxCore private constructor(private val context: Context) {
                         }
                     }
                 }
+
+                // 最宽松匹配：仅要求前两个参数为 String 的静态方法
+                if (methodToUse == null) {
+                    for (m in methods) {
+                        val params = m.parameterTypes
+                        if (params.size >= 2 && params[0] == String::class.java && params[1] == String::class.java && Modifier.isStatic(m.modifiers)) {
+                            try {
+                                val pi = testPlatformInterface ?: TestPlatformInterface(context)
+                                val args = buildUrlTestArgs(params, outboundJson, url, pi)
+                                val result = m.invoke(null, *args)
+                                return@withContext when {
+                                    m.returnType == Long::class.javaPrimitiveType -> result as Long
+                                    else -> extractDelayFromUrlTest(result, settings.latencyTestMethod)
+                                }
+                            } catch (_: Exception) { }
+                        }
+                    }
+                }
             }
 
             // 如果找到方法，执行它
@@ -283,9 +302,7 @@ class SingBoxCore private constructor(private val context: Context) {
                         try {
                             try { service.start() } catch (_: Exception) {}
                             val p = instMethod!!.parameterTypes
-                            val timeoutParam = if (p[2] == Int::class.javaPrimitiveType) 5000 else 5000L
-                            val args = if (p.size == 4 && p[3].isInterface) arrayOf(outboundJson, url, timeoutParam, pi)
-                            else arrayOf(outboundJson, url, timeoutParam)
+                            val args = buildUrlTestArgs(p, outboundJson, url, pi)
                             val result = instMethod!!.invoke(service, *args)
                             return@withContext when (instMethodType) {
                                 0 -> result as Long
@@ -295,6 +312,33 @@ class SingBoxCore private constructor(private val context: Context) {
                         } finally {
                             try { service.close() } catch (_: Exception) {}
                         }
+                    }
+
+                    // 最宽松匹配：仅要求前两个参数为 String 的实例方法
+                    ensureLibboxSetup(context)
+                    val pi = testPlatformInterface ?: TestPlatformInterface(context)
+                    val minimalConfig = SingBoxConfig(
+                        log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true)
+                    )
+                    val cfgJson = gson.toJson(minimalConfig)
+                    val service = Libbox.newService(cfgJson, pi)
+                    try {
+                        try { service.start() } catch (_: Exception) {}
+                        for (m in instanceMethods) {
+                            val params = m.parameterTypes
+                            if (params.size >= 2 && params[0] == String::class.java && params[1] == String::class.java && !Modifier.isStatic(m.modifiers)) {
+                                try {
+                                    val args = buildUrlTestArgs(params, outboundJson, url, pi)
+                                    val result = m.invoke(service, *args)
+                                    return@withContext when {
+                                        m.returnType == Long::class.javaPrimitiveType -> result as Long
+                                        else -> extractDelayFromUrlTest(result, settings.latencyTestMethod)
+                                    }
+                                } catch (_: Exception) { }
+                            }
+                        }
+                    } finally {
+                        try { service.close() } catch (_: Exception) {}
                     }
                 } catch (_: Exception) { }
             }
