@@ -917,7 +917,7 @@ class SingBoxService : VpnService() {
         val interfaceToClose = vpnInterface
         vpnInterface = null
 
-        cleanupScope.launch {
+        cleanupScope.launch(NonCancellable) {
             try {
                 platformInterface.closeDefaultInterfaceMonitor(listener)
             } catch (_: Exception) {
@@ -1056,7 +1056,7 @@ class SingBoxService : VpnService() {
     override fun onDestroy() {
         stopVpn(stopService = false)
         serviceSupervisorJob.cancel()
-        cleanupSupervisorJob.cancel()
+        // cleanupSupervisorJob.cancel() // Allow cleanup to finish naturally
         super.onDestroy()
     }
      
