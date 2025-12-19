@@ -1929,7 +1929,7 @@ class ConfigRepository(private val context: Context) {
         val dnsRules = mutableListOf<DnsRule>()
 
         // 1. 本地 DNS (放在前面或作为 final 可以提高非匹配域名的解析速度)
-        val localDnsAddr = settings.localDns.takeIf { it.isNotBlank() } ?: "223.5.5.5"
+        val localDnsAddr = settings.localDns.takeIf { it.isNotBlank() } ?: "https://dns.alidns.com/dns-query"
         dnsServers.add(
             DnsServer(
                 tag = "local",

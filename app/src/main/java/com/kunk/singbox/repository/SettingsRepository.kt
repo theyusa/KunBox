@@ -229,8 +229,14 @@ class SettingsRepository(private val context: Context) {
             vpnBlocklist = preferences[PreferencesKeys.VPN_BLOCKLIST] ?: "",
             
             // DNS 设置
-            localDns = preferences[PreferencesKeys.LOCAL_DNS] ?: "https://dns.alidns.com/dns-query",
-            remoteDns = preferences[PreferencesKeys.REMOTE_DNS] ?: "https://dns.google/dns-query",
+            localDns = preferences[PreferencesKeys.LOCAL_DNS].let { dns ->
+                if (dns == "8.8.8.8" || dns == "223.5.5.5") "https://dns.alidns.com/dns-query"
+                else dns ?: "https://dns.alidns.com/dns-query"
+            },
+            remoteDns = preferences[PreferencesKeys.REMOTE_DNS].let { dns ->
+                if (dns == "1.1.1.1") "https://dns.google/dns-query"
+                else dns ?: "https://dns.google/dns-query"
+            },
             fakeDnsEnabled = preferences[PreferencesKeys.FAKE_DNS_ENABLED] ?: true,
             fakeIpRange = preferences[PreferencesKeys.FAKE_IP_RANGE] ?: "198.18.0.0/15",
             dnsStrategy = DnsStrategy.fromDisplayName(preferences[PreferencesKeys.DNS_STRATEGY] ?: "优先 IPv4"),
