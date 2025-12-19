@@ -157,7 +157,6 @@ class SingBoxCore private constructor(private val context: Context) {
         
         try {
             val settings = SettingsRepository.getInstance(context).settings.first()
-            // 根据模式调整 URL（尽量逼近 Clash API 的三种语义）
             val url = adjustUrlForMode(settings.latencyTestUrl, settings.latencyTestMethod)
             val timeout = 5000L
             val outboundJson = gson.toJson(outbound)
@@ -207,7 +206,7 @@ class SingBoxCore private constructor(private val context: Context) {
                 
                 return@withContext when (methodType) {
                     0 -> result as Long // 直接返回 long 延迟
-                    1 -> { // 返回 URLTest 对象，尽量从对象中按模式提取指标
+                    1 -> { // 返回 URLTest 对象
                         extractDelayFromUrlTest(result, settings.latencyTestMethod)
                     }
                     else -> -1L
@@ -227,12 +226,6 @@ class SingBoxCore private constructor(private val context: Context) {
     private var discoveredUrlTestMethod: java.lang.reflect.Method? = null
     private var discoveredMethodType: Int = 0 // 0: long, 1: URLTest object
     
-    /**
-     * 根据测试模式对 URL 做最小化调整，以近似实现 tcp/handshake/real 语义
-     * - TCP: 强制使用 http（避免 TLS），尽量只包含 TCP 建连 + 简单 HTTP 往返
-     * - HANDSHAKE: 强制使用 https（包含 TLS 握手）
-     * - REAL_RTT: 原样使用
-     */
     private fun adjustUrlForMode(original: String, method: LatencyTestMethod): String {
         return try {
             val u = URI(original)
@@ -243,14 +236,8 @@ class SingBoxCore private constructor(private val context: Context) {
             val userInfo = u.userInfo
             val port = u.port
             when (method) {
-                LatencyTestMethod.TCP -> {
-                    // 使用 http 以避免 TLS，尽量贴近 TCP 连接耗时
-                    URI("http", userInfo, host, if (port == -1) -1 else port, path, query, fragment).toString()
-                }
-                LatencyTestMethod.HANDSHAKE -> {
-                    // 使用 https 以包含 TLS 握手
-                    URI("https", userInfo, host, if (port == -1) -1 else port, path, query, fragment).toString()
-                }
+                LatencyTestMethod.TCP -> URI("http", userInfo, host, if (port == -1) -1 else port, path, query, fragment).toString()
+                LatencyTestMethod.HANDSHAKE -> URI("https", userInfo, host, if (port == -1) -1 else port, path, query, fragment).toString()
                 else -> original
             }
         } catch (_: Exception) {
@@ -258,9 +245,6 @@ class SingBoxCore private constructor(private val context: Context) {
         }
     }
     
-    /**
-     * 从 URLTest 对象中按模式提取延迟，兼容不同 libbox 版本的字段/方法命名
-     */
     private fun extractDelayFromUrlTest(resultObj: Any?, method: LatencyTestMethod): Long {
         if (resultObj == null) return -1L
         fun tryGet(names: Array<String>): Long? {
@@ -271,6 +255,17 @@ class SingBoxCore private constructor(private val context: Context) {
                     when (v) {
                         is Long -> if (v > 0) return v
                         is Int -> if (v > 0) return v.toLong()
+                    }
+                } catch (_: Exception) { }
+                try {
+                    val f = try { resultObj.javaClass.getDeclaredField(n) } catch (_: Exception) { null }
+                    if (f != null) {
+                        f.isAccessible = true
+                        val v = f.get(resultObj)
+                        when (v) {
+                            is Long -> if (v > 0) return v
+                            is Int -> if (v > 0) return v.toLong()
+                        }
                     }
                 } catch (_: Exception) { }
             }

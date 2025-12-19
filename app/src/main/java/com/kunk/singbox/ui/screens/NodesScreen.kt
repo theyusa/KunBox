@@ -16,15 +16,17 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import kotlinx.coroutines.delay
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material3.CircularProgressIndicator
@@ -259,7 +261,7 @@ fun NodesScreen(
                     contentColor = Color.Black
                 ) {
                     Icon(
-                        imageVector = if (isFabExpanded) Icons.Rounded.Sort else Icons.Rounded.Add,
+                        imageVector = if (isFabExpanded) Icons.Rounded.Close else Icons.Rounded.Add,
                         contentDescription = "菜单"
                     )
                 }
@@ -322,11 +324,11 @@ fun NodesScreen(
                 contentPadding = PaddingValues(bottom = 88.dp, top = 16.dp, start = 16.dp, end = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(
+                itemsIndexed(
                     items = filteredNodes,
-                    key = { it.id },
-                    contentType = { "node" }
-                ) { node ->
+                    key = { _, node -> node.id },
+                    contentType = { _, _ -> "node" }
+                ) { index, node ->
                     val isSelected = activeNodeId == node.id
                     val isTestingNode = testingNodeIds.contains(node.id)
                     
@@ -345,19 +347,30 @@ fun NodesScreen(
                     val onLatency = remember(node.id) { { viewModel.testLatency(node.id) } }
                     val onDelete = remember(node.id) { { viewModel.deleteNode(node.id) } }
 
-                      NodeCard(
-                          name = node.displayName,
-                          type = node.protocol,
+                    var visible by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        delay(index * 50L)
+                        visible = true
+                    }
 
-                        latency = node.latencyMs,
-                        isSelected = isSelected,
-                        isTesting = isTestingNode,
-                        onClick = onNodeClick,
-                        onEdit = onEdit,
-                        onExport = onExport,
-                        onLatency = onLatency,
-                        onDelete = onDelete
-                    )
+                    AnimatedVisibility(
+                        visible = visible,
+                        enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
+                        exit = fadeOut()
+                    ) {
+                        NodeCard(
+                            name = node.displayName,
+                            type = node.protocol,
+                            latency = node.latencyMs,
+                            isSelected = isSelected,
+                            isTesting = isTestingNode,
+                            onClick = onNodeClick,
+                            onEdit = onEdit,
+                            onExport = onExport,
+                            onLatency = onLatency,
+                            onDelete = onDelete
+                        )
+                    }
                 }
             }
         }

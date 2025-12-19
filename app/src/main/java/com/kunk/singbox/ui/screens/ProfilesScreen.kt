@@ -17,8 +17,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import kotlinx.coroutines.delay
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Description
@@ -209,27 +214,39 @@ fun ProfilesScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(profiles, key = { it.id }) { profile ->
-                    ProfileCard(
-                        name = profile.name,
-                        type = profile.type.name,
-                        isSelected = profile.id == activeProfileId,
-                        isEnabled = profile.enabled,
-                        isUpdating = profile.updateStatus == UpdateStatus.Updating,
-                        onClick = { viewModel.setActiveProfile(profile.id) },
-                        onUpdate = {
-                            viewModel.updateProfile(profile.id)
-                        },
-                        onToggle = {
-                            viewModel.toggleProfileEnabled(profile.id)
-                        },
-                        onEdit = {
-                            navController.navigate(Screen.ProfileEditor.route)
-                        },
-                        onDelete = {
-                            viewModel.deleteProfile(profile.id)
-                        }
-                    )
+                itemsIndexed(profiles, key = { _, profile -> profile.id }) { index, profile ->
+                    var visible by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        delay(index * 50L)
+                        visible = true
+                    }
+
+                    AnimatedVisibility(
+                        visible = visible,
+                        enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
+                        exit = fadeOut()
+                    ) {
+                        ProfileCard(
+                            name = profile.name,
+                            type = profile.type.name,
+                            isSelected = profile.id == activeProfileId,
+                            isEnabled = profile.enabled,
+                            isUpdating = profile.updateStatus == UpdateStatus.Updating,
+                            onClick = { viewModel.setActiveProfile(profile.id) },
+                            onUpdate = {
+                                viewModel.updateProfile(profile.id)
+                            },
+                            onToggle = {
+                                viewModel.toggleProfileEnabled(profile.id)
+                            },
+                            onEdit = {
+                                navController.navigate(Screen.ProfileEditor.route)
+                            },
+                            onDelete = {
+                                viewModel.deleteProfile(profile.id)
+                            }
+                        )
+                    }
                 }
             }
         }
