@@ -31,6 +31,11 @@ import java.io.File
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.URI
+import java.net.InetSocketAddress
+import java.net.Proxy
+import java.util.concurrent.TimeUnit
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.lang.reflect.Modifier
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
@@ -239,7 +244,16 @@ class SingBoxCore private constructor(private val context: Context) {
         } catch (e: Exception) {
             Log.w(TAG, "Libbox native URL test failed: ${e.message}")
         }
-        -1L
+
+        // 使用本地 HTTP 入站 + 代理的方式进行原生测速（不依赖 Clash API）
+        return@withContext try {
+            val settings = SettingsRepository.getInstance(context).settings.first()
+            val finalUrl = adjustUrlForMode(settings.latencyTestUrl, settings.latencyTestMethod)
+            testWithLocalHttpProxy(outbound, finalUrl, 5000)
+        } catch (e: Exception) {
+            Log.w(TAG, "Native HTTP proxy test failed: ${e.message}")
+            -1L
+        }
     }
 
     private var discoveredUrlTestMethod: java.lang.reflect.Method? = null
@@ -300,6 +314,68 @@ class SingBoxCore private constructor(private val context: Context) {
         // 最后通用兜底
         return tryGet(arrayOf("delay", "getDelay")) ?: -1L
     }
+
+    private suspend fun testWithLocalHttpProxy(outbound: Outbound, targetUrl: String, timeoutMs: Int): Long = withContext(Dispatchers.IO) {
+        val port = allocateLocalPort()
+        val inbound = com.kunk.singbox.model.Inbound(
+            type = "http",
+            tag = "test-in",
+            listen = "127.0.0.1",
+            listenPort = port
+        )
+        val direct = com.kunk.singbox.model.Outbound(type = "direct", tag = "direct")
+
+        val config = SingBoxConfig(
+            log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true),
+            dns = com.kunk.singbox.model.DnsConfig(
+                servers = listOf(
+                    com.kunk.singbox.model.DnsServer(tag = "google", address = "8.8.8.8", detour = "direct"),
+                    com.kunk.singbox.model.DnsServer(tag = "local", address = "223.5.5.5", detour = "direct")
+                )
+            ),
+            inbounds = listOf(inbound),
+            outbounds = listOf(outbound, direct),
+            route = com.kunk.singbox.model.RouteConfig(
+                rules = listOf(
+                    com.kunk.singbox.model.RouteRule(protocol = listOf("dns"), outbound = "direct"),
+                    com.kunk.singbox.model.RouteRule(inbound = listOf("test-in"), outbound = outbound.tag)
+                ),
+                finalOutbound = "direct",
+                autoDetectInterface = true
+            ),
+            experimental = null
+        )
+
+        val configJson = gson.toJson(config)
+        var service: BoxService? = null
+        try {
+            ensureLibboxSetup(context)
+            val platformInterface = TestPlatformInterface(context)
+            service = Libbox.newService(configJson, platformInterface)
+            service.start()
+
+            val client = OkHttpClient.Builder()
+                .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port)))
+                .connectTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                .readTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                .writeTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                .build()
+
+            val req = Request.Builder().url(targetUrl).get().build()
+            val t0 = System.nanoTime()
+            client.newCall(req).execute().use { resp ->
+                // 消耗少量响应体以确保建立完成
+                resp.body?.close()
+            }
+            val elapsedMs = (System.nanoTime() - t0) / 1_000_000
+            elapsedMs
+        } catch (e: Exception) {
+            Log.w(TAG, "HTTP proxy native test error: ${e.message}")
+            -1L
+        } finally {
+            try { service?.close() } catch (_: Exception) {}
+        }
+    }
     
     /**
      * 测试单个节点的延迟
@@ -310,10 +386,7 @@ class SingBoxCore private constructor(private val context: Context) {
         val settings = SettingsRepository.getInstance(context).settings.first()
         
         if (settings.useLibboxUrlTest) {
-            val native = testOutboundLatencyWithLibbox(outbound)
-            if (native >= 0) return@withContext native
-            Log.w(TAG, "Native URL test unavailable or failed, falling back to Clash API")
-            // 继续走 Clash API 的回退流程
+            return@withContext testOutboundLatencyWithLibbox(outbound)
         }
 
         if (SingBoxService.isRunning) {
