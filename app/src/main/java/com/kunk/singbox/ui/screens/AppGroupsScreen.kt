@@ -429,7 +429,10 @@ fun AppGroupEditorDialog(
                     when (selectedMode) {
                         RuleSetOutboundMode.NODE -> {
                             targetSelectionTitle = "选择节点"
-                            targetOptions = nodes.map { it.name to it.id }
+                            targetOptions = nodes.map { node ->
+                                val profileName = profiles.find { it.id == node.sourceProfileId }?.name ?: "未知"
+                                "${node.name} ($profileName)" to toNodeRef(node)
+                            }
                         }
                         RuleSetOutboundMode.PROFILE -> {
                             targetSelectionTitle = "选择配置"

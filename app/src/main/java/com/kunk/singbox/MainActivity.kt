@@ -156,12 +156,17 @@ fun SingBoxApp() {
         }
     }
 
-    SingBoxTheme {
-        val navController = rememberNavController()
-        var isNavigating by remember { mutableStateOf(false) }
-        var navigationStartTime by remember { mutableStateOf(0L) }
+        SingBoxTheme {
+            val navController = rememberNavController()
+            var isNavigating by remember { mutableStateOf(false) }
+            var navigationStartTime by remember { mutableStateOf(0L) }
+            
+            // Get current destination
+            val navBackStackEntry by androidx.navigation.compose.currentBackStackEntryAsState()
+            val currentRoute = navBackStackEntry?.destination?.route
+            val showBottomBar = currentRoute != com.kunk.singbox.ui.navigation.Screen.Splash.route
 
-        // Reset isNavigating after animation completes
+            // Reset isNavigating after animation completes
         LaunchedEffect(navigationStartTime) {
             if (navigationStartTime > 0) {
                 delay(NAV_ANIMATION_DURATION.toLong() + 50)
@@ -228,10 +233,12 @@ fun SingBoxApp() {
                     )
                 },
                 bottomBar = { 
-                    AppNavBar(
-                        navController = navController,
-                        onNavigationStart = { startNavigation() }
-                    ) 
+                    if (showBottomBar) {
+                        AppNavBar(
+                            navController = navController,
+                            onNavigationStart = { startNavigation() }
+                        )
+                    }
                 },
                 contentWindowInsets = WindowInsets(0, 0, 0, 0) // 不自动添加系统栏 insets
             ) { innerPadding ->

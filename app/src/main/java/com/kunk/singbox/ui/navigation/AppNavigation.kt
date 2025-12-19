@@ -28,8 +28,7 @@ import com.kunk.singbox.ui.screens.ConnectionSettingsScreen
 import com.kunk.singbox.ui.screens.LogsScreen
 import com.kunk.singbox.ui.screens.RuleSetsScreen
 import com.kunk.singbox.ui.screens.CustomRulesScreen
-import com.kunk.singbox.ui.screens.AppRulesScreen
-import com.kunk.singbox.ui.screens.AppGroupsScreen
+import com.kunk.singbox.ui.screens.AppRoutingScreen
 import com.kunk.singbox.ui.screens.SplashScreen
 import com.kunk.singbox.ui.screens.RuleSetHubScreen
 import com.kunk.singbox.ui.screens.RuleSetRoutingScreen
@@ -136,8 +135,20 @@ fun AppNavigation(navController: NavHostController) {
 
     NavHost(
         navController = navController,
-        startDestination = Screen.Dashboard.route
+        startDestination = Screen.Splash.route
     ) {
+        composable(
+            route = Screen.Splash.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition = { fadeOut(animationSpec = tween(500)) }
+        ) {
+            SplashScreen(onSplashComplete = {
+                navController.navigate(Screen.Dashboard.route) {
+                    popUpTo(Screen.Splash.route) { inclusive = true }
+                }
+            })
+        }
+
         // Main Tabs
         composable(
             route = Screen.Dashboard.route,
@@ -252,7 +263,7 @@ fun AppNavigation(navController: NavHostController) {
             exitTransition = exitTransition,
             popEnterTransition = popEnterTransition,
             popExitTransition = popExitTransition
-        ) { AppGroupsScreen(navController) }
+        ) { AppRoutingScreen(navController) }
         composable(
             route = Screen.RuleSetHub.route,
             enterTransition = enterTransition,

@@ -24,26 +24,19 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.kunk.singbox.model.RuleSet
 import com.kunk.singbox.model.RuleSetType
+import com.kunk.singbox.model.HubRuleSet
 import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.components.StyledTextField
 import com.kunk.singbox.ui.theme.AppBackground
 import com.kunk.singbox.ui.theme.PureWhite
 import com.kunk.singbox.ui.theme.TextPrimary
 import com.kunk.singbox.ui.theme.TextSecondary
+import com.kunk.singbox.ui.theme.Neutral700
+import com.kunk.singbox.ui.theme.Neutral900
+import com.kunk.singbox.ui.theme.SurfaceCard
 import com.kunk.singbox.viewmodel.RuleSetViewModel
 import com.kunk.singbox.viewmodel.SettingsViewModel
 import kotlinx.coroutines.launch
-
-import com.google.gson.annotations.SerializedName
-
-data class HubRuleSet(
-    @SerializedName("name") val name: String,
-    @SerializedName("ruleCount") val ruleCount: Int,
-    @SerializedName("tags") val tags: List<String>,
-    @SerializedName("description") val description: String = "",
-    @SerializedName("sourceUrl") val sourceUrl: String = "",
-    @SerializedName("binaryUrl") val binaryUrl: String = ""
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -192,8 +185,8 @@ fun HubRuleSetItem(
     onAddBinary: () -> Unit
 ) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF2D2D2D)),
-        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+        shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -214,13 +207,13 @@ fun HubRuleSetItem(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ruleSet.tags.forEach { tag ->
                         Surface(
-                            color = Color(0xFF006C6C),
+                            color = Neutral700,
                             shape = RoundedCornerShape(4.dp),
                             modifier = Modifier.padding(start = 4.dp)
                         ) {
                             Text(
                                 text = tag,
-                                color = Color.White,
+                                color = PureWhite,
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
@@ -261,14 +254,14 @@ fun HubRuleSetItem(
                     onClick = onAddSource,
                     contentPadding = PaddingValues(horizontal = 8.dp)
                 ) {
-                    Text("添加 源文件", fontSize = 12.sp)
+                    Text("添加 源文件", fontSize = 12.sp, color = PureWhite)
                 }
                 
                 TextButton(
                     onClick = onAddBinary,
                     contentPadding = PaddingValues(horizontal = 8.dp)
                 ) {
-                    Text("添加 二进制", fontSize = 12.sp)
+                    Text("添加 二进制", fontSize = 12.sp, color = PureWhite)
                 }
             }
         }

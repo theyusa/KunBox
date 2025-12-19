@@ -1,0 +1,791 @@
+package com.kunk.singbox.ui.screens
+
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.graphics.drawable.toBitmap
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
+import com.kunk.singbox.model.*
+import com.kunk.singbox.ui.components.ClickableDropdownField
+import com.kunk.singbox.ui.components.ConfirmDialog
+import com.kunk.singbox.ui.components.SingleSelectDialog
+import com.kunk.singbox.ui.components.StandardCard
+import com.kunk.singbox.ui.components.StyledTextField
+import com.kunk.singbox.ui.theme.*
+import com.kunk.singbox.viewmodel.NodesViewModel
+import com.kunk.singbox.viewmodel.ProfilesViewModel
+import com.kunk.singbox.viewmodel.SettingsViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AppRoutingScreen(
+    navController: NavController,
+    settingsViewModel: SettingsViewModel = viewModel(),
+    nodesViewModel: NodesViewModel = viewModel(),
+    profilesViewModel: ProfilesViewModel = viewModel()
+) {
+    val context = LocalContext.current
+    val settings by settingsViewModel.settings.collectAsState()
+    var selectedTab by remember { mutableStateOf(0) }
+    val tabs = listOf("应用分组", "独立规则")
+
+    // State for Groups
+    var showAddGroupDialog by remember { mutableStateOf(false) }
+    var editingGroup by remember { mutableStateOf<AppGroup?>(null) }
+    var showDeleteGroupConfirm by remember { mutableStateOf<AppGroup?>(null) }
+
+    // State for Rules
+    var showAddRuleDialog by remember { mutableStateOf(false) }
+    var editingRule by remember { mutableStateOf<AppRule?>(null) }
+    var showDeleteRuleConfirm by remember { mutableStateOf<AppRule?>(null) }
+
+    // Common data
+    val nodes by nodesViewModel.allNodes.collectAsState()
+    val availableGroups by nodesViewModel.allNodeGroups.collectAsState()
+    val profiles by profilesViewModel.profiles.collectAsState()
+
+    var installedApps by remember { mutableStateOf<List<InstalledApp>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val pm = context.packageManager
+            val apps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+                .filter { app -> app.packageName != context.packageName }
+                .map { app ->
+                    InstalledApp(
+                        packageName = app.packageName,
+                        appName = app.loadLabel(pm).toString(),
+                        isSystemApp = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                    )
+                }
+                .sortedBy { it.appName.lowercase() }
+            installedApps = apps
+            isLoading = false
+        }
+    }
+
+    // Dialogs
+    if (showAddGroupDialog) {
+        AppGroupEditorDialog(
+            installedApps = installedApps,
+            nodes = nodes,
+            profiles = profiles,
+            groups = availableGroups,
+            onDismiss = { showAddGroupDialog = false },
+            onConfirm = { group ->
+                settingsViewModel.addAppGroup(group)
+                showAddGroupDialog = false
+            }
+        )
+    }
+
+    if (editingGroup != null) {
+        AppGroupEditorDialog(
+            initialGroup = editingGroup,
+            installedApps = installedApps,
+            nodes = nodes,
+            profiles = profiles,
+            groups = availableGroups,
+            onDismiss = { editingGroup = null },
+            onConfirm = { group ->
+                settingsViewModel.updateAppGroup(group)
+                editingGroup = null
+            }
+        )
+    }
+
+    if (showDeleteGroupConfirm != null) {
+        ConfirmDialog(
+            title = "删除分组",
+            message = "确定要删除 \"${showDeleteGroupConfirm?.name}\" 分组吗？",
+            confirmText = "删除",
+            onConfirm = {
+                settingsViewModel.deleteAppGroup(showDeleteGroupConfirm!!.id)
+                showDeleteGroupConfirm = null
+            },
+            onDismiss = { showDeleteGroupConfirm = null }
+        )
+    }
+
+    if (showAddRuleDialog) {
+        AppRuleEditorDialog(
+            installedApps = installedApps,
+            existingPackages = settings.appRules.map { it.packageName }.toSet(),
+            nodes = nodes,
+            profiles = profiles,
+            groups = availableGroups,
+            onDismiss = { showAddRuleDialog = false },
+            onConfirm = { rule ->
+                settingsViewModel.addAppRule(rule)
+                showAddRuleDialog = false
+            }
+        )
+    }
+
+    if (editingRule != null) {
+        AppRuleEditorDialog(
+            initialRule = editingRule,
+            installedApps = installedApps,
+            existingPackages = settings.appRules.filter { it.id != editingRule?.id }.map { it.packageName }.toSet(),
+            nodes = nodes,
+            profiles = profiles,
+            groups = availableGroups,
+            onDismiss = { editingRule = null },
+            onConfirm = { rule ->
+                settingsViewModel.updateAppRule(rule)
+                editingRule = null
+            }
+        )
+    }
+
+    if (showDeleteRuleConfirm != null) {
+        ConfirmDialog(
+            title = "删除规则",
+            message = "确定要删除 \"${showDeleteRuleConfirm?.appName}\" 的规则吗？",
+            confirmText = "删除",
+            onConfirm = {
+                settingsViewModel.deleteAppRule(showDeleteRuleConfirm!!.id)
+                showDeleteRuleConfirm = null
+            },
+            onDismiss = { showDeleteRuleConfirm = null }
+        )
+    }
+
+    Scaffold(
+        containerColor = AppBackground,
+        topBar = {
+            Column {
+                TopAppBar(
+                    title = { Text("应用分流", color = TextPrimary) },
+                    navigationIcon = {
+                        IconButton(onClick = { navController.popBackStack() }) {
+                            Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = PureWhite)
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { 
+                            if (selectedTab == 0) showAddGroupDialog = true 
+                            else showAddRuleDialog = true 
+                        }) {
+                            Icon(Icons.Rounded.Add, contentDescription = "添加", tint = PureWhite)
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground)
+                )
+                TabRow(
+                    selectedTabIndex = selectedTab,
+                    containerColor = AppBackground,
+                    contentColor = PureWhite,
+                    indicator = { tabPositions ->
+                        TabRowDefaults.Indicator(
+                            Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
+                            color = PureWhite
+                        )
+                    },
+                    divider = {}
+                ) {
+                    tabs.forEachIndexed { index, title ->
+                        Tab(
+                            selected = selectedTab == index,
+                            onClick = { selectedTab = index },
+                            text = { 
+                                Text(
+                                    title, 
+                                    color = if (selectedTab == index) PureWhite else Neutral500,
+                                    fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal
+                                ) 
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    ) { padding ->
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = PureWhite)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                if (selectedTab == 0) {
+                    // Groups Tab
+                    if (settings.appGroups.isEmpty()) {
+                        item {
+                            EmptyState(Icons.Rounded.Folder, "暂无应用分组", "点击右上角 + 创建分组")
+                        }
+                    } else {
+                        items(settings.appGroups) { group ->
+                            val mode = group.outboundMode ?: RuleSetOutboundMode.DIRECT
+                            val outboundText = resolveOutboundText(mode, group.outboundValue, nodes, profiles)
+                            AppGroupCard(
+                                group = group,
+                                outboundText = outboundText,
+                                onClick = { editingGroup = group },
+                                onToggle = { settingsViewModel.toggleAppGroupEnabled(group.id) },
+                                onDelete = { showDeleteGroupConfirm = group }
+                            )
+                        }
+                    }
+                } else {
+                    // Individual Rules Tab
+                    if (settings.appRules.isEmpty()) {
+                        item {
+                            EmptyState(Icons.Rounded.Apps, "暂无独立应用规则", "点击右上角 + 添加规则")
+                        }
+                    } else {
+                        items(settings.appRules) { rule ->
+                            val mode = rule.outboundMode ?: RuleSetOutboundMode.DIRECT
+                            val outboundText = resolveOutboundText(mode, rule.outboundValue, nodes, profiles)
+                            AppRuleItem(
+                                rule = rule,
+                                outboundText = outboundText,
+                                onClick = { editingRule = rule },
+                                onToggle = { settingsViewModel.toggleAppRuleEnabled(rule.id) },
+                                onDelete = { showDeleteRuleConfirm = rule }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun EmptyState(icon: ImageVector, title: String, subtitle: String) {
+    Box(
+        modifier = Modifier.fillMaxWidth().padding(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, contentDescription = null, tint = Neutral500, modifier = Modifier.size(48.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(title, color = TextSecondary)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(subtitle, color = Neutral500, fontSize = 12.sp)
+        }
+    }
+}
+
+private fun resolveOutboundText(
+    mode: RuleSetOutboundMode,
+    value: String?,
+    nodes: List<NodeUi>,
+    profiles: List<ProfileUi>
+): String {
+    return when (mode) {
+        RuleSetOutboundMode.DIRECT -> "直连"
+        RuleSetOutboundMode.BLOCK -> "拦截"
+        RuleSetOutboundMode.PROXY -> "代理"
+        RuleSetOutboundMode.NODE -> {
+            val parts = value?.split("::", limit = 2)
+            val node = if (!value.isNullOrBlank() && parts != null && parts.size == 2) {
+                val profileId = parts[0]
+                val name = parts[1]
+                nodes.find { it.sourceProfileId == profileId && it.name == name }
+            } else {
+                nodes.find { it.id == value } ?: nodes.find { it.name == value }
+            }
+            val profileName = profiles.find { p -> p.id == node?.sourceProfileId }?.name
+            if (node != null && profileName != null) "${node.name} ($profileName)" else "未选择"
+        }
+        RuleSetOutboundMode.PROFILE -> profiles.find { it.id == value }?.name ?: "未知配置"
+        RuleSetOutboundMode.GROUP -> value ?: "未知组"
+    }
+}
+
+@Composable
+fun AppGroupCard(
+    group: AppGroup,
+    outboundText: String,
+    onClick: () -> Unit,
+    onToggle: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val mode = group.outboundMode ?: RuleSetOutboundMode.DIRECT
+    val (outboundIcon, color) = when (mode) {
+        RuleSetOutboundMode.PROXY, RuleSetOutboundMode.NODE, RuleSetOutboundMode.PROFILE, RuleSetOutboundMode.GROUP -> Icons.Rounded.Shield to Color(0xFF4CAF50)
+        RuleSetOutboundMode.DIRECT -> Icons.Rounded.Public to Color(0xFF2196F3)
+        RuleSetOutboundMode.BLOCK -> Icons.Rounded.Block to Color(0xFFFF5252)
+    }
+
+    StandardCard {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(16.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(color.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(outboundIcon, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = group.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (group.enabled) TextPrimary else TextSecondary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "${mode.displayName} → $outboundText • ${group.apps.size} 个应用",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = color
+                    )
+                }
+                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Rounded.Delete, contentDescription = "删除", tint = Color(0xFFFF5252), modifier = Modifier.size(18.dp))
+                }
+                Switch(
+                    checked = group.enabled,
+                    onCheckedChange = { onToggle() },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = PureWhite,
+                        checkedTrackColor = color,
+                        uncheckedThumbColor = Neutral500,
+                        uncheckedTrackColor = Neutral700
+                    )
+                )
+            }
+            if (group.apps.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(group.apps.take(8)) { app ->
+                        AppIconSmall(packageName = app.packageName)
+                    }
+                    if (group.apps.size > 8) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Neutral700),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("+${group.apps.size - 8}", fontSize = 10.sp, color = TextSecondary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AppRuleItem(
+    rule: AppRule,
+    outboundText: String,
+    onClick: () -> Unit,
+    onToggle: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val context = LocalContext.current
+    val mode = rule.outboundMode ?: RuleSetOutboundMode.DIRECT
+    val (outboundIcon, color) = when (mode) {
+        RuleSetOutboundMode.PROXY, RuleSetOutboundMode.NODE, RuleSetOutboundMode.PROFILE, RuleSetOutboundMode.GROUP -> Icons.Rounded.Shield to Color(0xFF4CAF50)
+        RuleSetOutboundMode.DIRECT -> Icons.Rounded.Public to Color(0xFF2196F3)
+        RuleSetOutboundMode.BLOCK -> Icons.Rounded.Block to Color(0xFFFF5252)
+    }
+    val appIcon = remember(rule.packageName) {
+        try {
+            context.packageManager.getApplicationIcon(rule.packageName).toBitmap(160, 160).asImageBitmap()
+        } catch (e: Exception) { null }
+    }
+
+    StandardCard {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(modifier = Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                if (appIcon != null) {
+                    Image(bitmap = appIcon, contentDescription = null, modifier = Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)))
+                } else {
+                    Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(Neutral700), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Apps, contentDescription = null, tint = Neutral500, modifier = Modifier.size(24.dp))
+                    }
+                }
+                Box(modifier = Modifier.align(Alignment.BottomEnd).size(18.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
+                    Icon(outboundIcon, contentDescription = null, tint = PureWhite, modifier = Modifier.size(10.dp))
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = rule.appName, style = MaterialTheme.typography.titleMedium, color = if (rule.enabled) TextPrimary else TextSecondary, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(text = "${mode.displayName} → $outboundText", style = MaterialTheme.typography.bodySmall, color = color, maxLines = 1)
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Rounded.Delete, contentDescription = "删除", tint = Color(0xFFFF5252), modifier = Modifier.size(20.dp))
+            }
+            Switch(checked = rule.enabled, onCheckedChange = { onToggle() }, colors = SwitchDefaults.colors(checkedThumbColor = PureWhite, checkedTrackColor = color, uncheckedThumbColor = Neutral500, uncheckedTrackColor = Neutral700))
+        }
+    }
+}
+
+@Composable
+fun AppIconSmall(packageName: String) {
+    val context = LocalContext.current
+    val appIcon = remember(packageName) {
+        try { context.packageManager.getApplicationIcon(packageName).toBitmap(128, 128).asImageBitmap() } catch (e: Exception) { null }
+    }
+    if (appIcon != null) {
+        Image(bitmap = appIcon, contentDescription = null, modifier = Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)))
+    } else {
+        Box(modifier = Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).background(Neutral700), contentAlignment = Alignment.Center) {
+            Icon(Icons.Rounded.Apps, contentDescription = null, tint = Neutral500, modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AppGroupEditorDialog(
+    initialGroup: AppGroup? = null,
+    installedApps: List<InstalledApp>,
+    nodes: List<NodeUi>,
+    profiles: List<ProfileUi>,
+    groups: List<String>,
+    onDismiss: () -> Unit,
+    onConfirm: (AppGroup) -> Unit
+) {
+    var groupName by remember { mutableStateOf(initialGroup?.name ?: "") }
+    var outboundMode by remember { mutableStateOf(initialGroup?.outboundMode ?: RuleSetOutboundMode.PROXY) }
+    var outboundValue by remember { mutableStateOf(initialGroup?.outboundValue) }
+    var selectedApps by remember { mutableStateOf(initialGroup?.apps?.toSet() ?: emptySet()) }
+    var showAppSelector by remember { mutableStateOf(false) }
+    var showOutboundModeDialog by remember { mutableStateOf(false) }
+    var showTargetSelectionDialog by remember { mutableStateOf(false) }
+    var targetSelectionTitle by remember { mutableStateOf("") }
+    var targetOptions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+
+    fun resolveNodeByStoredValue(value: String?): NodeUi? {
+        if (value.isNullOrBlank()) return null
+        val parts = value.split("::", limit = 2)
+        if (parts.size == 2) {
+            val profileId = parts[0]
+            val name = parts[1]
+            return nodes.find { it.sourceProfileId == profileId && it.name == name }
+        }
+        return nodes.find { it.id == value } ?: nodes.find { it.name == value }
+    }
+
+    fun toNodeRef(node: NodeUi): String = "${node.sourceProfileId}::${node.name}"
+
+    if (showAppSelector) {
+        MultiAppSelectorDialog(
+            installedApps = installedApps,
+            selectedApps = selectedApps,
+            onConfirm = { apps -> selectedApps = apps; showAppSelector = false },
+            onDismiss = { showAppSelector = false }
+        )
+    }
+
+    if (showOutboundModeDialog) {
+        val options = RuleSetOutboundMode.entries.map { it.displayName }
+        SingleSelectDialog(
+            title = "选择出站模式",
+            options = options,
+            selectedIndex = RuleSetOutboundMode.entries.indexOf(outboundMode),
+            onSelect = { index ->
+                val selectedMode = RuleSetOutboundMode.entries[index]
+                outboundMode = selectedMode
+                if (selectedMode != initialGroup?.outboundMode) outboundValue = null
+                showOutboundModeDialog = false
+                if (selectedMode == RuleSetOutboundMode.NODE || selectedMode == RuleSetOutboundMode.PROFILE || selectedMode == RuleSetOutboundMode.GROUP) {
+                    when (selectedMode) {
+                        RuleSetOutboundMode.NODE -> {
+                            targetSelectionTitle = "选择节点"
+                            targetOptions = nodes.map { node ->
+                                val profileName = profiles.find { it.id == node.sourceProfileId }?.name ?: "未知"
+                                "${node.name} ($profileName)" to toNodeRef(node)
+                            }
+                        }
+                        RuleSetOutboundMode.PROFILE -> { targetSelectionTitle = "选择配置"; targetOptions = profiles.map { it.name to it.id } }
+                        RuleSetOutboundMode.GROUP -> { targetSelectionTitle = "选择节点组"; targetOptions = groups.map { it to it } }
+                        else -> {}
+                    }
+                    showTargetSelectionDialog = true
+                }
+            },
+            onDismiss = { showOutboundModeDialog = false }
+        )
+    }
+
+    if (showTargetSelectionDialog) {
+        val currentRef = resolveNodeByStoredValue(outboundValue)?.let { toNodeRef(it) } ?: outboundValue
+        SingleSelectDialog(
+            title = targetSelectionTitle,
+            options = targetOptions.map { it.first },
+            selectedIndex = targetOptions.indexOfFirst { it.second == currentRef }.coerceAtLeast(0),
+            onSelect = { index -> outboundValue = targetOptions[index].second; showTargetSelectionDialog = false },
+            onDismiss = { showTargetSelectionDialog = false }
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(24.dp),
+        containerColor = Neutral800,
+        title = { Text(text = if (initialGroup == null) "创建分组" else "编辑分组", fontWeight = FontWeight.Bold, color = TextPrimary) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                StyledTextField(label = "分组名称", value = groupName, onValueChange = { groupName = it }, placeholder = "例如：社交应用、游戏")
+                ClickableDropdownField(label = "出站模式", value = outboundMode.displayName, onClick = { showOutboundModeDialog = true })
+                if (outboundMode == RuleSetOutboundMode.NODE || outboundMode == RuleSetOutboundMode.PROFILE || outboundMode == RuleSetOutboundMode.GROUP) {
+                    val targetName = when (outboundMode) {
+                        RuleSetOutboundMode.NODE -> {
+                            val node = resolveNodeByStoredValue(outboundValue)
+                            val profileName = profiles.find { it.id == node?.sourceProfileId }?.name
+                            if (node != null && profileName != null) "${node.name} ($profileName)" else node?.name
+                        }
+                        RuleSetOutboundMode.PROFILE -> profiles.find { it.id == outboundValue }?.name
+                        RuleSetOutboundMode.GROUP -> outboundValue
+                        else -> null
+                    } ?: "点击选择..."
+                    ClickableDropdownField(label = "选择目标", value = targetName, onClick = {
+                        when (outboundMode) {
+                            RuleSetOutboundMode.NODE -> {
+                                targetSelectionTitle = "选择节点"
+                                targetOptions = nodes.map { node ->
+                                    val profileName = profiles.find { it.id == node.sourceProfileId }?.name ?: "未知"
+                                    "${node.name} ($profileName)" to toNodeRef(node)
+                                }
+                            }
+                            RuleSetOutboundMode.PROFILE -> { targetSelectionTitle = "选择配置"; targetOptions = profiles.map { it.name to it.id } }
+                            RuleSetOutboundMode.GROUP -> { targetSelectionTitle = "选择节点组"; targetOptions = groups.map { it to it } }
+                            else -> {}
+                        }
+                        showTargetSelectionDialog = true
+                    })
+                }
+                Column {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("应用 (${selectedApps.size})", fontSize = 13.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+                        TextButton(onClick = { showAppSelector = true }) { Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp)); Spacer(modifier = Modifier.width(4.dp)); Text("选择应用") }
+                    }
+                    if (selectedApps.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxWidth().height(60.dp).clip(RoundedCornerShape(12.dp)).background(Neutral700.copy(alpha = 0.3f)), contentAlignment = Alignment.Center) { Text("点击上方按钮选择应用", color = Neutral500, fontSize = 13.sp) }
+                    } else {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(selectedApps.toList()) { app -> SelectedAppChip(app = app, onRemove = { selectedApps = selectedApps - app }) }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { val group = initialGroup?.copy(name = groupName, apps = selectedApps.toList(), outboundMode = outboundMode, outboundValue = outboundValue) ?: AppGroup(name = groupName, apps = selectedApps.toList(), outboundMode = outboundMode, outboundValue = outboundValue); onConfirm(group) }, enabled = groupName.isNotBlank() && selectedApps.isNotEmpty(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50), contentColor = PureWhite), shape = RoundedCornerShape(12.dp)) { Text("保存", fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = TextSecondary) } }
+    )
+}
+
+@Composable
+fun AppRuleEditorDialog(
+    initialRule: AppRule? = null,
+    installedApps: List<InstalledApp>,
+    existingPackages: Set<String>,
+    nodes: List<NodeUi>,
+    profiles: List<ProfileUi>,
+    groups: List<String>,
+    onDismiss: () -> Unit,
+    onConfirm: (AppRule) -> Unit
+) {
+    var selectedApp by remember { mutableStateOf<InstalledApp?>(initialRule?.let { InstalledApp(it.packageName, it.appName) }) }
+    var outboundMode by remember { mutableStateOf(initialRule?.outboundMode ?: RuleSetOutboundMode.PROXY) }
+    var outboundValue by remember { mutableStateOf(initialRule?.outboundValue) }
+    var showAppPicker by remember { mutableStateOf(false) }
+    var showOutboundModeDialog by remember { mutableStateOf(false) }
+    var showTargetSelectionDialog by remember { mutableStateOf(false) }
+    var targetSelectionTitle by remember { mutableStateOf("") }
+    var targetOptions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+
+    fun resolveNodeByStoredValue(value: String?): NodeUi? {
+        if (value.isNullOrBlank()) return null
+        val parts = value.split("::", limit = 2)
+        if (parts.size == 2) {
+            val profileId = parts[0]
+            val name = parts[1]
+            return nodes.find { it.sourceProfileId == profileId && it.name == name }
+        }
+        return nodes.find { it.id == value } ?: nodes.find { it.name == value }
+    }
+
+    fun toNodeRef(node: NodeUi): String = "${node.sourceProfileId}::${node.name}"
+
+    if (showAppPicker) {
+        AppPickerDialog(apps = installedApps, existingPackages = existingPackages, onSelect = { selectedApp = it; showAppPicker = false }, onDismiss = { showAppPicker = false })
+    }
+
+    if (showOutboundModeDialog) {
+        val options = RuleSetOutboundMode.entries.map { it.displayName }
+        SingleSelectDialog(title = "选择出站模式", options = options, selectedIndex = RuleSetOutboundMode.entries.indexOf(outboundMode), onSelect = { index ->
+            val selectedMode = RuleSetOutboundMode.entries[index]
+            outboundMode = selectedMode
+            if (selectedMode != initialRule?.outboundMode) outboundValue = null
+            showOutboundModeDialog = false
+            if (selectedMode == RuleSetOutboundMode.NODE || selectedMode == RuleSetOutboundMode.PROFILE || selectedMode == RuleSetOutboundMode.GROUP) {
+                when (selectedMode) {
+                    RuleSetOutboundMode.NODE -> {
+                        targetSelectionTitle = "选择节点"
+                        targetOptions = nodes.map { node ->
+                            val profileName = profiles.find { it.id == node.sourceProfileId }?.name ?: "未知"
+                            "${node.name} ($profileName)" to toNodeRef(node)
+                        }
+                    }
+                    RuleSetOutboundMode.PROFILE -> { targetSelectionTitle = "选择配置"; targetOptions = profiles.map { it.name to it.id } }
+                    RuleSetOutboundMode.GROUP -> { targetSelectionTitle = "选择节点组"; targetOptions = groups.map { it to it } }
+                    else -> {}
+                }
+                showTargetSelectionDialog = true
+            }
+        }, onDismiss = { showOutboundModeDialog = false })
+    }
+
+    if (showTargetSelectionDialog) {
+        val currentRef = resolveNodeByStoredValue(outboundValue)?.let { toNodeRef(it) } ?: outboundValue
+        SingleSelectDialog(title = targetSelectionTitle, options = targetOptions.map { it.first }, selectedIndex = targetOptions.indexOfFirst { it.second == currentRef }.coerceAtLeast(0), onSelect = { index -> outboundValue = targetOptions[index].second; showTargetSelectionDialog = false }, onDismiss = { showTargetSelectionDialog = false })
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(24.dp),
+        containerColor = Neutral800,
+        title = { Text(text = if (initialRule == null) "添加应用规则" else "编辑应用规则", fontWeight = FontWeight.Bold, color = TextPrimary) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                ClickableDropdownField(label = "选择应用", value = selectedApp?.appName ?: "点击选择...", onClick = { showAppPicker = true })
+                ClickableDropdownField(label = "出站模式", value = outboundMode.displayName, onClick = { showOutboundModeDialog = true })
+                if (outboundMode == RuleSetOutboundMode.NODE || outboundMode == RuleSetOutboundMode.PROFILE || outboundMode == RuleSetOutboundMode.GROUP) {
+                    val targetName = when (outboundMode) {
+                        RuleSetOutboundMode.NODE -> {
+                            val node = resolveNodeByStoredValue(outboundValue)
+                            val profileName = profiles.find { it.id == node?.sourceProfileId }?.name
+                            if (node != null && profileName != null) "${node.name} ($profileName)" else node?.name
+                        }
+                        RuleSetOutboundMode.PROFILE -> profiles.find { it.id == outboundValue }?.name
+                        RuleSetOutboundMode.GROUP -> outboundValue
+                        else -> null
+                    } ?: "点击选择..."
+                    ClickableDropdownField(label = "选择目标", value = targetName, onClick = {
+                        when (outboundMode) {
+                            RuleSetOutboundMode.NODE -> {
+                                targetSelectionTitle = "选择节点"
+                                targetOptions = nodes.map { node ->
+                                    val profileName = profiles.find { it.id == node.sourceProfileId }?.name ?: "未知"
+                                    "${node.name} ($profileName)" to toNodeRef(node)
+                                }
+                            }
+                            RuleSetOutboundMode.PROFILE -> { targetSelectionTitle = "选择配置"; targetOptions = profiles.map { it.name to it.id } }
+                            RuleSetOutboundMode.GROUP -> { targetSelectionTitle = "选择节点组"; targetOptions = groups.map { it to it } }
+                            else -> {}
+                        }
+                        showTargetSelectionDialog = true
+                    })
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { selectedApp?.let { app -> val rule = initialRule?.copy(packageName = app.packageName, appName = app.appName, outboundMode = outboundMode, outboundValue = outboundValue) ?: AppRule(packageName = app.packageName, appName = app.appName, outboundMode = outboundMode, outboundValue = outboundValue); onConfirm(rule) } }, enabled = selectedApp != null) { Text("保存", color = if (selectedApp != null) PureWhite else Neutral500) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = TextSecondary) } }
+    )
+}
+
+@Composable
+fun SelectedAppChip(app: AppInfo, onRemove: () -> Unit) {
+    val context = LocalContext.current
+    val appIcon = remember(app.packageName) { try { context.packageManager.getApplicationIcon(app.packageName).toBitmap(96, 96).asImageBitmap() } catch (e: Exception) { null } }
+    Row(modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Neutral700).padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (appIcon != null) Image(bitmap = appIcon, contentDescription = null, modifier = Modifier.size(24.dp).clip(CircleShape))
+        Spacer(modifier = Modifier.width(6.dp)); Text(app.appName, fontSize = 12.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 80.dp)); Spacer(modifier = Modifier.width(4.dp))
+        Icon(Icons.Rounded.Close, contentDescription = "移除", tint = Neutral500, modifier = Modifier.size(16.dp).clickable(onClick = onRemove))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MultiAppSelectorDialog(installedApps: List<InstalledApp>, selectedApps: Set<AppInfo>, onConfirm: (Set<AppInfo>) -> Unit, onDismiss: () -> Unit) {
+    var tempSelected by remember { mutableStateOf(selectedApps) }; var searchQuery by remember { mutableStateOf("") }; var showSystemApps by remember { mutableStateOf(false) }
+    val filteredApps = remember(installedApps, searchQuery, showSystemApps) { installedApps.filter { app -> val matchesSearch = searchQuery.isBlank() || app.appName.contains(searchQuery, ignoreCase = true) || app.packageName.contains(searchQuery, ignoreCase = true); val matchesFilter = showSystemApps || !app.isSystemApp; matchesSearch && matchesFilter } }
+    AlertDialog(onDismissRequest = onDismiss, shape = RoundedCornerShape(24.dp), containerColor = Neutral800, title = { Column { Text("选择应用", fontWeight = FontWeight.Bold, color = TextPrimary); Spacer(modifier = Modifier.height(4.dp)); Text("已选择 ${tempSelected.size} 个应用", fontSize = 12.sp, color = Neutral500) } }, text = {
+        Column(modifier = Modifier.fillMaxWidth().height(400.dp)) {
+            OutlinedTextField(value = searchQuery, onValueChange = { searchQuery = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text("搜索应用...", color = Neutral500) }, leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Neutral500) }, singleLine = true, shape = RoundedCornerShape(16.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary, focusedBorderColor = PureWhite.copy(alpha = 0.6f), unfocusedBorderColor = Neutral700, cursorColor = PureWhite))
+            Spacer(modifier = Modifier.height(8.dp)); Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text("显示系统应用", fontSize = 13.sp, color = TextSecondary); Switch(checked = showSystemApps, onCheckedChange = { showSystemApps = it }, colors = SwitchDefaults.colors(checkedThumbColor = PureWhite, checkedTrackColor = Color(0xFF4CAF50), uncheckedThumbColor = Neutral500, uncheckedTrackColor = Neutral700)) }
+            Spacer(modifier = Modifier.height(8.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) { items(filteredApps) { app -> val appInfo = AppInfo(app.packageName, app.appName); val isSelected = tempSelected.any { it.packageName == app.packageName }; SelectableAppItem(app = app, isSelected = isSelected, onClick = { tempSelected = if (isSelected) tempSelected.filter { it.packageName != app.packageName }.toSet() else tempSelected + appInfo }) } }
+        }
+    }, confirmButton = { Button(onClick = { onConfirm(tempSelected) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50), contentColor = PureWhite), shape = RoundedCornerShape(12.dp)) { Text("确定 (${tempSelected.size})", fontWeight = FontWeight.Bold) } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = TextSecondary) } })
+}
+
+@Composable
+fun SelectableAppItem(app: InstalledApp, isSelected: Boolean, onClick: () -> Unit) {
+    val context = LocalContext.current; val appIcon = remember(app.packageName) { try { context.packageManager.getApplicationIcon(app.packageName).toBitmap(144, 144).asImageBitmap() } catch (e: Exception) { null } }
+    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (isSelected) Color(0xFF4CAF50).copy(alpha = 0.15f) else Color.Transparent).clickable(onClick = onClick).padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = isSelected, onCheckedChange = { onClick() }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFF4CAF50), uncheckedColor = Neutral500, checkmarkColor = PureWhite)); Spacer(modifier = Modifier.width(8.dp)); if (appIcon != null) Image(bitmap = appIcon, contentDescription = app.appName, modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp))) else Icon(Icons.Rounded.Apps, contentDescription = null, tint = Neutral500, modifier = Modifier.size(36.dp)); Spacer(modifier = Modifier.width(12.dp)); Column(modifier = Modifier.weight(1f)) { Text(app.appName, fontSize = 14.sp, color = TextPrimary, fontWeight = FontWeight.Medium); Text(app.packageName, fontSize = 11.sp, color = Neutral500, maxLines = 1) }; if (app.isSystemApp) Text("系统", fontSize = 10.sp, color = Neutral500) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AppPickerDialog(apps: List<InstalledApp>, existingPackages: Set<String>, onSelect: (InstalledApp) -> Unit, onDismiss: () -> Unit) {
+    var searchQuery by remember { mutableStateOf("") }; var showSystemApps by remember { mutableStateOf(false) }
+    val filteredApps = remember(apps, searchQuery, showSystemApps, existingPackages) { apps.filter { app -> val matchesSearch = searchQuery.isBlank() || app.appName.contains(searchQuery, ignoreCase = true) || app.packageName.contains(searchQuery, ignoreCase = true); val matchesFilter = showSystemApps || !app.isSystemApp; val notExisting = app.packageName !in existingPackages; matchesSearch && matchesFilter && notExisting } }
+    AlertDialog(onDismissRequest = onDismiss, shape = RoundedCornerShape(24.dp), containerColor = Neutral800, title = { Text(text = "选择应用", fontWeight = FontWeight.Bold, color = TextPrimary) }, text = {
+        Column(modifier = Modifier.fillMaxWidth().height(400.dp)) {
+            OutlinedTextField(value = searchQuery, onValueChange = { searchQuery = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text("搜索应用...", color = Neutral500) }, leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Neutral500) }, singleLine = true, shape = RoundedCornerShape(16.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary, focusedBorderColor = PureWhite.copy(alpha = 0.6f), unfocusedBorderColor = Neutral700, cursorColor = PureWhite))
+            Spacer(modifier = Modifier.height(8.dp)); Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text("显示系统应用", fontSize = 13.sp, color = TextSecondary); Switch(checked = showSystemApps, onCheckedChange = { showSystemApps = it }, colors = SwitchDefaults.colors(checkedThumbColor = PureWhite, checkedTrackColor = Color(0xFF4CAF50), uncheckedThumbColor = Neutral500, uncheckedTrackColor = Neutral700)) }
+            Spacer(modifier = Modifier.height(8.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) { items(filteredApps) { app -> AppListItem(app = app, onClick = { onSelect(app) }) } }
+        }
+    }, confirmButton = {}, dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = TextSecondary) } })
+}
+
+@Composable
+fun AppListItem(app: InstalledApp, onClick: () -> Unit) {
+    val context = LocalContext.current; val appIcon = remember(app.packageName) { try { context.packageManager.getApplicationIcon(app.packageName).toBitmap(144, 144).asImageBitmap() } catch (e: Exception) { null } }
+    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(12.dp), verticalAlignment = Alignment.CenterVertically) { if (appIcon != null) Image(bitmap = appIcon, contentDescription = app.appName, modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp))) else Icon(Icons.Rounded.Apps, contentDescription = null, tint = Neutral500, modifier = Modifier.size(36.dp)); Spacer(modifier = Modifier.width(12.dp)); Column(modifier = Modifier.weight(1f)) { Text(text = app.appName, fontSize = 14.sp, color = TextPrimary, fontWeight = FontWeight.Medium); Text(text = app.packageName, fontSize = 11.sp, color = Neutral500, maxLines = 1) }; if (app.isSystemApp) Text("系统", fontSize = 10.sp, color = Neutral500) }
+}
