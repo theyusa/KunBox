@@ -161,9 +161,11 @@ class SingBoxService : VpnService() {
     // Auto reconnect
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var vpnNetworkCallback: ConnectivityManager.NetworkCallback? = null
     private var currentInterfaceListener: InterfaceUpdateListener? = null
     private var defaultInterfaceName: String = ""
     private var lastKnownNetwork: Network? = null
+    private var vpnHealthJob: Job? = null
     
     // Platform interface implementation
     private val platformInterface = object : PlatformInterface {
@@ -504,6 +506,51 @@ class SingBoxService : VpnService() {
                 .build()
             
             connectivityManager?.registerNetworkCallback(request, networkCallback!!)
+
+            // VPN Health Monitor
+            vpnNetworkCallback = object : ConnectivityManager.NetworkCallback() {
+                override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                    if (!isRunning) return
+                    val isValidated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    if (isValidated) {
+                        if (vpnHealthJob?.isActive == true) {
+                            Log.i(TAG, "VPN link validated, cancelling recovery job")
+                            vpnHealthJob?.cancel()
+                        }
+                    } else {
+                        // Start a delayed recovery if not already running
+                        if (vpnHealthJob?.isActive != true) {
+                            Log.w(TAG, "VPN link not validated, scheduling recovery in 5s")
+                            vpnHealthJob = serviceScope.launch {
+                                delay(5000)
+                                if (isRunning && !isStarting && !isStopping) {
+                                    Log.w(TAG, "VPN link still not validated after 5s, resetting network stack")
+                                    try {
+                                        boxService?.resetNetwork()
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Failed to reset network stack during health recovery", e)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                override fun onLost(network: Network) {
+                    vpnHealthJob?.cancel()
+                }
+            }
+
+            val vpnRequest = NetworkRequest.Builder()
+                .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                .build()
+
+            try {
+                connectivityManager?.registerNetworkCallback(vpnRequest, vpnNetworkCallback!!)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to register VPN network callback", e)
+            }
             
             // Get current default interface
             connectivityManager?.activeNetwork?.let { updateDefaultInterface(it) }
@@ -514,12 +561,15 @@ class SingBoxService : VpnService() {
             networkCallback?.let {
                 try {
                     connectivityManager?.unregisterNetworkCallback(it)
-                } catch (e: IllegalArgumentException) {
-                    Log.v(TAG, "NetworkCallback already unregistered")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Error unregistering NetworkCallback", e)
-                }
+                } catch (_: Exception) {}
             }
+            vpnNetworkCallback?.let {
+                try {
+                    connectivityManager?.unregisterNetworkCallback(it)
+                } catch (_: Exception) {}
+            }
+            vpnHealthJob?.cancel()
+            vpnNetworkCallback = null
             networkCallback = null
             currentInterfaceListener = null
         }
