@@ -31,6 +31,7 @@ import com.kunk.singbox.model.RoutingMode
 import com.kunk.singbox.model.GhProxyMirror
 import com.kunk.singbox.model.LatencyTestMethod
 import com.kunk.singbox.ui.components.ConfirmDialog
+import com.kunk.singbox.ui.components.InputDialog
 import com.kunk.singbox.ui.components.SettingItem
 import com.kunk.singbox.ui.components.SettingSwitchItem
 import com.kunk.singbox.ui.components.SingleSelectDialog
@@ -55,6 +56,7 @@ fun RoutingSettingsScreen(
     var showDefaultRuleDialog by remember { mutableStateOf(false) }
     var showMirrorDialog by remember { mutableStateOf(false) }
     var showLatencyMethodDialog by remember { mutableStateOf(false) }
+    var showLatencyUrlDialog by remember { mutableStateOf(false) }
 
     if (showLatencyMethodDialog) {
         val options = LatencyTestMethod.entries.map { it.displayName }
@@ -67,6 +69,19 @@ fun RoutingSettingsScreen(
                 showLatencyMethodDialog = false
             },
             onDismiss = { showLatencyMethodDialog = false }
+        )
+    }
+
+    if (showLatencyUrlDialog) {
+        InputDialog(
+            title = "延迟测试地址",
+            initialValue = settings.latencyTestUrl,
+            placeholder = "例如：https://cp.cloudflare.com/generate_204",
+            onConfirm = { url ->
+                settingsViewModel.setLatencyTestUrl(url.trim())
+                showLatencyUrlDialog = false
+            },
+            onDismiss = { showLatencyUrlDialog = false }
         )
     }
 
@@ -137,6 +152,7 @@ fun RoutingSettingsScreen(
                 SettingItem(title = "路由模式", value = settings.routingMode.displayName, onClick = { showModeDialog = true })
                 SettingItem(title = "默认规则", value = settings.defaultRule.displayName, onClick = { showDefaultRuleDialog = true })
                 SettingItem(title = "延迟测试方式", value = settings.latencyTestMethod.displayName, onClick = { showLatencyMethodDialog = true })
+                SettingItem(title = "延迟测试地址", value = settings.latencyTestUrl, onClick = { showLatencyUrlDialog = true })
                 SettingItem(title = "GitHub 镜像", value = settings.ghProxyMirror.displayName, onClick = { showMirrorDialog = true })
             }
             

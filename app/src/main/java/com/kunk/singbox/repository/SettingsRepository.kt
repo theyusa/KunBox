@@ -85,6 +85,7 @@ class SettingsRepository(private val context: Context) {
         val BLOCK_ADS = booleanPreferencesKey("block_ads")
         val BLOCK_QUIC = booleanPreferencesKey("block_quic")
         val LATENCY_TEST_METHOD = stringPreferencesKey("latency_test_method")
+        val LATENCY_TEST_URL = stringPreferencesKey("latency_test_url")
         val BYPASS_LAN = booleanPreferencesKey("bypass_lan")
         val GH_PROXY_MIRROR = stringPreferencesKey("gh_proxy_mirror")
         
@@ -237,6 +238,7 @@ class SettingsRepository(private val context: Context) {
             blockAds = preferences[PreferencesKeys.BLOCK_ADS] ?: true,
             blockQuic = preferences[PreferencesKeys.BLOCK_QUIC] ?: true,
             latencyTestMethod = LatencyTestMethod.valueOf(preferences[PreferencesKeys.LATENCY_TEST_METHOD] ?: LatencyTestMethod.REAL_RTT.name),
+            latencyTestUrl = preferences[PreferencesKeys.LATENCY_TEST_URL] ?: "https://cp.cloudflare.com/generate_204",
             bypassLan = preferences[PreferencesKeys.BYPASS_LAN] ?: true,
             
             // 镜像设置
@@ -373,6 +375,10 @@ class SettingsRepository(private val context: Context) {
     
     suspend fun setLatencyTestMethod(value: LatencyTestMethod) {
         context.dataStore.edit { it[PreferencesKeys.LATENCY_TEST_METHOD] = value.name }
+    }
+    
+    suspend fun setLatencyTestUrl(value: String) {
+        context.dataStore.edit { it[PreferencesKeys.LATENCY_TEST_URL] = value }
     }
     
     suspend fun setBypassLan(value: Boolean) {

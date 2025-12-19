@@ -145,6 +145,43 @@ class SingBoxCore private constructor(private val context: Context) {
      * 检查 libbox 是否可用
      */
     fun isLibboxAvailable(): Boolean = libboxAvailable
+
+    /**
+     * 使用 Libbox.urlTest 进行原始延迟测试
+     * 这种方式不需要启动完整的 BoxService，更加轻量和高效
+     */
+    private suspend fun testOutboundLatencyWithLibbox(outbound: Outbound): Long = withContext(Dispatchers.IO) {
+        if (!libboxAvailable) return@withContext -1L
+        
+        try {
+            val settings = SettingsRepository.getInstance(context).settings.first()
+            val url = settings.latencyTestUrl
+            val timeout = 5000L // 5秒超时
+            
+            val outboundJson = gson.toJson(outbound)
+            
+            // 使用反射调用 Libbox.urlTest，以防库版本不支持
+            val libboxClass = Class.forName("io.nekohasekai.libbox.Libbox")
+            val urlTestMethod = try {
+                libboxClass.getMethod("urlTest", String::class.java, String::class.java, Long::class.javaPrimitiveType)
+            } catch (e: NoSuchMethodException) {
+                null
+            }
+
+            if (urlTestMethod != null) {
+                val delay = urlTestMethod.invoke(null, outboundJson, url, timeout) as Long
+                if (delay > 0) {
+                    Log.v(TAG, "Latency for ${outbound.tag} via Libbox.urlTest: ${delay}ms")
+                    return@withContext delay
+                }
+            } else {
+                Log.w(TAG, "Libbox.urlTest method not found, fallback to Clash API")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Libbox.urlTest failed for ${outbound.tag}: ${e.message}")
+        }
+        -1L
+    }
     
     /**
      * 测试单个节点的延迟
@@ -152,6 +189,10 @@ class SingBoxCore private constructor(private val context: Context) {
      * @return 延迟时间（毫秒），-1 表示测试失败
      */
     suspend fun testOutboundLatency(outbound: Outbound): Long = withContext(Dispatchers.IO) {
+        // 优先使用原始 singbox (Libbox.urlTest)
+        val libboxDelay = testOutboundLatencyWithLibbox(outbound)
+        if (libboxDelay > 0) return@withContext libboxDelay
+
         if (SingBoxService.isRunning) {
             // VPN 运行时，确保使用正确的 Clash API 地址
             clashApiClient.setBaseUrl("http://127.0.0.1:9090")
@@ -165,7 +206,9 @@ class SingBoxCore private constructor(private val context: Context) {
             Log.e(TAG, "Failed to test latency with temporary service", e)
             -1L
         } finally {
-            stopTestService()
+            if (!SingBoxService.isRunning) {
+                stopTestService()
+            }
         }
     }
     
@@ -178,6 +221,44 @@ class SingBoxCore private constructor(private val context: Context) {
         outbounds: List<Outbound>,
         onResult: (tag: String, latency: Long) -> Unit
     ) = withContext(Dispatchers.IO) {
+        // 尝试使用 Libbox.urlTest 进行批量测试
+        if (libboxAvailable) {
+            val semaphore = Semaphore(permits = 10) // 原始测试更轻量，可以增加并发
+            val jobs = outbounds.map { outbound ->
+                async {
+                    semaphore.withPermit {
+                        val latency = testOutboundLatencyWithLibbox(outbound)
+                        if (latency > 0) {
+                            onResult(outbound.tag, latency)
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                }
+            }
+            
+            val results = jobs.awaitAll()
+            val allSuccess = results.all { it }
+            
+            // 如果全部成功，直接返回
+            if (allSuccess) return@withContext
+            
+            // 否则，对失败的节点继续使用旧方式
+            val failedOutbounds = outbounds.filterIndexed { index, _ -> !results[index] }
+            if (failedOutbounds.isEmpty()) return@withContext
+            
+            Log.d(TAG, "${failedOutbounds.size} nodes failed with Libbox.urlTest, falling back to Clash API")
+            performClashApiBatchTest(failedOutbounds, onResult)
+        } else {
+            performClashApiBatchTest(outbounds, onResult)
+        }
+    }
+
+    private suspend fun performClashApiBatchTest(
+        outbounds: List<Outbound>,
+        onResult: (tag: String, latency: Long) -> Unit
+    ) {
         try {
             if (!SingBoxService.isRunning) {
                 ensureTestServiceRunning(outbounds)
@@ -500,7 +581,7 @@ class SingBoxCore private constructor(private val context: Context) {
                 else -> "real"
             }
             
-            val rawDelay = clashApiClient.testProxyDelay(outbound.tag, type = type)
+            val rawDelay = clashApiClient.testProxyDelay(outbound.tag, testUrl = settings.latencyTestUrl, type = type)
             if (rawDelay > 0) {
                 val calibratedDelay = calibrateLatency(rawDelay)
                 Log.v(TAG, "Latency for ${outbound.tag}: raw=${rawDelay}ms, type=$type, calibrated=${calibratedDelay}ms (baseline=${baselineLatency}ms)")

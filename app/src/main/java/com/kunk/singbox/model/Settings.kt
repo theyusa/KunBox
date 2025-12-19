@@ -41,6 +41,7 @@ data class AppSettings(
     
     // 延迟测试设置
     @SerializedName("latencyTestMethod") val latencyTestMethod: LatencyTestMethod = LatencyTestMethod.REAL_RTT,
+    @SerializedName("latencyTestUrl") val latencyTestUrl: String = "https://cp.cloudflare.com/generate_204",
     
     // 镜像设置
     @SerializedName("ghProxyMirror") val ghProxyMirror: GhProxyMirror = GhProxyMirror.GHFAST_TOP,
