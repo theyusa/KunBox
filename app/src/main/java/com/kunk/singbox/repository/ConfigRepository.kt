@@ -1956,24 +1956,6 @@ class ConfigRepository(private val context: Context) {
             )
         )
 
-        // Fake DNS
-        if (settings.fakeDnsEnabled) {
-            dnsServers.add(
-                DnsServer(
-                    tag = "fakeip",
-                    type = "fakeip",
-                    inet4Range = settings.fakeIpRange
-                )
-            )
-            // 规则：所有 A/AAAA 查询走 fakeip
-            dnsRules.add(
-                DnsRule(
-                    queryType = listOf("A", "AAAA"),
-                    server = "fakeip"
-                )
-            )
-        }
-
         // 优化：直连/绕过类域名的 DNS 强制走 local
         val directRuleSets = mutableListOf<String>()
         if (settings.ruleSets.any { it.tag == "geosite-cn" }) directRuleSets.add("geosite-cn")
@@ -2003,6 +1985,25 @@ class ConfigRepository(private val context: Context) {
                 DnsRule(
                     ruleSet = proxyRuleSets,
                     server = "remote"
+                )
+            )
+        }
+
+        // Fake DNS
+        // 注意：必须放在 direct/proxy 的 DNS 规则之后，否则会抢占所有 A/AAAA 查询，导致 local/remote 分流规则失效。
+        if (settings.fakeDnsEnabled) {
+            dnsServers.add(
+                DnsServer(
+                    tag = "fakeip",
+                    type = "fakeip",
+                    inet4Range = settings.fakeIpRange
+                )
+            )
+            // 规则：未命中上面规则的 A/AAAA 查询走 fakeip
+            dnsRules.add(
+                DnsRule(
+                    queryType = listOf("A", "AAAA"),
+                    server = "fakeip"
                 )
             )
         }

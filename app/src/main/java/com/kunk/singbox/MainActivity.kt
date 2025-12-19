@@ -56,6 +56,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.viewmodel.DashboardViewModel
@@ -162,8 +163,8 @@ fun SingBoxApp() {
             var navigationStartTime by remember { mutableStateOf(0L) }
             
             // Get current destination
-            val navBackStackEntry by androidx.navigation.compose.currentBackStackEntryAsState()
-            val currentRoute = navBackStackEntry?.destination?.route
+            val navBackStackEntry = navController.androidx.navigation.compose.currentBackStackEntryAsState()
+            val currentRoute = navBackStackEntry.value?.destination?.route
             val showBottomBar = currentRoute != com.kunk.singbox.ui.navigation.Screen.Splash.route
 
             // Reset isNavigating after animation completes

@@ -14,6 +14,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import android.os.Build
 
 class LogRepository private constructor() {
     private val _logs = MutableStateFlow<List<String>>(emptyList())
@@ -86,6 +87,24 @@ class LogRepository private constructor() {
             logVersion.incrementAndGet()
         }
         _logs.value = emptyList()
+    }
+
+    fun getLogsAsText(): String {
+        val exportDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        val header = buildString {
+            appendLine("=== SingBox 运行日志 ===")
+            appendLine("导出时间: ${exportDateFormat.format(Date())}")
+            appendLine("设备型号: ${Build.MANUFACTURER} ${Build.MODEL}")
+            appendLine("Android 版本: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+            appendLine("========================")
+            appendLine()
+        }
+        
+        val logContent = synchronized(buffer) {
+            buffer.joinToString("\n")
+        }
+        
+        return header + logContent
     }
 
     companion object {

@@ -3,6 +3,7 @@ package com.kunk.singbox.ui.navigation
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
@@ -139,8 +140,8 @@ fun AppNavigation(navController: NavHostController) {
     ) {
         composable(
             route = Screen.Splash.route,
-            enterTransition = { EnterTransition.None },
-            exitTransition = { fadeOut(animationSpec = tween(500)) }
+            enterTransition = { androidx.compose.animation.EnterTransition.None },
+            exitTransition = { androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(500)) }
         ) {
             SplashScreen(onSplashComplete = {
                 navController.navigate(Screen.Dashboard.route) {

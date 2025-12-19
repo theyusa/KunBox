@@ -20,4 +20,8 @@ class LogViewModel : ViewModel() {
     fun clearLogs() {
         repository.clearLogs()
     }
+
+    fun getLogsForExport(): String {
+        return repository.getLogsAsText()
+    }
 }
