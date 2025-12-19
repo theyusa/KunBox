@@ -1762,18 +1762,20 @@ class ConfigRepository(private val context: Context) {
                     }
                 }
                 RuleSetOutboundMode.PROFILE -> {
-                     // 暂不支持直接指向 Profile，简化为默认代理
-                     // 如果未来支持 Profile 作为 Outbound (如 Selector)，需在此扩展
-                     defaultProxyTag
+                     val profileId = ruleSet.outboundValue
+                     val profileName = _profiles.value.find { it.id == profileId }?.name ?: "Profile_$profileId"
+                     val tag = "P:$profileName"
+                     if (outbounds.any { it.tag == tag }) {
+                         tag
+                     } else {
+                         defaultProxyTag
+                     }
                 }
                 RuleSetOutboundMode.GROUP -> {
                     val groupName = ruleSet.outboundValue
-                    // 假设已为分组创建了 Selector，或者直接查找属于该组的节点
-                    // 目前简化处理：如果在 outbounds 中找到了同名 tag (如 Selector)，则使用，否则默认
                     if (!groupName.isNullOrEmpty() && outbounds.any { it.tag == groupName }) {
                          groupName
                     } else {
-                         // TODO: 为节点组创建专用的 Selector Outbound
                          defaultProxyTag
                     }
                 }
@@ -1825,7 +1827,12 @@ class ConfigRepository(private val context: Context) {
                     val resolvedTag = nodeTagResolver(value)
                     if (resolvedTag != null) resolvedTag else defaultProxyTag
                 }
-                RuleSetOutboundMode.PROFILE -> defaultProxyTag // Not supported yet
+                RuleSetOutboundMode.PROFILE -> {
+                    val profileId = value
+                    val profileName = _profiles.value.find { it.id == profileId }?.name ?: "Profile_$profileId"
+                    val tag = "P:$profileName"
+                    if (outbounds.any { it.tag == tag }) tag else defaultProxyTag
+                }
                 RuleSetOutboundMode.GROUP -> {
                     if (value.isNullOrBlank()) return defaultProxyTag
                     if (outbounds.any { it.tag == value }) value else defaultProxyTag
@@ -2048,6 +2055,7 @@ class ConfigRepository(private val context: Context) {
         val allNodes = _allNodes.value
         val requiredNodeIds = mutableSetOf<String>()
         val requiredGroupNames = mutableSetOf<String>()
+        val requiredProfileIds = mutableSetOf<String>()
 
         fun resolveNodeRefToId(value: String?): String? {
             if (value.isNullOrBlank()) return null
@@ -2067,26 +2075,43 @@ class ConfigRepository(private val context: Context) {
             return node?.id
         }
 
-        // 收集所有规则中引用的节点 ID 和 组名称
+        // 收集所有规则中引用的节点 ID、组名称和配置 ID
         settings.appRules.filter { it.enabled }.forEach { rule ->
-            if (rule.outboundMode == RuleSetOutboundMode.NODE) resolveNodeRefToId(rule.outboundValue)?.let { requiredNodeIds.add(it) }
-            if (rule.outboundMode == RuleSetOutboundMode.GROUP) rule.outboundValue?.let { requiredGroupNames.add(it) }
+            when (rule.outboundMode) {
+                RuleSetOutboundMode.NODE -> resolveNodeRefToId(rule.outboundValue)?.let { requiredNodeIds.add(it) }
+                RuleSetOutboundMode.GROUP -> rule.outboundValue?.let { requiredGroupNames.add(it) }
+                RuleSetOutboundMode.PROFILE -> rule.outboundValue?.let { requiredProfileIds.add(it) }
+                else -> {}
+            }
         }
         settings.appGroups.filter { it.enabled }.forEach { group ->
-            if (group.outboundMode == RuleSetOutboundMode.NODE) resolveNodeRefToId(group.outboundValue)?.let { requiredNodeIds.add(it) }
-            if (group.outboundMode == RuleSetOutboundMode.GROUP) group.outboundValue?.let { requiredGroupNames.add(it) }
+            when (group.outboundMode) {
+                RuleSetOutboundMode.NODE -> resolveNodeRefToId(group.outboundValue)?.let { requiredNodeIds.add(it) }
+                RuleSetOutboundMode.GROUP -> group.outboundValue?.let { requiredGroupNames.add(it) }
+                RuleSetOutboundMode.PROFILE -> group.outboundValue?.let { requiredProfileIds.add(it) }
+                else -> {}
+            }
         }
         settings.ruleSets.filter { it.enabled }.forEach { ruleSet ->
-            if (ruleSet.outboundMode == RuleSetOutboundMode.NODE) resolveNodeRefToId(ruleSet.outboundValue)?.let { requiredNodeIds.add(it) }
-            if (ruleSet.outboundMode == RuleSetOutboundMode.GROUP) ruleSet.outboundValue?.let { requiredGroupNames.add(it) }
+            when (ruleSet.outboundMode) {
+                RuleSetOutboundMode.NODE -> resolveNodeRefToId(ruleSet.outboundValue)?.let { requiredNodeIds.add(it) }
+                RuleSetOutboundMode.GROUP -> ruleSet.outboundValue?.let { requiredGroupNames.add(it) }
+                RuleSetOutboundMode.PROFILE -> ruleSet.outboundValue?.let { requiredProfileIds.add(it) }
+                else -> {}
+            }
         }
 
-        // 确保当前选中的节点始终可用（即使某个应用规则被禁用，也避免 selector 默认值指向不存在的 outbound）
+        // 确保当前选中的节点始终可用
         activeNode?.let { requiredNodeIds.add(it.id) }
 
-        // 将所需组中的所有节点 ID 也加入到 requiredNodeIds
+        // 将所需组和配置中的所有节点 ID 也加入到 requiredNodeIds
         requiredGroupNames.forEach { groupName ->
             allNodes.filter { it.group == groupName }.forEach { node ->
+                requiredNodeIds.add(node.id)
+            }
+        }
+        requiredProfileIds.forEach { profileId ->
+            allNodes.filter { it.sourceProfileId == profileId }.forEach { node ->
                 requiredNodeIds.add(node.id)
             }
         }
@@ -2175,6 +2200,28 @@ class ConfigRepository(private val context: Context) {
                     // Insert at beginning to ensure visibility/precedence
                     fixedOutbounds.add(0, newSelector)
                     Log.d(TAG, "Created synthetic group '$groupName' with ${nodeTags.size} nodes")
+                }
+            }
+        }
+
+        // 4. 处理需要的配置 (Create Profile selectors)
+        requiredProfileIds.forEach { profileId ->
+            val profileNodes = allNodes.filter { it.sourceProfileId == profileId }
+            val nodeTags = profileNodes.mapNotNull { nodeTagMap[it.id] }
+            val profileName = _profiles.value.find { it.id == profileId }?.name ?: "Profile_$profileId"
+            val tag = "P:$profileName" // 使用 P: 前缀区分配置选择器
+
+            if (nodeTags.isNotEmpty()) {
+                val existingIndex = fixedOutbounds.indexOfFirst { it.tag == tag }
+                if (existingIndex < 0) {
+                    val newSelector = Outbound(
+                        type = "selector",
+                        tag = tag,
+                        outbounds = nodeTags.distinct(),
+                        interruptExistConnections = false
+                    )
+                    fixedOutbounds.add(0, newSelector)
+                    Log.d(TAG, "Created synthetic profile selector '$tag' for profile $profileId with ${nodeTags.size} nodes")
                 }
             }
         }
