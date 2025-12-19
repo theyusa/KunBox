@@ -93,6 +93,11 @@ class SettingsRepository(private val context: Context) {
         val GH_PROXY_MIRROR = stringPreferencesKey("gh_proxy_mirror")
         val USE_LIBBOX_URL_TEST = booleanPreferencesKey("use_libbox_url_test")
         
+        // 代理设置
+        val PROXY_PORT = intPreferencesKey("proxy_port")
+        val ALLOW_LAN = booleanPreferencesKey("allow_lan")
+        val APPEND_HTTP_PROXY = booleanPreferencesKey("append_http_proxy")
+        
         // 高级路由 (JSON)
         val CUSTOM_RULES = stringPreferencesKey("custom_rules")
         val RULE_SETS = stringPreferencesKey("rule_sets")
@@ -252,6 +257,11 @@ class SettingsRepository(private val context: Context) {
             
             // 镜像设置
             ghProxyMirror = selectedMirror,
+            
+            // 代理设置
+            proxyPort = preferences[PreferencesKeys.PROXY_PORT] ?: 20808,
+            allowLan = preferences[PreferencesKeys.ALLOW_LAN] ?: false,
+            appendHttpProxy = preferences[PreferencesKeys.APPEND_HTTP_PROXY] ?: false,
             
             // 高级路由
             customRules = customRules,
@@ -416,6 +426,21 @@ class SettingsRepository(private val context: Context) {
     
     suspend fun setGhProxyMirror(value: GhProxyMirror) {
         context.dataStore.edit { it[PreferencesKeys.GH_PROXY_MIRROR] = value.displayName }
+        notifyRestartRequired()
+    }
+    
+    suspend fun setProxyPort(value: Int) {
+        context.dataStore.edit { it[PreferencesKeys.PROXY_PORT] = value }
+        notifyRestartRequired()
+    }
+
+    suspend fun setAllowLan(value: Boolean) {
+        context.dataStore.edit { it[PreferencesKeys.ALLOW_LAN] = value }
+        notifyRestartRequired()
+    }
+
+    suspend fun setAppendHttpProxy(value: Boolean) {
+        context.dataStore.edit { it[PreferencesKeys.APPEND_HTTP_PROXY] = value }
         notifyRestartRequired()
     }
     

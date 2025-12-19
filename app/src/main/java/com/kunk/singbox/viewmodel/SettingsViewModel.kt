@@ -165,6 +165,19 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { repository.setGhProxyMirror(value) }
     }
 
+    // 代理设置
+    fun updateProxyPort(value: Int) {
+        viewModelScope.launch { repository.setProxyPort(value) }
+    }
+
+    fun updateAllowLan(value: Boolean) {
+        viewModelScope.launch { repository.setAllowLan(value) }
+    }
+
+    fun updateAppendHttpProxy(value: Boolean) {
+        viewModelScope.launch { repository.setAppendHttpProxy(value) }
+    }
+
     // 高级路由
     fun addCustomRule(rule: CustomRule) {
         viewModelScope.launch {
