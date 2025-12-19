@@ -128,6 +128,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { repository.setBlockAds(value) }
     }
     
+    fun setBlockQuic(value: Boolean) {
+        viewModelScope.launch { repository.setBlockQuic(value) }
+    }
+    
     fun setBypassLan(value: Boolean) {
         viewModelScope.launch { repository.setBypassLan(value) }
     }

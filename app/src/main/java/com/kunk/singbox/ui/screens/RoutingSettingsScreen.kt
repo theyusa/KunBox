@@ -133,6 +133,12 @@ fun RoutingSettingsScreen(
                     onCheckedChange = { settingsViewModel.setBlockAds(it) }
                 )
                 SettingSwitchItem(
+                    title = "屏蔽 QUIC",
+                    subtitle = "屏蔽 UDP 443 以减少初始加载延迟",
+                    checked = settings.blockQuic,
+                    onCheckedChange = { settingsViewModel.setBlockQuic(it) }
+                )
+                SettingSwitchItem(
                     title = "绕过局域网",
                     subtitle = "局域网流量不经过代理",
                     checked = settings.bypassLan,

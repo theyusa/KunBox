@@ -82,6 +82,7 @@ class SettingsRepository(private val context: Context) {
         val ROUTING_MODE = stringPreferencesKey("routing_mode")
         val DEFAULT_RULE = stringPreferencesKey("default_rule")
         val BLOCK_ADS = booleanPreferencesKey("block_ads")
+        val BLOCK_QUIC = booleanPreferencesKey("block_quic")
         val BYPASS_LAN = booleanPreferencesKey("bypass_lan")
         val GH_PROXY_MIRROR = stringPreferencesKey("gh_proxy_mirror")
         
@@ -232,6 +233,7 @@ class SettingsRepository(private val context: Context) {
             routingMode = RoutingMode.fromDisplayName(preferences[PreferencesKeys.ROUTING_MODE] ?: "规则模式"),
             defaultRule = DefaultRule.fromDisplayName(preferences[PreferencesKeys.DEFAULT_RULE] ?: "直连"),
             blockAds = preferences[PreferencesKeys.BLOCK_ADS] ?: true,
+            blockQuic = preferences[PreferencesKeys.BLOCK_QUIC] ?: true,
             bypassLan = preferences[PreferencesKeys.BYPASS_LAN] ?: true,
             
             // 镜像设置
@@ -358,6 +360,11 @@ class SettingsRepository(private val context: Context) {
     
     suspend fun setBlockAds(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.BLOCK_ADS] = value }
+        notifyRestartRequired()
+    }
+    
+    suspend fun setBlockQuic(value: Boolean) {
+        context.dataStore.edit { it[PreferencesKeys.BLOCK_QUIC] = value }
         notifyRestartRequired()
     }
     

@@ -1905,7 +1905,8 @@ class ConfigRepository(private val context: Context) {
                     strictRoute = settings.strictRoute,
                     stack = settings.tunStack.name.lowercase(), // gvisor/system/mixed/lwip
                     sniff = true,
-                    sniffOverrideDestination = true
+                    sniffOverrideDestination = true,
+                    sniffTimeout = "300ms"
                 )
             )
         } else {
@@ -1917,7 +1918,8 @@ class ConfigRepository(private val context: Context) {
                     listen = "127.0.0.1",
                     listenPort = 2080,
                     sniff = true,
-                    sniffOverrideDestination = true
+                    sniffOverrideDestination = true,
+                    sniffTimeout = "300ms"
                 )
             )
         }
@@ -1960,6 +1962,22 @@ class ConfigRepository(private val context: Context) {
                 )
             )
         }
+
+        // 优化：直连/绕过类域名的 DNS 走 local
+        dnsRules.add(
+            DnsRule(
+                geosite = listOf("cn"),
+                server = "local"
+            )
+        )
+        
+        // 优化：代理类域名的 DNS 走 remote
+        dnsRules.add(
+            DnsRule(
+                geosite = listOf("geolocation-!cn", "google", "youtube", "telegram"),
+                server = "remote"
+            )
+        )
 
         val dns = DnsConfig(
             servers = dnsServers,
@@ -2196,10 +2214,17 @@ class ConfigRepository(private val context: Context) {
         val filteredAdBlockRuleSets = adBlockRuleSet.filter { rs ->
             customRuleSets.none { it.tag == rs.tag }
         }
+        
+        val quicRule = if (settings.blockQuic) {
+            listOf(RouteRule(protocol = listOf("udp"), port = listOf(443), outbound = "block"))
+        } else {
+            emptyList()
+        }
+
         val allRules = listOf(
             // DNS 流量走 dns-out
             RouteRule(protocol = listOf("dns"), outbound = "dns-out")
-        ) + appRoutingRules + adBlockRules + customRuleSetRules
+        ) + quicRule + appRoutingRules + adBlockRules + customRuleSetRules
         
         // 记录所有生成的路由规则
         Log.v(TAG, "=== Generated Route Rules (${allRules.size} total) ===")

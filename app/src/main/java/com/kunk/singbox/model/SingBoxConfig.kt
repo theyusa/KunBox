@@ -66,7 +66,8 @@ data class Inbound(
     @SerializedName("strict_route") val strictRoute: Boolean? = null,
     @SerializedName("stack") val stack: String? = null,
     @SerializedName("sniff") val sniff: Boolean? = null,
-    @SerializedName("sniff_override_destination") val sniffOverrideDestination: Boolean? = null
+    @SerializedName("sniff_override_destination") val sniffOverrideDestination: Boolean? = null,
+    @SerializedName("sniff_timeout") val sniffTimeout: String? = null
 )
 
 @Keep

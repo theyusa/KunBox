@@ -37,6 +37,7 @@ data class AppSettings(
     @SerializedName("defaultRule") val defaultRule: DefaultRule = DefaultRule.DIRECT,
     @SerializedName("blockAds") val blockAds: Boolean = true,
     @SerializedName("bypassLan") val bypassLan: Boolean = true,
+    @SerializedName("blockQuic") val blockQuic: Boolean = true,
     
     // 镜像设置
     @SerializedName("ghProxyMirror") val ghProxyMirror: GhProxyMirror = GhProxyMirror.GHFAST_TOP,
