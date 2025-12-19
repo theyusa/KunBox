@@ -167,6 +167,12 @@ class SingBoxService : VpnService() {
     private var lastKnownNetwork: Network? = null
     private var vpnHealthJob: Job? = null
     
+    // Auto reconnect states
+    private var autoReconnectEnabled: Boolean = false
+    private var lastAutoReconnectAttemptMs: Long = 0L
+    private val autoReconnectDebounceMs: Long = 10000L
+    private var autoReconnectJob: Job? = null
+    
     // Platform interface implementation
     private val platformInterface = object : PlatformInterface {
         override fun autoDetectInterfaceControl(fd: Int) {
@@ -899,7 +905,6 @@ class SingBoxService : VpnService() {
             isStopping = true
         }
 
-        stopHealthCheck()
         autoReconnectJob?.cancel()
         autoReconnectJob = null
 
