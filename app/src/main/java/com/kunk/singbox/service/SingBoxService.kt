@@ -226,12 +226,24 @@ class SingBoxService : VpnService() {
             }
             
             // 添加 DNS (优先使用设置中的 DNS)
+            val dnsServers = mutableListOf<String>()
             if (settings != null) {
-                builder.addDnsServer(settings.remoteDns)
-                builder.addDnsServer(settings.localDns)
-            } else {
-                builder.addDnsServer("8.8.8.8")
-                builder.addDnsServer("8.8.4.4")
+                if (isNumericAddress(settings.remoteDns)) dnsServers.add(settings.remoteDns)
+                if (isNumericAddress(settings.localDns)) dnsServers.add(settings.localDns)
+            }
+            
+            if (dnsServers.isEmpty()) {
+                dnsServers.add("8.8.8.8")
+                dnsServers.add("8.8.4.4")
+                dnsServers.add("223.5.5.5")
+            }
+            
+            dnsServers.distinct().forEach {
+                try {
+                    builder.addDnsServer(it)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to add DNS server: $it", e)
+                }
             }
             
             // 分应用
@@ -951,5 +963,25 @@ class SingBoxService : VpnService() {
     override fun onRevoke() {
         stopVpn(stopService = true)
         super.onRevoke()
+    }
+
+    private fun isNumericAddress(address: String): Boolean {
+        if (address.isBlank()) return false
+        // IPv4 regex
+        val ipv4Pattern = "^(25[0-5]|2[0-4]\\d|[0-1]?\\d?\\d)(\\.(25[0-5]|2[0-4]\\d|[0-1]?\\d?\\d)){3}$"
+        if (address.matches(Regex(ipv4Pattern))) return true
+        
+        // IPv6 simple check: contains colon and no path separators
+        if (address.contains(":") && !address.contains("/")) {
+            return try {
+                // If it can be parsed as an InetAddress and it's not a hostname (doesn't require lookup)
+                // In Android, InetAddress.getByName(numeric) is fast.
+                val inetAddress = InetAddress.getByName(address)
+                inetAddress.hostAddress == address || address.contains("[")
+            } catch (_: Exception) {
+                false
+            }
+        }
+        return false
     }
 }
