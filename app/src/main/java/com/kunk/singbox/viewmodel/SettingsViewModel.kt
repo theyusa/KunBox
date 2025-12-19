@@ -12,6 +12,7 @@ import com.kunk.singbox.model.AppRule
 import com.kunk.singbox.model.AppGroup
 import com.kunk.singbox.model.RuleSet
 import com.kunk.singbox.model.TunStack
+import com.kunk.singbox.model.LatencyTestMethod
 import com.kunk.singbox.model.VpnAppMode
 import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.model.GhProxyMirror
@@ -130,6 +131,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     
     fun setBlockQuic(value: Boolean) {
         viewModelScope.launch { repository.setBlockQuic(value) }
+    }
+    
+    fun setLatencyTestMethod(value: LatencyTestMethod) {
+        viewModelScope.launch { repository.setLatencyTestMethod(value) }
     }
     
     fun setBypassLan(value: Boolean) {

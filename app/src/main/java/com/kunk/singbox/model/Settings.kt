@@ -39,6 +39,9 @@ data class AppSettings(
     @SerializedName("bypassLan") val bypassLan: Boolean = true,
     @SerializedName("blockQuic") val blockQuic: Boolean = true,
     
+    // 延迟测试设置
+    @SerializedName("latencyTestMethod") val latencyTestMethod: LatencyTestMethod = LatencyTestMethod.REAL_RTT,
+    
     // 镜像设置
     @SerializedName("ghProxyMirror") val ghProxyMirror: GhProxyMirror = GhProxyMirror.GHFAST_TOP,
     
@@ -48,6 +51,18 @@ data class AppSettings(
     @SerializedName("appRules") val appRules: List<AppRule> = emptyList(),
     @SerializedName("appGroups") val appGroups: List<AppGroup> = emptyList()
 )
+
+enum class LatencyTestMethod(val displayName: String) {
+    @SerializedName("TCP") TCP("TCP 延迟"),
+    @SerializedName("REAL_RTT") REAL_RTT("真实延迟 (RTT)"),
+    @SerializedName("HANDSHAKE") HANDSHAKE("HTTP 握手延迟");
+    
+    companion object {
+        fun fromDisplayName(name: String): LatencyTestMethod {
+            return entries.find { it.displayName == name } ?: REAL_RTT
+        }
+    }
+}
 
 enum class TunStack(val displayName: String) {
     @SerializedName("SYSTEM") SYSTEM("System"),

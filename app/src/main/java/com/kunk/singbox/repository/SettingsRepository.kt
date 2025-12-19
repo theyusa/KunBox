@@ -20,6 +20,7 @@ import com.kunk.singbox.model.AppRule
 import com.kunk.singbox.model.AppGroup
 import com.kunk.singbox.model.RuleSet
 import com.kunk.singbox.model.TunStack
+import com.kunk.singbox.model.LatencyTestMethod
 import com.kunk.singbox.model.VpnAppMode
 import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.model.GhProxyMirror
@@ -83,6 +84,7 @@ class SettingsRepository(private val context: Context) {
         val DEFAULT_RULE = stringPreferencesKey("default_rule")
         val BLOCK_ADS = booleanPreferencesKey("block_ads")
         val BLOCK_QUIC = booleanPreferencesKey("block_quic")
+        val LATENCY_TEST_METHOD = stringPreferencesKey("latency_test_method")
         val BYPASS_LAN = booleanPreferencesKey("bypass_lan")
         val GH_PROXY_MIRROR = stringPreferencesKey("gh_proxy_mirror")
         
@@ -234,6 +236,7 @@ class SettingsRepository(private val context: Context) {
             defaultRule = DefaultRule.fromDisplayName(preferences[PreferencesKeys.DEFAULT_RULE] ?: "直连"),
             blockAds = preferences[PreferencesKeys.BLOCK_ADS] ?: true,
             blockQuic = preferences[PreferencesKeys.BLOCK_QUIC] ?: true,
+            latencyTestMethod = LatencyTestMethod.valueOf(preferences[PreferencesKeys.LATENCY_TEST_METHOD] ?: LatencyTestMethod.REAL_RTT.name),
             bypassLan = preferences[PreferencesKeys.BYPASS_LAN] ?: true,
             
             // 镜像设置
@@ -366,6 +369,10 @@ class SettingsRepository(private val context: Context) {
     suspend fun setBlockQuic(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.BLOCK_QUIC] = value }
         notifyRestartRequired()
+    }
+    
+    suspend fun setLatencyTestMethod(value: LatencyTestMethod) {
+        context.dataStore.edit { it[PreferencesKeys.LATENCY_TEST_METHOD] = value.name }
     }
     
     suspend fun setBypassLan(value: Boolean) {

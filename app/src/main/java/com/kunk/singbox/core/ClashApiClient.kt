@@ -98,12 +98,14 @@ class ClashApiClient(
      * @param proxyName 节点名称
      * @param testUrl 测试 URL
      * @param timeout 超时时间（毫秒）
+     * @param type 延迟测试类型: "tcp", "real", "handshake"
      * @return 延迟（毫秒），-1 表示失败
      */
     suspend fun testProxyDelay(
         proxyName: String,
         testUrl: String = DEFAULT_TEST_URL,
-        timeout: Long = DEFAULT_TIMEOUT
+        timeout: Long = DEFAULT_TIMEOUT,
+        type: String = "real"
     ): Long = withContext(Dispatchers.IO) {
         try {
             val url = baseUrl.toHttpUrlOrNull()?.newBuilder()
@@ -112,6 +114,11 @@ class ClashApiClient(
                 ?.addPathSegment("delay")
                 ?.addQueryParameter("timeout", timeout.toString())
                 ?.addQueryParameter("url", testUrl)
+                ?.apply {
+                    if (type != "real") {
+                        addQueryParameter("type", type)
+                    }
+                }
                 ?.build()
                 ?: run {
                     Log.e(TAG, "Invalid baseUrl: $baseUrl")

@@ -9,6 +9,8 @@ import android.util.Log
 import com.google.gson.Gson
 import com.kunk.singbox.model.Outbound
 import com.kunk.singbox.model.SingBoxConfig
+import com.kunk.singbox.model.LatencyTestMethod
+import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.service.SingBoxService
 import io.nekohasekai.libbox.*
 import kotlinx.coroutines.CoroutineScope
@@ -490,13 +492,20 @@ class SingBoxCore private constructor(private val context: Context) {
                 calibrateBaseline()
             }
             
-            val rawDelay = clashApiClient.testProxyDelay(outbound.tag)
+            val settings = SettingsRepository.getInstance(context).settings.first()
+            val type = when (settings.latencyTestMethod) {
+                LatencyTestMethod.TCP -> "tcp"
+                LatencyTestMethod.HANDSHAKE -> "handshake"
+                else -> "real"
+            }
+            
+            val rawDelay = clashApiClient.testProxyDelay(outbound.tag, type = type)
             if (rawDelay > 0) {
                 val calibratedDelay = calibrateLatency(rawDelay)
-                Log.v(TAG, "Latency for ${outbound.tag}: raw=${rawDelay}ms, calibrated=${calibratedDelay}ms (baseline=${baselineLatency}ms)")
+                Log.v(TAG, "Latency for ${outbound.tag}: raw=${rawDelay}ms, type=$type, calibrated=${calibratedDelay}ms (baseline=${baselineLatency}ms)")
                 calibratedDelay
             } else {
-                Log.w(TAG, "Latency test failed for ${outbound.tag} (result: $rawDelay)")
+                Log.w(TAG, "Latency test failed for ${outbound.tag} (result: $rawDelay, type=$type)")
                 rawDelay
             }
         } catch (e: Exception) {
