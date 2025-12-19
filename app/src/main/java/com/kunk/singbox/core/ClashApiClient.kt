@@ -108,12 +108,19 @@ class ClashApiClient(
         type: String = "real"
     ): Long = withContext(Dispatchers.IO) {
         try {
+            // 根据测试类型调整 URL。如果是 TCP 测试，强制使用 http 协议以跳过 TLS 握手，从而获得更纯粹的连接延迟。
+            val finalTestUrl = if (type == "tcp" && testUrl.startsWith("https://")) {
+                testUrl.replaceFirst("https://", "http://")
+            } else {
+                testUrl
+            }
+
             val url = baseUrl.toHttpUrlOrNull()?.newBuilder()
                 ?.addPathSegment("proxies")
                 ?.addPathSegment(proxyName)
                 ?.addPathSegment("delay")
                 ?.addQueryParameter("timeout", timeout.toString())
-                ?.addQueryParameter("url", testUrl)
+                ?.addQueryParameter("url", finalTestUrl)
                 ?.apply {
                     if (type.isNotEmpty()) {
                         addQueryParameter("type", type)
