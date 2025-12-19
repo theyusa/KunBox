@@ -23,3 +23,7 @@ SFA-1.12.13-universal/
 
 # Git submodule（无需上传，会通过 .gitmodules 自动拉取）
 sing-box/
+
+# 大型二进制文件（超过 GitHub 50MB 限制）
+*.aar
+app/libs/*.aar
