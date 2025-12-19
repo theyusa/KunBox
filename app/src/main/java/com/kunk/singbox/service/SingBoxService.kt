@@ -10,6 +10,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.ProxyInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -343,6 +344,16 @@ class SingBoxService : VpnService() {
             
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 builder.setMetered(false)
+                
+                // 追加 HTTP 代理至 VPN
+                if (settings?.appendHttpProxy == true && settings.proxyPort > 0) {
+                    try {
+                        builder.setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", settings.proxyPort))
+                        Log.i(TAG, "HTTP Proxy appended to VPN: 127.0.0.1:${settings.proxyPort}")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to set HTTP proxy for VPN", e)
+                    }
+                }
             }
             
             // 设置底层网络 - 关键！让 VPN 流量可以通过物理网络出去

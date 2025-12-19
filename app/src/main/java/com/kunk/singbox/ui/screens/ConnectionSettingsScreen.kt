@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.kunk.singbox.ui.components.EditableTextItem
 import com.kunk.singbox.ui.components.SettingSwitchItem
 import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.theme.AppBackground
@@ -78,6 +79,31 @@ fun ConnectionSettingsScreen(
                     subtitle = "开启后，应用将不会出现在手机的最近任务列表中",
                     checked = settings.excludeFromRecent,
                     onCheckedChange = { settingsViewModel.setExcludeFromRecent(it) }
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+
+            StandardCard {
+                EditableTextItem(
+                    title = "代理端口",
+                    subtitle = "本地混合代理端口 (Mixed Port)",
+                    value = settings.proxyPort.toString(),
+                    onValueChange = { 
+                        it.toIntOrNull()?.let { port -> settingsViewModel.updateProxyPort(port) }
+                    }
+                )
+                SettingSwitchItem(
+                    title = "允许来自局域网的连接",
+                    subtitle = "开启后，局域网内的其他设备可以通过该端口使用代理",
+                    checked = settings.allowLan,
+                    onCheckedChange = { settingsViewModel.updateAllowLan(it) }
+                )
+                SettingSwitchItem(
+                    title = "追加 HTTP 代理至 VPN",
+                    subtitle = "将本地 HTTP 代理设置为系统代理 (Android 10+)",
+                    checked = settings.appendHttpProxy,
+                    onCheckedChange = { settingsViewModel.updateAppendHttpProxy(it) }
                 )
             }
             

@@ -1900,6 +1900,24 @@ class ConfigRepository(private val context: Context) {
         
         // 添加入站配置
         val inbounds = mutableListOf<Inbound>()
+        
+        // 1. 添加混合入站 (Mixed Port)
+        if (settings.proxyPort > 0) {
+            inbounds.add(
+                Inbound(
+                    type = "mixed",
+                    tag = "mixed-in",
+                    listen = if (settings.allowLan) "0.0.0.0" else "127.0.0.1",
+                    listenPort = settings.proxyPort,
+                    sniff = true,
+                    sniffOverrideDestination = true,
+                    sniffTimeout = "300ms",
+                    allowLan = settings.allowLan,
+                    setSystemProxy = false // We handle this via Android VpnService if needed
+                )
+            )
+        }
+
         if (settings.tunEnabled) {
             inbounds.add(
                 Inbound(
@@ -1916,8 +1934,8 @@ class ConfigRepository(private val context: Context) {
                     sniffTimeout = "300ms"
                 )
             )
-        } else {
-            // 如果禁用 TUN，则添加混合入站（HTTP+SOCKS），方便本地代理使用
+        } else if (settings.proxyPort <= 0) {
+            // 如果禁用 TUN 且未设置自定义端口，则添加默认混合入站（HTTP+SOCKS），方便本地代理使用
             inbounds.add(
                 Inbound(
                     type = "mixed",

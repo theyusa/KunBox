@@ -71,7 +71,9 @@ data class Inbound(
     @SerializedName("sniff") val sniff: Boolean? = null,
     @SerializedName("sniff_override_destination") val sniffOverrideDestination: Boolean? = null,
     @SerializedName("sniff_timeout") val sniffTimeout: String? = null,
-    @SerializedName("tcp_fast_open") val tcpFastOpen: Boolean? = null
+    @SerializedName("tcp_fast_open") val tcpFastOpen: Boolean? = null,
+    @SerializedName("allow_lan") val allowLan: Boolean? = null,
+    @SerializedName("set_system_proxy") val setSystemProxy: Boolean? = null
 )
 
 @Keep
