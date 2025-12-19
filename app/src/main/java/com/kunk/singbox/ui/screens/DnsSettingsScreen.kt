@@ -51,6 +51,9 @@ fun DnsSettingsScreen(
     var showRemoteDnsDialog by remember { mutableStateOf(false) }
     var showFakeIpDialog by remember { mutableStateOf(false) }
     var showStrategyDialog by remember { mutableStateOf(false) }
+    var showRemoteStrategyDialog by remember { mutableStateOf(false) }
+    var showDirectStrategyDialog by remember { mutableStateOf(false) }
+    var showServerStrategyDialog by remember { mutableStateOf(false) }
     var showCacheDialog by remember { mutableStateOf(false) }
 
     if (showLocalDnsDialog) {
@@ -100,6 +103,48 @@ fun DnsSettingsScreen(
                 showStrategyDialog = false
             },
             onDismiss = { showStrategyDialog = false }
+        )
+    }
+
+    if (showRemoteStrategyDialog) {
+        val options = DnsStrategy.entries.map { it.displayName }
+        SingleSelectDialog(
+            title = "远程域名策略",
+            options = options,
+            selectedIndex = options.indexOf(settings.remoteDnsStrategy.displayName).coerceAtLeast(0),
+            onSelect = { index ->
+                settingsViewModel.setRemoteDnsStrategy(DnsStrategy.entries[index])
+                showRemoteStrategyDialog = false
+            },
+            onDismiss = { showRemoteStrategyDialog = false }
+        )
+    }
+
+    if (showDirectStrategyDialog) {
+        val options = DnsStrategy.entries.map { it.displayName }
+        SingleSelectDialog(
+            title = "直连域名策略",
+            options = options,
+            selectedIndex = options.indexOf(settings.directDnsStrategy.displayName).coerceAtLeast(0),
+            onSelect = { index ->
+                settingsViewModel.setDirectDnsStrategy(DnsStrategy.entries[index])
+                showDirectStrategyDialog = false
+            },
+            onDismiss = { showDirectStrategyDialog = false }
+        )
+    }
+
+    if (showServerStrategyDialog) {
+        val options = DnsStrategy.entries.map { it.displayName }
+        SingleSelectDialog(
+            title = "服务器地址策略",
+            options = options,
+            selectedIndex = options.indexOf(settings.serverAddressStrategy.displayName).coerceAtLeast(0),
+            onSelect = { index ->
+                settingsViewModel.setServerAddressStrategy(DnsStrategy.entries[index])
+                showServerStrategyDialog = false
+            },
+            onDismiss = { showServerStrategyDialog = false }
         )
     }
     
@@ -160,6 +205,9 @@ fun DnsSettingsScreen(
             
             StandardCard {
                 SettingItem(title = "解析策略", value = settings.dnsStrategy.displayName, onClick = { showStrategyDialog = true })
+                SettingItem(title = "远程域名策略", value = settings.remoteDnsStrategy.displayName, onClick = { showRemoteStrategyDialog = true })
+                SettingItem(title = "直连域名策略", value = settings.directDnsStrategy.displayName, onClick = { showDirectStrategyDialog = true })
+                SettingItem(title = "服务器地址策略", value = settings.serverAddressStrategy.displayName, onClick = { showServerStrategyDialog = true })
                 SettingItem(title = "缓存", value = if (settings.dnsCacheEnabled) "已启用" else "已禁用", onClick = { showCacheDialog = true })
             }
         }

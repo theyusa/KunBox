@@ -30,6 +30,9 @@ data class AppSettings(
     @SerializedName("fakeDnsEnabled") val fakeDnsEnabled: Boolean = true,
     @SerializedName("fakeIpRange") val fakeIpRange: String = "198.18.0.0/15",
     @SerializedName("dnsStrategy") val dnsStrategy: DnsStrategy = DnsStrategy.PREFER_IPV4,
+    @SerializedName("remoteDnsStrategy") val remoteDnsStrategy: DnsStrategy = DnsStrategy.AUTO,
+    @SerializedName("directDnsStrategy") val directDnsStrategy: DnsStrategy = DnsStrategy.AUTO,
+    @SerializedName("serverAddressStrategy") val serverAddressStrategy: DnsStrategy = DnsStrategy.AUTO,
     @SerializedName("dnsCacheEnabled") val dnsCacheEnabled: Boolean = true,
     
     // 路由设置
@@ -102,6 +105,7 @@ enum class VpnAppMode(val displayName: String) {
 }
 
 enum class DnsStrategy(val displayName: String) {
+    @SerializedName("AUTO") AUTO("Auto"),
     @SerializedName("PREFER_IPV4") PREFER_IPV4("优先 IPv4"),
     @SerializedName("PREFER_IPV6") PREFER_IPV6("优先 IPv6"),
     @SerializedName("ONLY_IPV4") ONLY_IPV4("仅 IPv4"),
@@ -109,7 +113,7 @@ enum class DnsStrategy(val displayName: String) {
     
     companion object {
         fun fromDisplayName(name: String): DnsStrategy {
-            return entries.find { it.displayName == name } ?: PREFER_IPV4
+            return entries.find { it.displayName == name } ?: AUTO
         }
     }
 }

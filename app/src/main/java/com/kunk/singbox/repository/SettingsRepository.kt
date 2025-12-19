@@ -77,6 +77,9 @@ class SettingsRepository(private val context: Context) {
         val FAKE_DNS_ENABLED = booleanPreferencesKey("fake_dns_enabled")
         val FAKE_IP_RANGE = stringPreferencesKey("fake_ip_range")
         val DNS_STRATEGY = stringPreferencesKey("dns_strategy")
+        val REMOTE_DNS_STRATEGY = stringPreferencesKey("remote_dns_strategy")
+        val DIRECT_DNS_STRATEGY = stringPreferencesKey("direct_dns_strategy")
+        val SERVER_ADDRESS_STRATEGY = stringPreferencesKey("server_address_strategy")
         val DNS_CACHE_ENABLED = booleanPreferencesKey("dns_cache_enabled")
         
         // 路由设置
@@ -231,6 +234,9 @@ class SettingsRepository(private val context: Context) {
             fakeDnsEnabled = preferences[PreferencesKeys.FAKE_DNS_ENABLED] ?: true,
             fakeIpRange = preferences[PreferencesKeys.FAKE_IP_RANGE] ?: "198.18.0.0/15",
             dnsStrategy = DnsStrategy.fromDisplayName(preferences[PreferencesKeys.DNS_STRATEGY] ?: "优先 IPv4"),
+            remoteDnsStrategy = DnsStrategy.fromDisplayName(preferences[PreferencesKeys.REMOTE_DNS_STRATEGY] ?: "Auto"),
+            directDnsStrategy = DnsStrategy.fromDisplayName(preferences[PreferencesKeys.DIRECT_DNS_STRATEGY] ?: "Auto"),
+            serverAddressStrategy = DnsStrategy.fromDisplayName(preferences[PreferencesKeys.SERVER_ADDRESS_STRATEGY] ?: "Auto"),
             dnsCacheEnabled = preferences[PreferencesKeys.DNS_CACHE_ENABLED] ?: true,
             
             // 路由设置
@@ -346,6 +352,21 @@ class SettingsRepository(private val context: Context) {
     
     suspend fun setDnsStrategy(value: DnsStrategy) {
         context.dataStore.edit { it[PreferencesKeys.DNS_STRATEGY] = value.displayName }
+        notifyRestartRequired()
+    }
+
+    suspend fun setRemoteDnsStrategy(value: DnsStrategy) {
+        context.dataStore.edit { it[PreferencesKeys.REMOTE_DNS_STRATEGY] = value.displayName }
+        notifyRestartRequired()
+    }
+
+    suspend fun setDirectDnsStrategy(value: DnsStrategy) {
+        context.dataStore.edit { it[PreferencesKeys.DIRECT_DNS_STRATEGY] = value.displayName }
+        notifyRestartRequired()
+    }
+
+    suspend fun setServerAddressStrategy(value: DnsStrategy) {
+        context.dataStore.edit { it[PreferencesKeys.SERVER_ADDRESS_STRATEGY] = value.displayName }
         notifyRestartRequired()
     }
     

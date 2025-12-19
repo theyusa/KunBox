@@ -1934,7 +1934,8 @@ class ConfigRepository(private val context: Context) {
             DnsServer(
                 tag = "local",
                 address = localDnsAddr,
-                detour = "direct"
+                detour = "direct",
+                strategy = mapDnsStrategy(settings.directDnsStrategy)
             )
         )
 
@@ -1943,7 +1944,8 @@ class ConfigRepository(private val context: Context) {
             DnsServer(
                 tag = "remote",
                 address = settings.remoteDns,
-                detour = "PROXY"
+                detour = "PROXY",
+                strategy = mapDnsStrategy(settings.remoteDnsStrategy)
             )
         )
 
@@ -1952,7 +1954,8 @@ class ConfigRepository(private val context: Context) {
             DnsServer(
                 tag = "dnspod",
                 address = "119.29.29.29",
-                detour = "direct"
+                detour = "direct",
+                strategy = mapDnsStrategy(settings.directDnsStrategy)
             )
         )
 
@@ -2012,12 +2015,7 @@ class ConfigRepository(private val context: Context) {
             servers = dnsServers,
             rules = dnsRules,
             finalServer = "local", // 兜底使用本地 DNS，保证基础联网不卡死
-            strategy = when (settings.dnsStrategy) {
-                DnsStrategy.PREFER_IPV4 -> "prefer_ipv4"
-                DnsStrategy.PREFER_IPV6 -> "prefer_ipv6"
-                DnsStrategy.ONLY_IPV4 -> "ipv4_only"
-                DnsStrategy.ONLY_IPV6 -> "ipv6_only"
-            },
+            strategy = mapDnsStrategy(settings.dnsStrategy),
             disableCache = !settings.dnsCacheEnabled,
             independentCache = true
         )
@@ -2333,8 +2331,18 @@ class ConfigRepository(private val context: Context) {
         return loadConfig(profileId)
     }
     
+    private fun mapDnsStrategy(strategy: DnsStrategy): String? {
+        return when (strategy) {
+            DnsStrategy.AUTO -> null
+            DnsStrategy.PREFER_IPV4 -> "prefer_ipv4"
+            DnsStrategy.PREFER_IPV6 -> "prefer_ipv6"
+            DnsStrategy.ONLY_IPV4 -> "ipv4_only"
+            DnsStrategy.ONLY_IPV6 -> "ipv6_only"
+        }
+    }
+
     /**
-     * 根据节点ID获取节点的Outbound配置
+     * 根据设置中的 IP 地址解析并修复 Outbound
      */
     fun getOutboundByNodeId(nodeId: String): Outbound? {
         val node = _nodes.value.find { it.id == nodeId } ?: return null

@@ -111,6 +111,18 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setDnsStrategy(value: DnsStrategy) {
         viewModelScope.launch { repository.setDnsStrategy(value) }
     }
+
+    fun setRemoteDnsStrategy(value: DnsStrategy) {
+        viewModelScope.launch { repository.setRemoteDnsStrategy(value) }
+    }
+
+    fun setDirectDnsStrategy(value: DnsStrategy) {
+        viewModelScope.launch { repository.setDirectDnsStrategy(value) }
+    }
+
+    fun setServerAddressStrategy(value: DnsStrategy) {
+        viewModelScope.launch { repository.setServerAddressStrategy(value) }
+    }
     
     fun setDnsCacheEnabled(value: Boolean) {
         viewModelScope.launch { repository.setDnsCacheEnabled(value) }

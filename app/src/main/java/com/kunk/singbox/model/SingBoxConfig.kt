@@ -39,6 +39,7 @@ data class DnsServer(
     @SerializedName("address") val address: String? = null,
     @SerializedName("address_resolver") val addressResolver: String? = null,
     @SerializedName("detour") val detour: String? = null,
+    @SerializedName("strategy") val strategy: String? = null,
     @SerializedName("inet4_range") val inet4Range: String? = null,
     @SerializedName("inet6_range") val inet6Range: String? = null
 )
