@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kunk.singbox.ui.theme.Divider
@@ -58,7 +59,9 @@ fun SettingItem(
             Spacer(modifier = Modifier.width(16.dp))
         }
 
-        Column(modifier = Modifier.weight(1f)) {
+        val titleModifier = if (value != null) Modifier.padding(end = 8.dp) else Modifier.weight(1f)
+
+        Column(modifier = titleModifier) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyMedium,
@@ -84,7 +87,8 @@ fun SettingItem(
                 text = value,
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
-                modifier = Modifier.padding(horizontal = 8.dp),
+                modifier = Modifier.padding(horizontal = 8.dp).weight(1f),
+                textAlign = TextAlign.End,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

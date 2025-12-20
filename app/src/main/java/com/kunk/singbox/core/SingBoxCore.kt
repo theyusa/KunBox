@@ -167,7 +167,6 @@ class SingBoxCore private constructor(private val context: Context) {
                     adjustUrlForMode("https://cp.cloudflare.com/generate_204", finalSettings.latencyTestMethod)
                 }
             } catch (_: Exception) { url }
-            val timeout = 5000L
             val outboundJson = "{" + "\"tag\":\"" + outbound.tag + "\"" + "}"
             
             val libboxClass = Class.forName("io.nekohasekai.libbox.Libbox")
@@ -185,6 +184,7 @@ class SingBoxCore private constructor(private val context: Context) {
                                 && (m.parameterTypes[2] == Long::class.javaPrimitiveType || m.parameterTypes[2] == Int::class.javaPrimitiveType)
                                 && m.name.endsWith("urlTestOnRunning", ignoreCase = true)
                     }
+                    var lastRunningNegative: Long? = null
                     for (m in runningMethods) {
                         try {
                             var r = m.invoke(null, outboundJson, url, 5000L) as Long
@@ -192,6 +192,7 @@ class SingBoxCore private constructor(private val context: Context) {
                                 Log.i(TAG, "Invoked running-instance native URL test: ${m.name} -> $r ms")
                                 return@withContext r
                             }
+                            lastRunningNegative = r
                             // One quick retry for transient states (route selection, DNS warmup)
                             delay(250)
                             r = m.invoke(null, outboundJson, url, 5000L) as Long
@@ -199,6 +200,7 @@ class SingBoxCore private constructor(private val context: Context) {
                                 Log.i(TAG, "Invoked running-instance native URL test (retry): ${m.name} -> $r ms")
                                 return@withContext r
                             }
+                            lastRunningNegative = r
                         } catch (_: Exception) { }
                     }
                     // Fallback URL once if initial attempts failed
@@ -210,18 +212,26 @@ class SingBoxCore private constructor(private val context: Context) {
                                     Log.i(TAG, "Invoked running-instance native URL test (fallback URL): ${m.name} -> $r ms")
                                     return@withContext r
                                 }
+                                lastRunningNegative = r
                                 delay(250)
                                 r = m.invoke(null, outboundJson, fallbackUrl, 5000L) as Long
                                 if (r >= 0) {
                                     Log.i(TAG, "Invoked running-instance native URL test (fallback URL retry): ${m.name} -> $r ms")
                                     return@withContext r
                                 }
+                                lastRunningNegative = r
                             } catch (_: Exception) { }
                         }
+                    }
+                    if (runningMethods.isNotEmpty() && (lastRunningNegative != null && lastRunningNegative!! < 0)) {
+                        Log.w(TAG, "Running-instance URLTestOnRunning returned negative: ${outbound.tag} -> ${lastRunningNegative} ms")
                     }
                 } catch (_: Exception) { }
             }
             
+            // Ensure libbox is initialized for any static invocations.
+            ensureLibboxSetup(context)
+
             // 尝试从缓存中获取之前发现的方法，避免每次都反射查找
             var methodToUse = discoveredUrlTestMethod
             var methodType = discoveredMethodType // 0: long, 1: URLTest object
@@ -374,7 +384,7 @@ class SingBoxCore private constructor(private val context: Context) {
         return@withContext try {
             val finalSettings = settings ?: SettingsRepository.getInstance(context).settings.first()
             val finalUrl = adjustUrlForMode(finalSettings.latencyTestUrl, finalSettings.latencyTestMethod)
-            testWithLocalHttpProxy(outbound, finalUrl, 5000)
+            testWithLocalHttpProxy(outbound, finalUrl, null, 5000)
         } catch (e: Exception) {
             Log.w(TAG, "Native HTTP proxy test failed: ${e.message}")
             -1L
@@ -492,7 +502,7 @@ class SingBoxCore private constructor(private val context: Context) {
         return args.toTypedArray()
     }
 
-    private suspend fun testWithLocalHttpProxy(outbound: Outbound, targetUrl: String, timeoutMs: Int): Long = withContext(Dispatchers.IO) {
+    private suspend fun testWithLocalHttpProxy(outbound: Outbound, targetUrl: String, fallbackUrl: String? = null, timeoutMs: Int): Long = withContext(Dispatchers.IO) {
         val port = allocateLocalPort()
         val inbound = com.kunk.singbox.model.Inbound(
             type = "http",
@@ -543,17 +553,34 @@ class SingBoxCore private constructor(private val context: Context) {
                 .writeTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
                 .build()
 
-            val req = Request.Builder().url(targetUrl).get().build()
-            val t0 = System.nanoTime()
-            client.newCall(req).execute().use { resp ->
-                // 消耗少量响应体以确保建立完成
-                resp.body?.close()
+            fun runOnce(url: String): Long {
+                val req = Request.Builder().url(url).get().build()
+                val t0 = System.nanoTime()
+                client.newCall(req).execute().use { resp ->
+                    if (resp.code >= 400) {
+                        throw java.io.IOException("HTTP proxy test failed with code=${resp.code}")
+                    }
+                    resp.body?.close()
+                }
+                return (System.nanoTime() - t0) / 1_000_000
             }
-            val elapsedMs = (System.nanoTime() - t0) / 1_000_000
-            elapsedMs
-        } catch (e: Exception) {
-            Log.w(TAG, "HTTP proxy native test error: ${e.message}")
-            -1L
+
+            try {
+                runOnce(targetUrl)
+            } catch (e: Exception) {
+                val fb = fallbackUrl
+                if (!fb.isNullOrBlank() && fb != targetUrl) {
+                    try {
+                        runOnce(fb)
+                    } catch (e2: Exception) {
+                        Log.w(TAG, "HTTP proxy native test error: primary=${e.message}, fallback=${e2.message}")
+                        -1L
+                    }
+                } else {
+                    Log.w(TAG, "HTTP proxy native test error: ${e.message}")
+                    -1L
+                }
+            }
         } finally {
             try { service?.close() } catch (_: Exception) {}
         }
@@ -565,35 +592,385 @@ class SingBoxCore private constructor(private val context: Context) {
         timeoutMs: Int,
         method: LatencyTestMethod
     ): Long = withContext(Dispatchers.IO) {
+        if (!libboxAvailable) return@withContext -1L
         try {
-            val libboxClass = Class.forName("io.nekohasekai.libbox.Libbox")
+            ensureLibboxSetup(context)
             val selectorJson = "{\"tag\":\"" + outbound.tag + "\"}"
 
-            // Prefer discovered method (urlTest/newURLTest) with signature variations.
+            // Reuse the discovery cache (populated by testOutboundLatencyWithLibbox) if already available.
+            // If not, trigger discovery once by calling the same function with current settings.
+            if (discoveredUrlTestMethod == null) {
+                val settings = SettingsRepository.getInstance(context).settings.first()
+                testOutboundLatencyWithLibbox(outbound, settings)
+            }
+
             val m = discoveredUrlTestMethod
-            if (m != null) {
-                val args = buildUrlTestArgs(m.parameterTypes, selectorJson, targetUrl, TestPlatformInterface(context))
+            if (m == null) {
+                Log.w(TAG, "Offline URLTest RTT unavailable: no Libbox static urlTest method")
+                return@withContext -1L
+            }
+
+            return@withContext try {
+                val pi = TestPlatformInterface(context)
+                val args = buildUrlTestArgs(m.parameterTypes, selectorJson, targetUrl, pi)
                 val result = m.invoke(null, *args)
-                return@withContext when {
+                val rtt = when {
                     m.returnType == Long::class.javaPrimitiveType -> result as Long
                     else -> extractDelayFromUrlTest(result, method)
                 }
+                if (rtt < 0) {
+                    Log.w(TAG, "Offline URLTest RTT returned negative: $rtt")
+                }
+                rtt
+            } catch (e: Exception) {
+                Log.w(TAG, "Offline URLTest RTT invoke failed: ${e.javaClass.simpleName}: ${e.message}")
+                -1L
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Offline URLTest RTT setup failed: ${e.javaClass.simpleName}: ${e.message}")
+            -1L
+        }
+    }
+
+    private suspend fun testWithTemporaryServiceUrlTestOnRunning(
+        outbound: Outbound,
+        targetUrl: String,
+        fallbackUrl: String? = null,
+        timeoutMs: Int,
+        method: LatencyTestMethod
+    ): Long = withContext(Dispatchers.IO) {
+        if (!libboxAvailable) return@withContext -1L
+        var service: BoxService? = null
+        var runningServiceSet = false
+        try {
+            ensureLibboxSetup(context)
+            val pi = TestPlatformInterface(context)
+            val settings = SettingsRepository.getInstance(context).settings.first()
+
+            val direct = com.kunk.singbox.model.Outbound(type = "direct", tag = "direct")
+            val config = SingBoxConfig(
+                log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true),
+                dns = com.kunk.singbox.model.DnsConfig(
+                    servers = listOf(
+                        com.kunk.singbox.model.DnsServer(tag = "local", address = settings.localDns, detour = "direct"),
+                        com.kunk.singbox.model.DnsServer(tag = "remote", address = settings.remoteDns, detour = "direct")
+                    )
+                ),
+                outbounds = listOf(outbound, direct),
+                route = com.kunk.singbox.model.RouteConfig(
+                    rules = listOf(
+                        com.kunk.singbox.model.RouteRule(protocol = listOf("dns"), outbound = "direct")
+                    ),
+                    finalOutbound = "direct",
+                    autoDetectInterface = true
+                ),
+                experimental = null
+            )
+
+            val cfgJson = gson.toJson(config)
+            service = Libbox.newService(cfgJson, pi)
+            try { service.startAndRegister() } catch (_: Exception) { try { service.start() } catch (_: Exception) { } }
+
+            try {
+                Libbox.setRunningService(service)
+                runningServiceSet = true
+            } catch (e: Exception) {
+                Log.w(TAG, "Offline setRunningService failed: ${e.javaClass.simpleName}: ${e.message}")
             }
 
-            // Fallback: direct reflect by common signature (String,String,long)
-            val urlTestMethod = libboxClass.getMethod(
-                "urlTest",
-                String::class.java,
-                String::class.java,
-                Long::class.javaPrimitiveType
-            )
-            val result = urlTestMethod.invoke(null, selectorJson, targetUrl, timeoutMs.toLong())
-            when (result) {
-                is Long -> result
-                else -> extractDelayFromUrlTest(result, method)
+            // Give the core a short warmup window (DNS/routing init) to avoid cold-start -1.
+            delay(250)
+
+            val libboxClass = Class.forName("io.nekohasekai.libbox.Libbox")
+            val selectorJson = "{" + "\"tag\":\"" + outbound.tag + "\"" + "}"
+
+            val fallback = fallbackUrl
+            val urlsToTry = if (!fallback.isNullOrBlank() && fallback != targetUrl) listOf(targetUrl, fallback) else listOf(targetUrl)
+
+            // Prefer instance method on the created service (NekoBox-style). Some libbox bindings
+            // may not expose it on BoxService class, but the runtime instance can still provide it.
+            try {
+                val instMethods = service.javaClass.methods
+                val inst = instMethods.firstOrNull { m ->
+                    !Modifier.isStatic(m.modifiers)
+                            && (m.name.equals("urlTest", true) || m.name.equals("newURLTest", true))
+                            && (m.parameterTypes.size == 3 || (m.parameterTypes.size == 4 && m.parameterTypes[3].isInterface))
+                            && m.parameterTypes[0] == String::class.java
+                            && m.parameterTypes[1] == String::class.java
+                            && (m.parameterTypes[2] == Long::class.javaPrimitiveType || m.parameterTypes[2] == Int::class.javaPrimitiveType)
+                }
+
+                if (inst != null) {
+                    for (u in urlsToTry) {
+                        val args = buildUrlTestArgs(inst.parameterTypes, selectorJson, u, pi)
+                        val result = inst.invoke(service, *args)
+                        val rtt = when {
+                            inst.returnType == Long::class.javaPrimitiveType -> result as Long
+                            else -> extractDelayFromUrlTest(result, method)
+                        }
+                        if (rtt >= 0) return@withContext rtt
+                        Log.w(TAG, "Offline service.urlTest returned negative: $rtt")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Offline service.urlTest invoke failed: ${e.javaClass.simpleName}: ${e.message}")
             }
+
+            val onRunning = libboxClass.methods.firstOrNull { m ->
+                Modifier.isStatic(m.modifiers)
+                        && m.parameterTypes.size == 3
+                        && m.parameterTypes[0] == String::class.java
+                        && m.parameterTypes[1] == String::class.java
+                        && (m.parameterTypes[2] == Long::class.javaPrimitiveType || m.parameterTypes[2] == Int::class.javaPrimitiveType)
+                        && m.name.endsWith("urlTestOnRunning", ignoreCase = true)
+            }
+
+            if (onRunning == null) {
+                return@withContext -1L
+            }
+
+            fun invokeOnRunningOnce(urlToTest: String): Long {
+                return try {
+                    val timeoutParam: Any = if (onRunning.parameterTypes[2] == Int::class.javaPrimitiveType) timeoutMs else timeoutMs.toLong()
+                    val result = onRunning.invoke(null, selectorJson, urlToTest, timeoutParam)
+                    val r = when {
+                        onRunning.returnType == Long::class.javaPrimitiveType -> result as Long
+                        else -> extractDelayFromUrlTest(result, method)
+                    }
+                    r
+                } catch (e: Exception) {
+                    Log.w(TAG, "Offline URLTestOnRunning invoke failed: ${e.javaClass.simpleName}: ${e.message}")
+                    -1L
+                }
+            }
+
+            suspend fun invokeOnRunningWithRetry(urlToTest: String): Long {
+                var rtt = invokeOnRunningOnce(urlToTest)
+                if (rtt < 0) {
+                    Log.w(TAG, "Offline URLTestOnRunning returned negative: $rtt")
+                    delay(450)
+                    rtt = invokeOnRunningOnce(urlToTest)
+                    if (rtt < 0) {
+                        Log.w(TAG, "Offline URLTestOnRunning returned negative(after retry): $rtt")
+                    }
+                }
+                return rtt
+            }
+
+            for (u in urlsToTry) {
+                val rtt = invokeOnRunningWithRetry(u)
+                if (rtt >= 0) return@withContext rtt
+            }
+
+            fun invokeUrlTestOnce(urlToTest: String): Long {
+                return try {
+                    val m = libboxClass.getMethod(
+                        "urlTest",
+                        String::class.java,
+                        String::class.java,
+                        Long::class.javaPrimitiveType
+                    )
+                    val result = m.invoke(null, selectorJson, urlToTest, timeoutMs.toLong())
+                    val r = when (result) {
+                        is Long -> result
+                        else -> extractDelayFromUrlTest(result, method)
+                    }
+                    if (r < 0) {
+                        Log.w(TAG, "Offline URLTest RTT returned negative: $r")
+                    }
+                    r
+                } catch (e: Exception) {
+                    Log.w(TAG, "Offline URLTest RTT invoke failed: ${e.javaClass.simpleName}: ${e.message}")
+                    -1L
+                }
+            }
+
+            for (u in urlsToTry) {
+                val r = invokeUrlTestOnce(u)
+                if (r >= 0) return@withContext r
+            }
+
+            return@withContext -1L
         } catch (_: Exception) {
             -1L
+        } finally {
+            if (runningServiceSet && service != null) {
+                try { Libbox.clearRunningService(service) } catch (_: Exception) {}
+            }
+            try { service?.closeAndUnregister() } catch (_: Exception) { try { service?.close() } catch (_: Exception) {} }
+        }
+    }
+
+    private suspend fun testOutboundsLatencyOfflineWithTemporaryService(
+        outbounds: List<Outbound>,
+        targetUrl: String,
+        fallbackUrl: String? = null,
+        timeoutMs: Int,
+        method: LatencyTestMethod,
+        onResult: (tag: String, latency: Long) -> Unit
+    ) = withContext(Dispatchers.IO) {
+        if (!libboxAvailable) {
+            outbounds.forEach { outbound ->
+                onResult(outbound.tag, testWithLocalHttpProxy(outbound, targetUrl, fallbackUrl, timeoutMs))
+            }
+            return@withContext
+        }
+
+        var service: BoxService? = null
+        var runningServiceSet = false
+        try {
+            ensureLibboxSetup(context)
+            val pi = TestPlatformInterface(context)
+            val settings = SettingsRepository.getInstance(context).settings.first()
+
+            val direct = com.kunk.singbox.model.Outbound(type = "direct", tag = "direct")
+            val config = SingBoxConfig(
+                log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true),
+                dns = com.kunk.singbox.model.DnsConfig(
+                    servers = listOf(
+                        com.kunk.singbox.model.DnsServer(tag = "local", address = settings.localDns, detour = "direct"),
+                        com.kunk.singbox.model.DnsServer(tag = "remote", address = settings.remoteDns, detour = "direct")
+                    )
+                ),
+                outbounds = outbounds + direct,
+                route = com.kunk.singbox.model.RouteConfig(
+                    rules = listOf(
+                        com.kunk.singbox.model.RouteRule(protocol = listOf("dns"), outbound = "direct")
+                    ),
+                    finalOutbound = "direct",
+                    autoDetectInterface = true
+                ),
+                experimental = null
+            )
+
+            val cfgJson = gson.toJson(config)
+            service = Libbox.newService(cfgJson, pi)
+            try { service?.startAndRegister() } catch (_: Exception) { try { service?.start() } catch (_: Exception) {} }
+            try {
+                if (service != null) {
+                    Libbox.setRunningService(service)
+                    runningServiceSet = true
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Offline batch setRunningService failed: ${e.javaClass.simpleName}: ${e.message}")
+            }
+
+            // Warmup to reduce cold-start -1 in batch mode.
+            delay(250)
+
+            val libboxClass = Class.forName("io.nekohasekai.libbox.Libbox")
+            val onRunning = libboxClass.methods.firstOrNull { m ->
+                Modifier.isStatic(m.modifiers)
+                        && m.parameterTypes.size == 3
+                        && m.parameterTypes[0] == String::class.java
+                        && m.parameterTypes[1] == String::class.java
+                        && (m.parameterTypes[2] == Long::class.javaPrimitiveType || m.parameterTypes[2] == Int::class.javaPrimitiveType)
+                        && m.name.endsWith("urlTestOnRunning", ignoreCase = true)
+            }
+
+            var didColdStartRetry = false
+            for (outbound in outbounds) {
+                val selectorJson = "{" + "\"tag\":\"" + outbound.tag + "\"" + "}"
+                var rtt = -1L
+
+                if (onRunning != null) {
+                    rtt = try {
+                        val timeoutParam: Any = if (onRunning.parameterTypes[2] == Int::class.javaPrimitiveType) timeoutMs else timeoutMs.toLong()
+                        val result = onRunning.invoke(null, selectorJson, targetUrl, timeoutParam)
+                        when {
+                            onRunning.returnType == Long::class.javaPrimitiveType -> result as Long
+                            else -> extractDelayFromUrlTest(result, method)
+                        }
+                    } catch (_: Exception) {
+                        -1L
+                    }
+                    if (rtt < 0) {
+                        Log.w(TAG, "Offline URLTestOnRunning returned negative: $rtt")
+                        if (!didColdStartRetry) {
+                            didColdStartRetry = true
+                            delay(450)
+                            rtt = try {
+                                val timeoutParam: Any = if (onRunning.parameterTypes[2] == Int::class.javaPrimitiveType) timeoutMs else timeoutMs.toLong()
+                                val result = onRunning.invoke(null, selectorJson, targetUrl, timeoutParam)
+                                when {
+                                    onRunning.returnType == Long::class.javaPrimitiveType -> result as Long
+                                    else -> extractDelayFromUrlTest(result, method)
+                                }
+                            } catch (_: Exception) {
+                                -1L
+                            }
+                            if (rtt < 0) {
+                                Log.w(TAG, "Offline URLTestOnRunning returned negative(after retry): $rtt")
+                            }
+                        }
+                    }
+                }
+
+                if (rtt < 0) {
+                    rtt = try {
+                        val m = libboxClass.getMethod(
+                            "urlTest",
+                            String::class.java,
+                            String::class.java,
+                            Long::class.javaPrimitiveType
+                        )
+                        val result = m.invoke(null, selectorJson, targetUrl, timeoutMs.toLong())
+                        val r = when (result) {
+                            is Long -> result
+                            else -> extractDelayFromUrlTest(result, method)
+                        }
+                        if (r < 0) {
+                            Log.w(TAG, "Offline URLTest RTT returned negative: $r")
+                        }
+                        r
+                    } catch (_: Exception) {
+                        -1L
+                    }
+                }
+
+                if (rtt < 0) {
+                    val fb = fallbackUrl
+                    if (!fb.isNullOrBlank() && fb != targetUrl) {
+                        if (onRunning != null) {
+                            rtt = try {
+                                val timeoutParam: Any = if (onRunning.parameterTypes[2] == Int::class.javaPrimitiveType) timeoutMs else timeoutMs.toLong()
+                                val result = onRunning.invoke(null, selectorJson, fb, timeoutParam)
+                                when {
+                                    onRunning.returnType == Long::class.javaPrimitiveType -> result as Long
+                                    else -> extractDelayFromUrlTest(result, method)
+                                }
+                            } catch (_: Exception) { -1L }
+                        }
+                        if (rtt < 0) {
+                            rtt = try {
+                                val m = libboxClass.getMethod(
+                                    "urlTest",
+                                    String::class.java,
+                                    String::class.java,
+                                    Long::class.javaPrimitiveType
+                                )
+                                val result = m.invoke(null, selectorJson, fb, timeoutMs.toLong())
+                                val r = when (result) {
+                                    is Long -> result
+                                    else -> extractDelayFromUrlTest(result, method)
+                                }
+                                r
+                            } catch (_: Exception) { -1L }
+                        }
+                    }
+                }
+
+                if (rtt >= 0) {
+                    onResult(outbound.tag, rtt)
+                } else {
+                    onResult(outbound.tag, testWithLocalHttpProxy(outbound, targetUrl, fallbackUrl, timeoutMs))
+                }
+            }
+        } finally {
+            if (runningServiceSet && service != null) {
+                try { Libbox.clearRunningService(service) } catch (_: Exception) {}
+            }
+            try { service?.closeAndUnregister() } catch (_: Exception) { try { service?.close() } catch (_: Exception) {} }
         }
     }
 
@@ -606,20 +983,28 @@ class SingBoxCore private constructor(private val context: Context) {
         val settings = SettingsRepository.getInstance(context).settings.first()
 
         // When VPN is running, prefer running-instance URLTest.
-        // When VPN is stopped, use a temporary libbox service + local HTTP proxy to test without starting VPN.
+        // When VPN is stopped, try Libbox static URLTest first, then local HTTP proxy fallback.
         if (SingBoxService.isRunning) {
             return@withContext testOutboundLatencyWithLibbox(outbound, settings)
         }
 
         val url = adjustUrlForMode(settings.latencyTestUrl, settings.latencyTestMethod)
 
-        val rtt = testWithLibboxStaticUrlTest(outbound, url, 5000, settings.latencyTestMethod)
+        val fallbackUrl = try {
+            if (settings.latencyTestMethod == com.kunk.singbox.model.LatencyTestMethod.TCP) {
+                adjustUrlForMode("http://cp.cloudflare.com/generate_204", settings.latencyTestMethod)
+            } else {
+                adjustUrlForMode("https://cp.cloudflare.com/generate_204", settings.latencyTestMethod)
+            }
+        } catch (_: Exception) { url }
+
+        val rtt = testWithTemporaryServiceUrlTestOnRunning(outbound, url, fallbackUrl, 5000, settings.latencyTestMethod)
         if (rtt >= 0) {
             Log.i(TAG, "Offline URLTest RTT: ${outbound.tag} -> ${rtt} ms")
             return@withContext rtt
         }
 
-        val fallback = testWithLocalHttpProxy(outbound, url, 5000)
+        val fallback = testWithLocalHttpProxy(outbound, url, fallbackUrl, 5000)
         Log.i(TAG, "Offline HTTP fallback: ${outbound.tag} -> ${fallback} ms")
         return@withContext fallback
     }
@@ -661,21 +1046,16 @@ class SingBoxCore private constructor(private val context: Context) {
             return@withContext
         }
 
-        // VPN is not running: use static URLTest first for each outbound.
+        // VPN is not running: create one temporary registered core and test outbounds on it.
         val url = adjustUrlForMode(settings.latencyTestUrl, settings.latencyTestMethod)
-        val semaphore = Semaphore(permits = 6)
-        coroutineScope {
-            val jobs = outbounds.map { outbound ->
-                async {
-                    semaphore.withPermit {
-                        val rtt = testWithLibboxStaticUrlTest(outbound, url, 5000, settings.latencyTestMethod)
-                        if (rtt >= 0) return@withPermit onResult(outbound.tag, rtt)
-                        onResult(outbound.tag, testWithLocalHttpProxy(outbound, url, 5000))
-                    }
-                }
+        val fallbackUrl = try {
+            if (settings.latencyTestMethod == com.kunk.singbox.model.LatencyTestMethod.TCP) {
+                adjustUrlForMode("http://cp.cloudflare.com/generate_204", settings.latencyTestMethod)
+            } else {
+                adjustUrlForMode("https://cp.cloudflare.com/generate_204", settings.latencyTestMethod)
             }
-            jobs.awaitAll()
-        }
+        } catch (_: Exception) { url }
+        testOutboundsLatencyOfflineWithTemporaryService(outbounds, url, fallbackUrl, 5000, settings.latencyTestMethod, onResult)
     }
 
     private fun allocateLocalPort(): Int {

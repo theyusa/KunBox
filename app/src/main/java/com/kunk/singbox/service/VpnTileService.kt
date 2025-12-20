@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.IBinder
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
+import android.widget.Toast
 import com.kunk.singbox.R
 import com.kunk.singbox.repository.ConfigRepository
 import kotlinx.coroutines.CoroutineScope
@@ -24,6 +25,7 @@ class VpnTileService : TileService() {
     @Volatile private var lastServiceState: SingBoxService.ServiceState = SingBoxService.ServiceState.STOPPED
     private var boundService: SingBoxService? = null
     private var serviceBound = false
+    private var bindRequested = false
     private var tapPending = false
     private val stateCallback = object : SingBoxService.StateCallback {
         override fun onStateChanged(state: SingBoxService.ServiceState) {
@@ -37,6 +39,7 @@ class VpnTileService : TileService() {
             boundService = binder.getService()
             boundService?.registerStateCallback(stateCallback)
             serviceBound = true
+            bindRequested = true
             lastServiceState = boundService?.getCurrentState() ?: SingBoxService.ServiceState.STOPPED
             updateTile()
             if (tapPending) {
@@ -49,6 +52,7 @@ class VpnTileService : TileService() {
             boundService?.unregisterStateCallback(stateCallback)
             boundService = null
             serviceBound = false
+            bindRequested = false
             lastServiceState = SingBoxService.ServiceState.STOPPED
             updateTile()
         }
@@ -103,6 +107,19 @@ class VpnTileService : TileService() {
     }
 
     private fun updateTile() {
+        val persisted = runCatching {
+            getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(KEY_VPN_ACTIVE, false)
+        }.getOrDefault(false)
+
+        if (!serviceBound || boundService == null) {
+            lastServiceState = if (persisted) {
+                SingBoxService.ServiceState.RUNNING
+            } else {
+                SingBoxService.ServiceState.STOPPED
+            }
+        }
+
         val tile = qsTile ?: return
         when (lastServiceState) {
             SingBoxService.ServiceState.STARTING,
@@ -125,13 +142,20 @@ class VpnTileService : TileService() {
     }
 
     private fun toggle() {
-        if (!serviceBound || boundService == null) {
-            tapPending = true
-            bindService()
-            return
+        val persisted = runCatching {
+            getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(KEY_VPN_ACTIVE, false)
+        }.getOrDefault(false)
+
+        val effectiveState = if (serviceBound && boundService != null) {
+            boundService?.getCurrentState() ?: lastServiceState
+        } else {
+            if (persisted) SingBoxService.ServiceState.RUNNING else SingBoxService.ServiceState.STOPPED
         }
-        lastServiceState = boundService?.getCurrentState() ?: lastServiceState
-        when (lastServiceState) {
+
+        lastServiceState = effectiveState
+
+        when (effectiveState) {
             SingBoxService.ServiceState.RUNNING,
             SingBoxService.ServiceState.STARTING -> {
                 persistVpnState(this, false)
@@ -141,8 +165,10 @@ class VpnTileService : TileService() {
                 startService(intent)
             }
             SingBoxService.ServiceState.STOPPED -> {
-                persistVpnState(this, true)
                 serviceScope.launch {
+                    runCatching {
+                        Toast.makeText(this@VpnTileService, "正在切换 VPN...", Toast.LENGTH_SHORT).show()
+                    }
                     val configRepository = ConfigRepository.getInstance(applicationContext)
                     val configPath = configRepository.generateConfigFile()
                     if (configPath != null) {
@@ -168,19 +194,30 @@ class VpnTileService : TileService() {
     }
 
     private fun bindService() {
-        if (serviceBound) return
+        if (serviceBound || bindRequested) return
+        val shouldBind = runCatching {
+            getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(KEY_VPN_ACTIVE, false)
+        }.getOrDefault(false)
+        if (!shouldBind) return
         val intent = Intent(this, SingBoxService::class.java).apply {
             action = SingBoxService.ACTION_SERVICE
         }
-        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        val ok = runCatching {
+            bindService(intent, serviceConnection, 0)
+        }.getOrDefault(false)
+        bindRequested = ok
     }
 
     private fun unbindService() {
-        if (!serviceBound) return
-        boundService?.unregisterStateCallback(stateCallback)
+        if (!bindRequested) return
+        if (serviceBound) {
+            boundService?.unregisterStateCallback(stateCallback)
+        }
         runCatching { unbindService(serviceConnection) }
         boundService = null
         serviceBound = false
+        bindRequested = false
     }
 
     override fun onDestroy() {

@@ -45,6 +45,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -145,7 +146,7 @@ fun NodesScreen(
     // 显示节点切换结果
     LaunchedEffect(switchResult) {
         switchResult?.let { message ->
-            snackbarHostState.showSnackbar(message)
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
             viewModel.clearSwitchResult()
         }
     }
@@ -480,6 +481,7 @@ fun NodesScreen(
                         latency = node.latencyMs,
                         isSelected = isSelected,
                         isTesting = isTestingNode,
+                        regionFlag = node.regionFlag,
                         onClick = onNodeClick,
                         onEdit = onEdit,
                         onExport = onExport,

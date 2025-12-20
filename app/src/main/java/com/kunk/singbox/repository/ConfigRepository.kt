@@ -10,6 +10,10 @@ import com.google.gson.JsonSyntaxException
 import com.kunk.singbox.core.SingBoxCore
 import com.kunk.singbox.model.*
 import com.kunk.singbox.service.SingBoxService
+import com.kunk.singbox.utils.parser.Base64Parser
+import com.kunk.singbox.utils.parser.NodeLinkParser
+import com.kunk.singbox.utils.parser.SingBoxParser
+import com.kunk.singbox.utils.parser.SubscriptionManager
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -20,6 +24,8 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,6 +34,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.yaml.snakeyaml.Yaml
+import org.yaml.snakeyaml.error.YAMLException
 
 /**
  * 配置仓库 - 负责获取、解析和存储配置
@@ -40,7 +48,10 @@ class ConfigRepository(private val context: Context) {
         // User-Agent 列表，按优先级排序
         private val USER_AGENTS = listOf(
             "sing-box/1.8.0",               // Sing-box - 返回原生 JSON
-            "SFA/1.8.0"                     // Sing-box for Android
+            "ClashMeta/1.16.0",             // ClashMeta - 返回 YAML
+            "Clash/1.16.0",                 // Clash - 返回 YAML
+            "SFA/1.8.0",                    // Sing-box for Android
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" // Browser
         )
         
         @Volatile
@@ -66,6 +77,12 @@ class ConfigRepository(private val context: Context) {
     
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     
+    private val subscriptionManager = SubscriptionManager(listOf(
+        SingBoxParser(gson),
+        com.kunk.singbox.utils.parser.ClashYamlParser(),
+        Base64Parser { NodeLinkParser(gson).parse(it) }
+    ))
+
     private val _profiles = MutableStateFlow<List<ProfileUi>>(emptyList())
     val profiles: StateFlow<List<ProfileUi>> = _profiles.asStateFlow()
     
@@ -92,6 +109,7 @@ class ConfigRepository(private val context: Context) {
     private val configCacheOrder = java.util.concurrent.ConcurrentLinkedDeque<String>()
     private val profileNodes = ConcurrentHashMap<String, List<NodeUi>>()
     private val profileResetJobs = ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+    private val inFlightLatencyTests = ConcurrentHashMap<String, Deferred<Long>>()
     
     private val configDir: File
         get() = File(context.filesDir, "configs").also { it.mkdirs() }
@@ -237,6 +255,7 @@ class ConfigRepository(private val context: Context) {
                 val request = Request.Builder()
                     .url(url)
                     .header("User-Agent", userAgent)
+                    .header("Accept", "application/yaml,text/yaml,text/plain,application/json,*/*")
                     .build()
 
                 var parsedConfig: SingBoxConfig? = null
@@ -252,9 +271,14 @@ class ConfigRepository(private val context: Context) {
                         return@use
                     }
 
+                    val contentType = response.header("Content-Type") ?: ""
+                    Log.v(
+                        TAG,
+                        "Subscription response meta: ua='$userAgent' ct='$contentType' len=${responseBody.length} head='${sanitizeSubscriptionSnippet(responseBody)}'"
+                    )
+
                     onProgress("正在解析配置...")
 
-                    // 尝试解析
                     val config = parseSubscriptionResponse(responseBody)
                     if (config != null && config.outbounds != null && config.outbounds.isNotEmpty()) {
                         parsedConfig = config
@@ -276,6 +300,251 @@ class ConfigRepository(private val context: Context) {
         // 所有 UA 都失败了，记录最后的错误
         lastError?.let { Log.e(TAG, "All User-Agents failed", it) }
         return null
+    }
+
+    private fun sanitizeSubscriptionSnippet(body: String, maxLen: Int = 220): String {
+        var s = body
+            .replace("\r", "")
+            .replace("\n", "\\n")
+            .trim()
+        if (s.length > maxLen) s = s.substring(0, maxLen)
+
+        s = s.replace(Regex("(?i)uuid\\s*[:=]\\s*[^\\\\n]+"), "uuid:***")
+        s = s.replace(Regex("(?i)password\\s*[:=]\\s*[^\\\\n]+"), "password:***")
+        s = s.replace(Regex("(?i)token\\s*[:=]\\s*[^\\\\n]+"), "token:***")
+        return s
+    }
+
+    private fun parseClashYamlConfig(content: String): SingBoxConfig? {
+        val t = content.trim()
+        if (t.isBlank()) return null
+        if (t.startsWith("{") || t.startsWith("[")) return null
+
+        val root = try {
+            Yaml().load<Any>(t)
+        } catch (e: YAMLException) {
+            Log.v(TAG, "Clash YAML parse failed: ${e.message}")
+            return null
+        } catch (e: Exception) {
+            Log.v(TAG, "Clash YAML parse failed: ${e.javaClass.simpleName}: ${e.message}")
+            return null
+        }
+
+        val rootMap = (root as? Map<*, *>) ?: return null
+        val proxiesRaw = rootMap["proxies"] as? List<*> ?: return null
+
+        fun asString(v: Any?): String? = when (v) {
+            is String -> v
+            is Number -> v.toString()
+            is Boolean -> v.toString()
+            else -> null
+        }
+
+        fun asInt(v: Any?): Int? = when (v) {
+            is Int -> v
+            is Long -> v.toInt()
+            is Number -> v.toInt()
+            is String -> v.toIntOrNull()
+            else -> null
+        }
+
+        fun asBool(v: Any?): Boolean? = when (v) {
+            is Boolean -> v
+            is String -> when (v.lowercase()) {
+                "true", "1", "yes", "y" -> true
+                "false", "0", "no", "n" -> false
+                else -> null
+            }
+            else -> null
+        }
+
+        fun asStringList(v: Any?): List<String>? {
+            return when (v) {
+                is List<*> -> v.mapNotNull { asString(it) }.takeIf { it.isNotEmpty() }
+                is String -> v.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
+                else -> null
+            }
+        }
+
+        fun parseProxy(proxyMap: Map<*, *>): Outbound? {
+            val name = asString(proxyMap["name"]) ?: return null
+            val type = asString(proxyMap["type"])?.lowercase() ?: return null
+
+            val server = asString(proxyMap["server"])
+            val port = asInt(proxyMap["port"])
+
+            return when (type) {
+                "vless" -> {
+                    val uuid = asString(proxyMap["uuid"]) ?: return null
+                    val network = asString(proxyMap["network"])?.lowercase()
+                    val tlsEnabled = asBool(proxyMap["tls"]) == true
+                    val serverName = asString(proxyMap["servername"]) ?: asString(proxyMap["sni"]) ?: server
+                    val fingerprint = asString(proxyMap["client-fingerprint"])
+                    val insecure = asBool(proxyMap["skip-cert-verify"]) == true
+                    val alpn = asStringList(proxyMap["alpn"])
+                    val finalAlpn = if (tlsEnabled && network == "ws" && (alpn == null || alpn.isEmpty())) listOf("http/1.1") else alpn
+
+                    val tlsConfig = if (tlsEnabled) {
+                        TlsConfig(
+                            enabled = true,
+                            serverName = serverName,
+                            insecure = insecure,
+                            alpn = finalAlpn,
+                            utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
+                        )
+                    } else {
+                        null
+                    }
+
+                    val transport = when (network) {
+                        "ws" -> {
+                            val wsOpts = proxyMap["ws-opts"] as? Map<*, *>
+                            val path = asString(wsOpts?.get("path")) ?: "/"
+                            val headersRaw = wsOpts?.get("headers") as? Map<*, *>
+                            val headers = mutableMapOf<String, String>()
+                            headersRaw?.forEach { (k, v) ->
+                                val ks = asString(k) ?: return@forEach
+                                val vs = asString(v) ?: return@forEach
+                                headers[ks] = vs
+                            }
+                            val host = headers["Host"] ?: headers["host"] ?: serverName
+                            val userAgent = if (fingerprint?.contains("chrome", ignoreCase = true) == true) {
+                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+                            } else {
+                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0"
+                            }
+                            val finalHeaders = mutableMapOf<String, String>()
+                            if (!host.isNullOrBlank()) finalHeaders["Host"] = host
+                            finalHeaders["User-Agent"] = userAgent
+
+                            TransportConfig(
+                                type = "ws",
+                                path = path,
+                                headers = finalHeaders,
+                                maxEarlyData = 2048,
+                                earlyDataHeaderName = "Sec-WebSocket-Protocol"
+                            )
+                        }
+                        "grpc" -> {
+                            val grpcOpts = proxyMap["grpc-opts"] as? Map<*, *>
+                            val serviceName = asString(grpcOpts?.get("grpc-service-name"))
+                                ?: asString(grpcOpts?.get("service-name"))
+                                ?: asString(proxyMap["grpc-service-name"])
+                                ?: ""
+                            TransportConfig(type = "grpc", serviceName = serviceName)
+                        }
+                        "h2", "http" -> {
+                            val path = asString(proxyMap["path"])
+                            val host = asString(proxyMap["host"])?.let { listOf(it) }
+                            TransportConfig(type = "http", path = path, host = host)
+                        }
+                        else -> null
+                    }
+
+                    Outbound(
+                        type = "vless",
+                        tag = name,
+                        server = server,
+                        serverPort = port,
+                        uuid = uuid,
+                        tls = tlsConfig,
+                        transport = transport
+                    )
+                }
+                "hysteria2", "hy2" -> {
+                    val password = asString(proxyMap["password"]) ?: return null
+                    val sni = asString(proxyMap["sni"]) ?: server
+                    val insecure = asBool(proxyMap["skip-cert-verify"]) == true
+                    val alpn = asStringList(proxyMap["alpn"])
+                    Outbound(
+                        type = "hysteria2",
+                        tag = name,
+                        server = server,
+                        serverPort = port,
+                        password = password,
+                        tls = TlsConfig(
+                            enabled = true,
+                            serverName = sni,
+                            insecure = insecure,
+                            alpn = alpn
+                        )
+                    )
+                }
+                "ss", "shadowsocks" -> {
+                    val method = asString(proxyMap["cipher"]) ?: asString(proxyMap["method"]) ?: return null
+                    val password = asString(proxyMap["password"]) ?: return null
+                    Outbound(
+                        type = "shadowsocks",
+                        tag = name,
+                        server = server,
+                        serverPort = port,
+                        method = method,
+                        password = password
+                    )
+                }
+                else -> null
+            }
+        }
+
+        val outbounds = mutableListOf<Outbound>()
+        for (p in proxiesRaw) {
+            val m = p as? Map<*, *> ?: continue
+            val ob = parseProxy(m)
+            if (ob != null) outbounds.add(ob)
+        }
+
+        val proxyGroupsRaw = rootMap["proxy-groups"] as? List<*>
+        if (proxyGroupsRaw != null) {
+            for (g in proxyGroupsRaw) {
+                val gm = g as? Map<*, *> ?: continue
+                val name = asString(gm["name"]) ?: continue
+                val type = asString(gm["type"])?.lowercase() ?: continue
+                val proxies = (gm["proxies"] as? List<*>)?.mapNotNull { asString(it) }?.filter { it.isNotBlank() } ?: emptyList()
+                if (proxies.isEmpty()) continue
+
+                when (type) {
+                    "select", "selector" -> {
+                        outbounds.add(
+                            Outbound(
+                                type = "selector",
+                                tag = name,
+                                outbounds = proxies,
+                                default = proxies.firstOrNull(),
+                                interruptExistConnections = false
+                            )
+                        )
+                    }
+                    "url-test", "urltest" -> {
+                        val url = asString(gm["url"])
+                        val interval = asString(gm["interval"]) ?: asInt(gm["interval"])?.toString()
+                        val tolerance = asInt(gm["tolerance"])
+                        outbounds.add(
+                            Outbound(
+                                type = "urltest",
+                                tag = name,
+                                outbounds = proxies,
+                                url = url,
+                                interval = interval,
+                                tolerance = tolerance,
+                                interruptExistConnections = false
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        if (outbounds.none { it.tag == "direct" }) {
+            outbounds.add(Outbound(type = "direct", tag = "direct"))
+        }
+        if (outbounds.none { it.tag == "block" }) {
+            outbounds.add(Outbound(type = "block", tag = "block"))
+        }
+        if (outbounds.none { it.tag == "dns-out" }) {
+            outbounds.add(Outbound(type = "dns", tag = "dns-out"))
+        }
+
+        return SingBoxConfig(outbounds = outbounds)
     }
     
     /**
@@ -359,7 +628,7 @@ class ConfigRepository(private val context: Context) {
             onProgress("正在解析配置...")
 
             val normalized = normalizeImportedContent(content)
-            val config = parseSubscriptionResponse(normalized)
+            val config = subscriptionManager.parse(normalized)
                 ?: return@withContext Result.failure(Exception("无法解析配置格式"))
 
             onProgress("正在提取节点...")
@@ -405,7 +674,7 @@ class ConfigRepository(private val context: Context) {
     }
 
     private fun normalizeImportedContent(content: String): String {
-        val trimmed = content.trim()
+        val trimmed = content.trim().trimStart('\uFEFF')
         val lines = trimmed.lines().toMutableList()
 
         fun isFenceLine(line: String): Boolean {
@@ -423,6 +692,25 @@ class ConfigRepository(private val context: Context) {
 
         return lines.joinToString("\n").trim()
     }
+
+    private fun tryDecodeBase64(content: String): String? {
+        val s = content.trim().trimStart('\uFEFF')
+        if (s.isBlank()) return null
+        val candidates = arrayOf(
+            Base64.DEFAULT,
+            Base64.NO_WRAP,
+            Base64.URL_SAFE or Base64.NO_WRAP,
+            Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
+        )
+        for (flags in candidates) {
+            try {
+                val decoded = Base64.decode(s, flags)
+                val text = String(decoded)
+                if (text.isNotBlank()) return text
+            } catch (_: Exception) {}
+        }
+        return null
+    }
     
     /**
      * 解析订阅响应
@@ -439,10 +727,22 @@ class ConfigRepository(private val context: Context) {
         } catch (e: JsonSyntaxException) {
             // 继续尝试其他格式
         }
+
+        // 1.5 尝试解析 Clash YAML
+        try {
+            val yamlConfig = parseClashYamlConfig(normalizedContent)
+            if (yamlConfig?.outbounds != null && yamlConfig.outbounds.isNotEmpty()) {
+                return yamlConfig
+            }
+        } catch (_: Exception) {
+        }
         
         // 2. 尝试 Base64 解码后解析
         try {
-            val decoded = String(Base64.decode(normalizedContent.trim(), Base64.DEFAULT))
+            val decoded = tryDecodeBase64(normalizedContent)
+            if (decoded.isNullOrBlank()) {
+                throw IllegalStateException("base64 decode failed")
+            }
             
             // 尝试解析解码后的内容为 JSON
             try {
@@ -451,6 +751,14 @@ class ConfigRepository(private val context: Context) {
                     return config
                 }
             } catch (e: Exception) {}
+
+            try {
+                val yamlConfig = parseClashYamlConfig(decoded)
+                if (yamlConfig?.outbounds != null && yamlConfig.outbounds.isNotEmpty()) {
+                    return yamlConfig
+                }
+            } catch (_: Exception) {
+            }
 
         } catch (e: Exception) {
             // 继续尝试其他格式
@@ -461,11 +769,7 @@ class ConfigRepository(private val context: Context) {
             val lines = normalizedContent.trim().lines().filter { it.isNotBlank() }
             if (lines.isNotEmpty()) {
                 // 尝试 Base64 解码整体
-                val decoded = try {
-                    String(Base64.decode(normalizedContent.trim(), Base64.DEFAULT))
-                } catch (e: Exception) {
-                    normalizedContent
-                }
+                val decoded = tryDecodeBase64(normalizedContent) ?: normalizedContent
                 
                 val decodedLines = decoded.trim().lines().filter { it.isNotBlank() }
                 val outbounds = mutableListOf<Outbound>()
@@ -512,6 +816,8 @@ class ConfigRepository(private val context: Context) {
             link.startsWith("hysteria://") -> parseHysteriaLink(link)
             link.startsWith("anytls://") -> parseAnyTLSLink(link)
             link.startsWith("tuic://") -> parseTuicLink(link)
+            link.startsWith("wireguard://") -> parseWireGuardLink(link)
+            link.startsWith("ssh://") -> parseSSHLink(link)
             else -> null
         }
     }
@@ -566,6 +872,104 @@ class ConfigRepository(private val context: Context) {
         return null
     }
     
+    /**
+     * 解析 WireGuard 链接
+     * 格式: wireguard://private_key@server:port?public_key=...&preshared_key=...&address=...&mtu=...#name
+     */
+    private fun parseWireGuardLink(link: String): Outbound? {
+        try {
+            val uri = java.net.URI(link)
+            val name = java.net.URLDecoder.decode(uri.fragment ?: "WireGuard Node", "UTF-8")
+            val privateKey = uri.userInfo
+            val server = uri.host
+            val port = if (uri.port > 0) uri.port else 51820
+            
+            val params = mutableMapOf<String, String>()
+            uri.query?.split("&")?.forEach { param ->
+                val parts = param.split("=", limit = 2)
+                if (parts.size == 2) {
+                    params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
+                }
+            }
+            
+            val peerPublicKey = params["public_key"] ?: params["peer_public_key"] ?: ""
+            val preSharedKey = params["preshared_key"] ?: params["pre_shared_key"]
+            val address = params["address"] ?: params["ip"]
+            val mtu = params["mtu"]?.toIntOrNull() ?: 1420
+            val reserved = params["reserved"]?.split(",")?.mapNotNull { it.toIntOrNull() }
+            
+            val localAddresses = address?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+            
+            val peer = WireGuardPeer(
+                server = server,
+                serverPort = port,
+                publicKey = peerPublicKey,
+                preSharedKey = preSharedKey,
+                allowedIps = listOf("0.0.0.0/0", "::/0"), // 默认全路由
+                reserved = reserved
+            )
+            
+            return Outbound(
+                type = "wireguard",
+                tag = name,
+                localAddress = localAddresses,
+                privateKey = privateKey,
+                peers = listOf(peer),
+                mtu = mtu
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return null
+    }
+
+    /**
+     * 解析 SSH 链接
+     * 格式: ssh://user:password@server:port?params#name
+     */
+    private fun parseSSHLink(link: String): Outbound? {
+        try {
+            val uri = java.net.URI(link)
+            val name = java.net.URLDecoder.decode(uri.fragment ?: "SSH Node", "UTF-8")
+            val userInfo = uri.userInfo ?: ""
+            val server = uri.host
+            val port = if (uri.port > 0) uri.port else 22
+            
+            val colonIndex = userInfo.indexOf(':')
+            val user = if (colonIndex > 0) userInfo.substring(0, colonIndex) else userInfo
+            val password = if (colonIndex > 0) userInfo.substring(colonIndex + 1) else null
+            
+            val params = mutableMapOf<String, String>()
+            uri.query?.split("&")?.forEach { param ->
+                val parts = param.split("=", limit = 2)
+                if (parts.size == 2) {
+                    params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
+                }
+            }
+            
+            val privateKey = params["private_key"]
+            val privateKeyPassphrase = params["private_key_passphrase"]
+            val hostKey = params["host_key"]?.split(",")
+            val clientVersion = params["client_version"]
+            
+            return Outbound(
+                type = "ssh",
+                tag = name,
+                server = server,
+                serverPort = port,
+                user = user,
+                password = password,
+                privateKey = privateKey,
+                privateKeyPassphrase = privateKeyPassphrase,
+                hostKey = hostKey,
+                clientVersion = clientVersion
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return null
+    }
+
     private fun parseVMessLink(link: String): Outbound? {
         try {
             val base64Part = link.removePrefix("vmess://")
@@ -741,7 +1145,7 @@ class ConfigRepository(private val context: Context) {
                     type = "grpc",
                     serviceName = params["serviceName"] ?: params["sn"] ?: ""
                 )
-                "http", "h2" -> TransportConfig(
+                "http", "h2", "httpupgrade" -> TransportConfig(
                     type = "http",
                     path = params["path"],
                     host = params["host"]?.let { listOf(it) }
@@ -1058,16 +1462,26 @@ class ConfigRepository(private val context: Context) {
                 val group = nodeToGroup[outbound.tag] ?: "未分组"
                 val regionFlag = detectRegionFlag(outbound.tag)
                 
-                // 如果名称中已经包含该国旗，则不再添加
-                val finalRegionFlag = if (outbound.tag.contains(regionFlag)) null else regionFlag
+                // 如果名称中已经包含该国旗，或者名称中已经包含任意国旗emoji，则不再添加
+                // 1. 如果 tag 包含了检测到的 regionFlag，则 finalRegionFlag = null
+                // 2. 如果 tag 包含了其他国旗 Emoji，是否还要显示 regionFlag？
+                //    这里我们采取保守策略：只要 tag 中包含任何国旗 Emoji，就不再添加自动检测的国旗。
+                //    这可以避免 "🇩🇪 德国" 被显示为 "🇩🇪 🇩🇪 德国"，或者 "🇺🇸 美国" 被显示为 "🇺🇸 🇺🇸 美国"。
+                //    同时也能处理 "🇸🇬 新加坡" 这种已经自带国旗的情况。
+                
+                val hasFlagEmoji = containsFlagEmoji(outbound.tag)
+                val finalRegionFlag = if (outbound.tag.contains(regionFlag) || hasFlagEmoji) null else regionFlag
 
+                // 2025 规范：确保 tag 已经应用了协议后缀（在 SubscriptionManager 中处理过了）
+                // 这里我们只需确保 NodeUi 能够正确显示国旗
+                
                 nodes.add(
                     NodeUi(
                         id = stableNodeId(profileId, outbound.tag),
                         name = outbound.tag,
                         protocol = outbound.type,
                         group = group,
-                        regionFlag = finalRegionFlag,
+                        regionFlag = finalRegionFlag ?: regionFlag, // 强制显示国旗
                         latencyMs = null,
                         isFavorite = false,
                         sourceProfileId = profileId,
@@ -1087,7 +1501,28 @@ class ConfigRepository(private val context: Context) {
     }
     
     /**
+     * 检测字符串是否包含国旗 Emoji
+     */
+    private fun containsFlagEmoji(str: String): Boolean {
+        // 匹配区域指示符符号 (Regional Indicator Symbols) U+1F1E6..U+1F1FF
+        // 两个区域指示符符号组成一个国旗
+        // Java/Kotlin 中，这些字符是代理对 (Surrogate Pairs)
+        // U+1F1E6 是 \uD83C\uDDE6
+        // U+1F1FF 是 \uD83C\uDDFF
+        // 正则表达式匹配两个连续的区域指示符
+        val regex = Regex("[\\uD83C][\\uDDE6-\\uDDFF][\\uD83C][\\uDDE6-\\uDDFF]")
+        
+        // 另外，有些国旗 Emoji 可能不在这个范围内，或者已经被渲染为 Emoji
+        // 我们也可以尝试匹配常见的国旗 Emoji 字符范围
+        // 或者简单地，如果字符串包含任何 Emoji，我们可能都需要谨慎
+        // 但目前先专注于国旗
+        
+        return regex.containsMatchIn(str)
+    }
+
+    /**
      * 根据节点名称检测地区标志
+
      * 使用词边界匹配，避免 "us" 匹配 "music" 等误报
      */
     private fun detectRegionFlag(name: String): String {
@@ -1258,52 +1693,71 @@ class ConfigRepository(private val context: Context) {
      * @return 延迟时间（毫秒），-1 表示测试失败
      */
     suspend fun testNodeLatency(nodeId: String): Long {
-        return withContext(Dispatchers.IO) {
-            try {
-                // 找到节点对应的 Outbound 配置
-                val node = _nodes.value.find { it.id == nodeId }
-                if (node == null) {
-                    Log.e(TAG, "Node not found: $nodeId")
-                    return@withContext -1L
-                }
-                
-                // 从配置中获取对应的 Outbound
-                val config = loadConfig(node.sourceProfileId)
-                if (config == null) {
-                    Log.e(TAG, "Config not found for profile: ${node.sourceProfileId}")
-                    return@withContext -1L
-                }
-                
-                val outbound = config.outbounds?.find { it.tag == node.name }
-                if (outbound == null) {
-                    Log.e(TAG, "Outbound not found: ${node.name}")
-                    return@withContext -1L
-                }
-                
-                // 使用 SingBoxCore 进行真正的延迟测试
-                Log.v(TAG, "Testing latency for node: ${node.name} (${outbound.type})")
-                val fixedOutbound = fixOutboundForRuntime(outbound)
-                val latency = singBoxCore.testOutboundLatency(fixedOutbound)
-                
-                // 更新节点延迟
-                _nodes.update { list ->
-                    list.map {
+        val existing = inFlightLatencyTests[nodeId]
+        if (existing != null) {
+            return existing.await()
+        }
+
+        val deferred = CompletableDeferred<Long>()
+        val prev = inFlightLatencyTests.putIfAbsent(nodeId, deferred)
+        if (prev != null) {
+            return prev.await()
+        }
+
+        try {
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val node = _nodes.value.find { it.id == nodeId }
+                    if (node == null) {
+                        Log.e(TAG, "Node not found: $nodeId")
+                        return@withContext -1L
+                    }
+
+                    val config = loadConfig(node.sourceProfileId)
+                    if (config == null) {
+                        Log.e(TAG, "Config not found for profile: ${node.sourceProfileId}")
+                        return@withContext -1L
+                    }
+
+                    val outbound = config.outbounds?.find { it.tag == node.name }
+                    if (outbound == null) {
+                        Log.e(TAG, "Outbound not found: ${node.name}")
+                        return@withContext -1L
+                    }
+
+                    Log.v(TAG, "Testing latency for node: ${node.name} (${outbound.type})")
+                    val fixedOutbound = fixOutboundForRuntime(outbound)
+                    val latency = singBoxCore.testOutboundLatency(fixedOutbound)
+
+                    _nodes.update { list ->
+                        list.map {
+                            if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else null) else it
+                        }
+                    }
+
+                    profileNodes[node.sourceProfileId] = profileNodes[node.sourceProfileId]?.map {
                         if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else null) else it
+                    } ?: emptyList()
+                    updateLatencyInAllNodes(nodeId, latency)
+
+                    Log.v(TAG, "Latency test result for ${node.name}: ${latency}ms")
+                    latency
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) {
+                        -1L
+                    } else {
+                        Log.e(TAG, "Latency test error for $nodeId", e)
+                        -1L
                     }
                 }
-                
-                // 同时更新内存中的 profileNodes
-                profileNodes[node.sourceProfileId] = profileNodes[node.sourceProfileId]?.map {
-                    if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else null) else it
-                } ?: emptyList()
-                updateLatencyInAllNodes(nodeId, latency)
-                
-                Log.v(TAG, "Latency test result for ${node.name}: ${latency}ms")
-                latency
-            } catch (e: Exception) {
-                Log.e(TAG, "Latency test error for $nodeId", e)
-                -1L
             }
+            deferred.complete(result)
+            return result
+        } catch (e: Exception) {
+            deferred.complete(-1L)
+            return -1L
+        } finally {
+            inFlightLatencyTests.remove(nodeId, deferred)
         }
     }
 

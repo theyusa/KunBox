@@ -83,6 +83,7 @@ data class Outbound(
     @SerializedName("server_port") val serverPort: Int? = null,
     @SerializedName("tcp_fast_open") val tcpFastOpen: Boolean? = null,
     
+    // Selector/URLTest 字段
     @SerializedName("outbounds") val outbounds: List<String>? = null,
     @SerializedName("default") val default: String? = null,
     @SerializedName("url") val url: String? = null,
@@ -90,35 +91,92 @@ data class Outbound(
     @SerializedName("tolerance") val tolerance: Int? = null,
     @SerializedName("interrupt_exist_connections") val interruptExistConnections: Boolean? = null,
     
+    // Shadowsocks 字段
     @SerializedName("method") val method: String? = null,
     @SerializedName("password") val password: String? = null,
+    @SerializedName("plugin") val plugin: String? = null,
+    @SerializedName("plugin_opts") val pluginOpts: String? = null,
+    @SerializedName("udp_over_tcp") val udpOverTcp: UdpOverTcpConfig? = null,
     
+    // VMess/VLESS 字段
     @SerializedName("uuid") val uuid: String? = null,
     @SerializedName("security") val security: String? = null,
     @SerializedName("alter_id") val alterId: Int? = null,
     @SerializedName("flow") val flow: String? = null,
     @SerializedName("packet_encoding") val packetEncoding: String? = null,
     
+    // Hysteria/Hysteria2 字段
     @SerializedName("up_mbps") val upMbps: Int? = null,
     @SerializedName("down_mbps") val downMbps: Int? = null,
     @SerializedName("obfs") val obfs: ObfsConfig? = null,
     @SerializedName("auth_str") val authStr: String? = null,
+    @SerializedName("recv_window_conn") val recvWindowConn: Int? = null,
+    @SerializedName("recv_window") val recvWindow: Int? = null,
+    @SerializedName("disable_mtu_discovery") val disableMtuDiscovery: Boolean? = null,
+    @SerializedName("hop_interval") val hopInterval: String? = null,
+    @SerializedName("ports") val ports: String? = null,
     
+    // AnyTLS 字段
     @SerializedName("idle_session_check_interval") val idleSessionCheckInterval: String? = null,
     @SerializedName("idle_session_timeout") val idleSessionTimeout: String? = null,
     @SerializedName("min_idle_session") val minIdleSession: Int? = null,
     
+    // TLS 配置
     @SerializedName("tls") val tls: TlsConfig? = null,
     
+    // 传输层配置
     @SerializedName("transport") val transport: TransportConfig? = null,
     
+    // 多路复用配置
     @SerializedName("multiplex") val multiplex: MultiplexConfig? = null,
     
     // TUIC 特有字段
     @SerializedName("congestion_control") val congestionControl: String? = null,
     @SerializedName("udp_relay_mode") val udpRelayMode: String? = null,
     @SerializedName("zero_rtt_handshake") val zeroRttHandshake: Boolean? = null,
-    @SerializedName("heartbeat") val heartbeat: String? = null
+    @SerializedName("heartbeat") val heartbeat: String? = null,
+    @SerializedName("disable_sni") val disableSni: Boolean? = null,
+    @SerializedName("mtu") val mtu: Int? = null,
+    
+    // WireGuard 字段
+    @SerializedName("local_address") val localAddress: List<String>? = null,
+    @SerializedName("private_key") val privateKey: String? = null,
+    @SerializedName("peer_public_key") val peerPublicKey: String? = null,
+    @SerializedName("pre_shared_key") val preSharedKey: String? = null,
+    @SerializedName("reserved") val reserved: List<Int>? = null,
+    @SerializedName("peers") val peers: List<WireGuardPeer>? = null,
+    
+    // SSH 字段
+    @SerializedName("user") val user: String? = null,
+    @SerializedName("private_key_path") val privateKeyPath: String? = null,
+    @SerializedName("private_key_passphrase") val privateKeyPassphrase: String? = null,
+    @SerializedName("host_key") val hostKey: List<String>? = null,
+    @SerializedName("host_key_algorithms") val hostKeyAlgorithms: List<String>? = null,
+    @SerializedName("client_version") val clientVersion: String? = null,
+    
+    // ShadowTLS 字段
+    @SerializedName("version") val version: Int? = null,
+    @SerializedName("detour") val detour: String? = null,
+    
+    // SOCKS/HTTP 字段
+    @SerializedName("username") val username: String? = null,
+    @SerializedName("network") val network: String? = null
+)
+
+@Keep
+data class WireGuardPeer(
+    @SerializedName("server") val server: String? = null,
+    @SerializedName("server_port") val serverPort: Int? = null,
+    @SerializedName("public_key") val publicKey: String? = null,
+    @SerializedName("pre_shared_key") val preSharedKey: String? = null,
+    @SerializedName("allowed_ips") val allowedIps: List<String>? = null,
+    @SerializedName("reserved") val reserved: List<Int>? = null
+)
+
+@Keep
+data class UdpOverTcpConfig(
+    @SerializedName("enabled") val enabled: Boolean? = null,
+    @SerializedName("version") val version: Int? = null
 )
 
 @Keep
@@ -135,7 +193,13 @@ data class TlsConfig(
     @SerializedName("alpn") val alpn: List<String>? = null,
     @SerializedName("utls") val utls: UtlsConfig? = null,
     @SerializedName("reality") val reality: RealityConfig? = null,
-    @SerializedName("ech") val ech: EchConfig? = null
+    @SerializedName("ech") val ech: EchConfig? = null,
+    @SerializedName("ca") val ca: String? = null,
+    @SerializedName("ca_path") val caPath: String? = null,
+    @SerializedName("certificate") val certificate: String? = null,
+    @SerializedName("certificate_path") val certificatePath: String? = null,
+    @SerializedName("key") val key: String? = null,
+    @SerializedName("key_path") val keyPath: String? = null
 )
 
 @Keep
@@ -143,7 +207,8 @@ data class EchConfig(
     @SerializedName("enabled") val enabled: Boolean? = null,
     @SerializedName("pq_signature_schemes_enabled") val pqSignatureSchemesEnabled: Boolean? = null,
     @SerializedName("dynamic_record_sizing_disabled") val dynamicRecordSizingDisabled: Boolean? = null,
-    @SerializedName("config") val config: List<String>? = null
+    @SerializedName("config") val config: List<String>? = null,
+    @SerializedName("key") val key: List<String>? = null
 )
 
 @Keep
@@ -156,7 +221,8 @@ data class UtlsConfig(
 data class RealityConfig(
     @SerializedName("enabled") val enabled: Boolean? = null,
     @SerializedName("public_key") val publicKey: String? = null,
-    @SerializedName("short_id") val shortId: String? = null
+    @SerializedName("short_id") val shortId: String? = null,
+    @SerializedName("spider_x") val spiderX: String? = null
 )
 
 @Keep

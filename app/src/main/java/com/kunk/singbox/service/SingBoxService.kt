@@ -20,6 +20,7 @@ import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.os.SystemClock
+import android.provider.Settings
 import android.system.OsConstants
 import android.util.Log
 import android.service.quicksettings.TileService
@@ -39,10 +40,14 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
+import java.net.Proxy
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
 
@@ -411,9 +416,78 @@ class SingBoxService : VpnService() {
                     schedulePostTunRebind("openTun_no_physical")
                 }
             }
-            
-            vpnInterface = builder.establish()
-            val fd = vpnInterface?.fd ?: -1
+
+            val alwaysOnPkg = runCatching {
+                Settings.Secure.getString(contentResolver, "always_on_vpn_app")
+            }.getOrNull() ?: runCatching {
+                Settings.Global.getString(contentResolver, "always_on_vpn_app")
+            }.getOrNull()
+
+            val lockdownValueSecure = runCatching {
+                Settings.Secure.getInt(contentResolver, "always_on_vpn_lockdown", 0)
+            }.getOrDefault(0)
+            val lockdownValueGlobal = runCatching {
+                Settings.Global.getInt(contentResolver, "always_on_vpn_lockdown", 0)
+            }.getOrDefault(0)
+            val lockdown = lockdownValueSecure != 0 || lockdownValueGlobal != 0
+
+            if (!alwaysOnPkg.isNullOrBlank() || lockdown) {
+                Log.i(TAG, "Always-on VPN status: pkg=$alwaysOnPkg lockdown=$lockdown")
+            }
+
+            if (lockdown && !alwaysOnPkg.isNullOrBlank() && alwaysOnPkg != packageName) {
+                throw IllegalStateException("VPN lockdown enabled by $alwaysOnPkg")
+            }
+
+            val backoffMs = longArrayOf(0L, 250L, 250L, 500L, 500L, 1000L, 1000L, 2000L, 2000L, 2000L)
+            var lastFd = -1
+            var attempt = 0
+            for (sleepMs in backoffMs) {
+                if (isStopping) {
+                    throw IllegalStateException("VPN stopping")
+                }
+                if (sleepMs > 0) {
+                    SystemClock.sleep(sleepMs)
+                }
+                attempt++
+                vpnInterface = builder.establish()
+                lastFd = vpnInterface?.fd ?: -1
+                if (vpnInterface != null && lastFd >= 0) {
+                    break
+                }
+                try { vpnInterface?.close() } catch (_: Exception) {}
+                vpnInterface = null
+            }
+
+            val fd = lastFd
+            if (vpnInterface == null || fd < 0) {
+                val cm = connectivityManager
+                val otherVpnActive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && cm != null) {
+                    runCatching {
+                        cm.allNetworks.any { network ->
+                            val caps = cm.getNetworkCapabilities(network) ?: return@any false
+                            caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                        }
+                    }.getOrDefault(false)
+                } else {
+                    false
+                }
+                val reason = "VPN interface establish failed (fd=$fd, alwaysOn=$alwaysOnPkg, lockdown=$lockdown, otherVpn=$otherVpnActive)"
+                Log.e(TAG, reason)
+                throw IllegalStateException(reason)
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                val bestNetwork = findBestPhysicalNetwork()
+                if (bestNetwork != null) {
+                    try {
+                        setUnderlyingNetworks(arrayOf(bestNetwork))
+                        lastKnownNetwork = bestNetwork
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+
             Log.i(TAG, "TUN interface established with fd: $fd")
             return fd
         }
@@ -615,6 +689,9 @@ class SingBoxService : VpnService() {
                                         Log.i(TAG, "Native URLTest warmup done(validated-2nd): ${nodeName ?: activeNodeId} -> $r2 ms")
                                     }
                                 } catch (e: Exception) {
+                                    if (e is kotlinx.coroutines.CancellationException) {
+                                        return@launch
+                                    }
                                     Log.w(TAG, "Native URLTest warmup failed", e)
                                 }
                             }
@@ -625,7 +702,7 @@ class SingBoxService : VpnService() {
                             Log.w(TAG, "VPN link not validated, scheduling recovery in 5s")
                             vpnHealthJob = serviceScope.launch {
                                 delay(5000)
-                                if (isRunning && !isStarting && !isStopping) {
+                                if (isRunning && !isStarting && !isManuallyStopped && lastConfigPath != null) {
                                     Log.w(TAG, "VPN link still not validated after 5s, attempting rebind and reset")
                                     try {
                                         // 尝试重新绑定底层网络
@@ -1035,6 +1112,48 @@ class SingBoxService : VpnService() {
         startVpnJob?.cancel()
         startVpnJob = serviceScope.launch {
             try {
+                val prepareIntent = VpnService.prepare(this@SingBoxService)
+                if (prepareIntent != null) {
+                    val msg = "需要授予 VPN 权限，请在系统弹窗中允许（如果已开启其他 VPN，系统可能会要求再次确认）"
+                    Log.w(TAG, msg)
+                    setLastError(msg)
+                    VpnTileService.persistVpnState(applicationContext, false)
+                    updateServiceState(ServiceState.STOPPED)
+                    updateTileState()
+
+                    runCatching {
+                        prepareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(prepareIntent)
+                    }.onFailure {
+                        runCatching {
+                            val manager = getSystemService(NotificationManager::class.java)
+                            val pi = PendingIntent.getActivity(
+                                this@SingBoxService,
+                                2002,
+                                prepareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                            )
+                            val notification = Notification.Builder(this@SingBoxService, CHANNEL_ID)
+                                .setContentTitle("需要 VPN 权限")
+                                .setContentText("点此授予 VPN 权限后再启动")
+                                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                                .setContentIntent(pi)
+                                .setAutoCancel(true)
+                                .build()
+                            manager.notify(NOTIFICATION_ID + 3, notification)
+                        }
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        try {
+                            stopForeground(STOP_FOREGROUND_REMOVE)
+                        } catch (_: Exception) {
+                        }
+                        stopSelf()
+                    }
+                    return@launch
+                }
+
                 // 0. 预先注册网络回调，确保 lastKnownNetwork 就绪
                 // 这一步必须在 Libbox 启动前完成，避免 openTun() 时没有有效的底层网络
                 ensureNetworkCallbackReadyWithTimeout()
@@ -1090,15 +1209,112 @@ class SingBoxService : VpnService() {
                 VpnTileService.persistVpnState(applicationContext, true)
                 updateServiceState(ServiceState.RUNNING)
                 updateTileState()
+
+                serviceScope.launch postStart@{
+                    val delays = listOf(800L, 2000L, 5000L)
+                    val settings = currentSettings
+                    val proxyPort = settings?.proxyPort ?: 0
+                    val canProbeProxy = settings?.appendHttpProxy == true && proxyPort > 0
+
+                    suspend fun probeOnce(): Boolean {
+                        if (!canProbeProxy) return false
+                        return withContext(Dispatchers.IO) {
+                            try {
+                                val client = OkHttpClient.Builder()
+                                    .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", proxyPort)))
+                                    .connectTimeout(2500, TimeUnit.MILLISECONDS)
+                                    .readTimeout(2500, TimeUnit.MILLISECONDS)
+                                    .writeTimeout(2500, TimeUnit.MILLISECONDS)
+                                    .build()
+                                val req = Request.Builder()
+                                    .url("https://cp.cloudflare.com/generate_204")
+                                    .get()
+                                    .build()
+                                client.newCall(req).execute().use { resp ->
+                                    resp.code in 200..399
+                                }
+                            } catch (_: Exception) {
+                                false
+                            }
+                        }
+                    }
+
+                    for (d in delays) {
+                        delay(d)
+                        if (!isRunning || isStopping) return@postStart
+
+                        if (probeOnce()) {
+                            return@postStart
+                        }
+
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                                val bestNetwork = findBestPhysicalNetwork()
+                                if (bestNetwork != null) {
+                                    try {
+                                        setUnderlyingNetworks(arrayOf(bestNetwork))
+                                        lastKnownNetwork = bestNetwork
+                                    } catch (_: Exception) {
+                                    }
+                                }
+                            }
+                            boxService?.resetNetwork()
+                            Log.d(TAG, "Core network stack reset triggered (post-start)")
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
                 
             } catch (e: CancellationException) {
                 Log.i(TAG, "startVpn cancelled")
                 // Do not treat cancellation as failure. stopVpn() is already responsible for cleanup.
                 return@launch
             } catch (e: Exception) {
-                val reason = "Failed to start VPN: ${e.javaClass.simpleName}: ${e.message}"
+                var reason = "Failed to start VPN: ${e.javaClass.simpleName}: ${e.message}"
+
+                val msg = e.message.orEmpty()
+                val isTunEstablishFail = msg.contains("VPN interface establish failed", ignoreCase = true) ||
+                    msg.contains("configure tun interface", ignoreCase = true) ||
+                    msg.contains("fd=-1", ignoreCase = true)
+
+                val isLockdown = msg.contains("VPN lockdown enabled by", ignoreCase = true)
+
+                // 更友好的错误提示
+                if (isLockdown) {
+                    val lockedBy = msg.substringAfter("VPN lockdown enabled by ").trim().ifBlank { "unknown" }
+                    reason = "启动失败：系统启用了锁定/始终开启 VPN（$lockedBy）。请先在系统 VPN 设置里关闭锁定，或把始终开启改为本应用。"
+                    isManuallyStopped = true
+                } else if (isTunEstablishFail) {
+                    reason = "启动失败：无法建立 VPN 接口（fd=-1）。如果 NekoBox 开了“始终开启/锁定 VPN”，本应用无法接管。请在系统 VPN 设置里关闭锁定后重试。"
+                    isManuallyStopped = true
+                } else if (e is NullPointerException && e.message?.contains("establish") == true) {
+                    reason = "启动失败：系统拒绝创建 VPN 接口。可能原因：VPN 权限未授予或被系统限制/与其他 VPN 冲突。"
+                    isManuallyStopped = true
+                }
+
                 Log.e(TAG, reason, e)
                 setLastError(reason)
+
+                if (isLockdown || isTunEstablishFail) {
+                    runCatching {
+                        val manager = getSystemService(NotificationManager::class.java)
+                        val intent = Intent(Settings.ACTION_VPN_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        val pi = PendingIntent.getActivity(
+                            this@SingBoxService,
+                            2001,
+                            intent,
+                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                        )
+                        val notification = Notification.Builder(this@SingBoxService, CHANNEL_ID)
+                            .setContentTitle("VPN 启动失败")
+                            .setContentText("可能被其他应用的锁定/始终开启 VPN 阻止，点此打开系统 VPN 设置")
+                            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                            .setContentIntent(pi)
+                            .setAutoCancel(true)
+                            .build()
+                        manager.notify(NOTIFICATION_ID + 2, notification)
+                    }
+                }
                 withContext(Dispatchers.Main) {
                     isRunning = false
                     updateServiceState(ServiceState.STOPPED)
@@ -1117,6 +1333,22 @@ class SingBoxService : VpnService() {
                 startVpnJob = null
             }
         }
+    }
+
+    private fun isAnyVpnActive(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
+        val cm = try {
+            getSystemService(ConnectivityManager::class.java)
+        } catch (_: Exception) {
+            null
+        } ?: return false
+
+        return runCatching {
+            cm.allNetworks.any { network ->
+                val caps = cm.getNetworkCapabilities(network) ?: return@any false
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+            }
+        }.getOrDefault(false)
     }
     
     private fun stopVpn(stopService: Boolean) {
@@ -1328,7 +1560,20 @@ class SingBoxService : VpnService() {
     
     override fun onDestroy() {
         Log.i(TAG, "onDestroy called -> stopVpn(stopService=false)")
-        stopVpn(stopService = false)
+        val shouldStop = runCatching {
+            synchronized(this@SingBoxService) {
+                isRunning || isStopping || boxService != null || vpnInterface != null
+            }
+        }.getOrDefault(false)
+
+        if (shouldStop) {
+            stopVpn(stopService = false)
+        } else {
+            runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+            VpnTileService.persistVpnState(applicationContext, false)
+            updateServiceState(ServiceState.STOPPED)
+            updateTileState()
+        }
         serviceSupervisorJob.cancel()
         // cleanupSupervisorJob.cancel() // Allow cleanup to finish naturally
         super.onDestroy()
@@ -1336,6 +1581,26 @@ class SingBoxService : VpnService() {
      
     override fun onRevoke() {
         Log.i(TAG, "onRevoke called -> stopVpn(stopService=true)")
+        isManuallyStopped = true
+        setLastError("VPN revoked by system (another VPN may have started)")
+        
+        // 记录日志，告知用户原因
+        com.kunk.singbox.repository.LogRepository.getInstance()
+            .addLog("WARN: VPN permission revoked by system (possibly another VPN app started)")
+            
+        // 发送通知提醒用户
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(NotificationManager::class.java)
+            val notification = Notification.Builder(this, CHANNEL_ID)
+                .setContentTitle("VPN 已断开")
+                .setContentText("检测到 VPN 权限被撤销，可能是其他 VPN 应用已启动。")
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setAutoCancel(true)
+                .build()
+            manager.notify(NOTIFICATION_ID + 1, notification)
+        }
+        
+        // 停止服务
         stopVpn(stopService = true)
         super.onRevoke()
     }
@@ -1427,11 +1692,11 @@ class SingBoxService : VpnService() {
     private fun schedulePostTunRebind(reason: String) {
         if (postTunRebindJob?.isActive == true) return
         
-        postTunRebindJob = serviceScope.launch {
+        postTunRebindJob = serviceScope.launch rebind@{
             val delays = listOf(300L, 800L, 1500L)
             for (d in delays) {
                 delay(d)
-                if (isStopping) return@launch
+                if (isStopping) return@rebind
                 
                 val bestNetwork = findBestPhysicalNetwork()
                 if (bestNetwork != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
@@ -1446,7 +1711,7 @@ class SingBoxService : VpnService() {
                     } catch (e: Exception) {
                         Log.w(TAG, "Post-TUN rebind failed ($reason): ${e.message}")
                     }
-                    return@launch
+                    return@rebind
                 }
             }
             Log.w(TAG, "Post-TUN rebind failed after retries ($reason)")

@@ -98,7 +98,7 @@ data class NodeUi(
     val tags: List<String> = emptyList()
 ) {
     val displayName: String
-        get() = if (regionFlag != null) "$regionFlag $name" else name
+        get() = name
 }
 
 data class RuleSetUi(

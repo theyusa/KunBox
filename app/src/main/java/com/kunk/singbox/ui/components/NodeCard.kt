@@ -25,6 +25,7 @@ fun NodeCard(
     latency: Long? = null,
     isSelected: Boolean,
     isTesting: Boolean = false,
+    regionFlag: String? = null,
     onClick: () -> Unit,
     onEdit: () -> Unit,
     onExport: () -> Unit,
@@ -76,13 +77,23 @@ fun NodeCard(
                 Spacer(modifier = Modifier.width(16.dp))
                 
                 Column {
-                    Text(
-                        text = name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        maxLines = 1
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (regionFlag != null) {
+                            Text(
+                                text = regionFlag,
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                        }
+                        Text(
+                            text = name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                    }
                     Spacer(modifier = Modifier.height(2.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(

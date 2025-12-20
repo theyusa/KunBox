@@ -155,7 +155,8 @@ fun SingBoxApp() {
 
     LaunchedEffect(Unit) {
         SettingsRepository.restartRequiredEvents.collect {
-            if (snackbarHostState.currentSnackbarData != null) return@collect
+            // 如果已经有重启提示，就不再显示新的
+            if (snackbarHostState.currentSnackbarData?.visuals?.message?.contains("重启") == true) return@collect
 
             snackbarHostState.showSnackbar(
                 message = "设置已修改，重启后生效",
