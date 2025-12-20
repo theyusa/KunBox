@@ -5,9 +5,226 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val libboxInputAar = file("libs/libbox.aar")
+val libboxStrippedAarId = providers.gradleProperty("libboxStrippedAarId").orNull
+    ?: System.currentTimeMillis().toString()
+val libboxStrippedAar = layout.buildDirectory.file("stripped-libs/libbox-stripped-$libboxStrippedAarId.aar")
+
+val enableSfaLibboxReplacement = (project.findProperty("enableSfaLibboxReplacement") as String?)
+    ?.toBoolean()
+    ?: false
+
+val isBundleBuild = gradle.startParameter.taskNames.any { it.contains("bundle", ignoreCase = true) }
+
+val abiOnly = (project.findProperty("abiOnly") as String?)
+    ?.trim()
+    ?.takeIf { it.isNotBlank() }
+
+val defaultAbis = listOf("arm64-v8a")
+val apkAbis = abiOnly?.let { listOf(it) } ?: defaultAbis
+
+val autoSfaUniversalDir = rootProject.projectDir
+    .listFiles()
+    ?.filter { it.isDirectory && it.name.startsWith("SFA-") && it.name.endsWith("-universal") }
+    ?.sortedByDescending { it.name }
+    ?.firstOrNull()
+
+val stripLibboxAar = tasks.register("stripLibboxAar") {
+    inputs.file(libboxInputAar)
+    inputs.property("stripLibboxAarVersion", "2")
+    inputs.property("libboxStrippedAarId", libboxStrippedAarId)
+    inputs.property("enableSfaLibboxReplacement", enableSfaLibboxReplacement.toString())
+    inputs.property("abiOnly", abiOnly ?: "")
+    inputs.property("sfaApkArm64", providers.gradleProperty("sfaApkArm64").orNull ?: "")
+    inputs.property("sfaApkArm", providers.gradleProperty("sfaApkArm").orNull ?: "")
+    inputs.property("autoSfaUniversalDir", autoSfaUniversalDir?.absolutePath ?: "")
+    outputs.file(libboxStrippedAar)
+
+    doLast {
+        if (!libboxInputAar.exists()) {
+            throw GradleException("Missing libbox AAR: ${libboxInputAar.absolutePath}")
+        }
+
+        val props = Properties()
+        val localPropsFile = rootProject.file("local.properties")
+        if (localPropsFile.exists()) {
+            props.load(localPropsFile.inputStream())
+        }
+
+        fun findNdkDir(): File? {
+            val envNdk = System.getenv("ANDROID_NDK_HOME")
+                ?: System.getenv("ANDROID_NDK_ROOT")
+                ?: System.getenv("NDK_HOME")
+            if (!envNdk.isNullOrBlank()) {
+                val f = File(envNdk)
+                if (f.isDirectory) return f
+            }
+
+            val ndkDirProp = props.getProperty("ndk.dir")
+            if (!ndkDirProp.isNullOrBlank()) {
+                val f = File(ndkDirProp)
+                if (f.isDirectory) return f
+            }
+
+            val sdkDirProp = props.getProperty("sdk.dir")
+            if (!sdkDirProp.isNullOrBlank()) {
+                val ndkBundle = File(sdkDirProp, "ndk-bundle")
+                if (ndkBundle.isDirectory) return ndkBundle
+
+                val ndkRoot = File(sdkDirProp, "ndk")
+                if (ndkRoot.isDirectory) {
+                    val candidates = ndkRoot.listFiles()?.filter { it.isDirectory }?.sortedByDescending { it.name }
+                    return candidates?.firstOrNull()
+                }
+            }
+            return null
+        }
+
+        val ndkDir = findNdkDir() ?: throw GradleException(
+            "NDK not found. Set ANDROID_NDK_HOME (or ndk.dir in local.properties)."
+        )
+
+        fun findLlvmStripExe(): File {
+            val prebuiltRoot = File(ndkDir, "toolchains/llvm/prebuilt")
+            if (prebuiltRoot.isDirectory) {
+                val candidates = prebuiltRoot
+                    .listFiles()
+                    ?.asSequence()
+                    ?.filter { it.isDirectory }
+                    ?.flatMap { prebuiltDir ->
+                        sequenceOf(
+                            File(prebuiltDir, "bin/llvm-strip.exe"),
+                            File(prebuiltDir, "bin/llvm-strip")
+                        )
+                    }
+                    ?.toList()
+                    .orEmpty()
+                candidates.firstOrNull { it.isFile }?.let { return it }
+            }
+
+            val recursive = ndkDir.walkTopDown()
+                .firstOrNull { it.isFile && (it.name == "llvm-strip.exe" || it.name == "llvm-strip") }
+            return recursive ?: throw GradleException(
+                "llvm-strip not found under NDK: ${ndkDir.absolutePath}"
+            )
+        }
+
+        val stripExe = findLlvmStripExe()
+
+        val workDir = layout.buildDirectory.dir("stripped-libs/tmp/libbox").get().asFile
+        workDir.deleteRecursively()
+        workDir.mkdirs()
+
+        copy {
+            from(zipTree(libboxInputAar))
+            into(workDir)
+        }
+
+        fun replaceLibboxSoFromSfaSource(source: File, abi: String) {
+            val dstDir = File(workDir, "jni/$abi")
+            dstDir.mkdirs()
+
+            if (source.isDirectory) {
+                val srcSo = File(source, "lib/$abi/libbox.so")
+                if (!srcSo.isFile) {
+                    throw GradleException("libbox.so not found in SFA directory for abi=$abi: ${srcSo.absolutePath}")
+                }
+                copy {
+                    from(srcSo)
+                    into(dstDir)
+                    includeEmptyDirs = false
+                }
+            } else {
+                if (!source.isFile) {
+                    throw GradleException("SFA source not found: ${source.absolutePath}")
+                }
+                copy {
+                    from(zipTree(source)) {
+                        include("lib/$abi/libbox.so")
+                    }
+                    into(dstDir)
+                    includeEmptyDirs = false
+                    eachFile {
+                        path = name
+                    }
+                }
+            }
+
+            val replaced = File(dstDir, "libbox.so")
+            if (!replaced.isFile) {
+                throw GradleException("libbox.so replacement failed for abi=$abi from: ${source.absolutePath}")
+            }
+        }
+
+        val enableReplacement = (project.findProperty("enableSfaLibboxReplacement") as String?)
+            ?.toBoolean()
+            ?: false
+
+        val sfaApkArm64Prop = (project.findProperty("sfaApkArm64") as String?)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { File(it) }
+        val sfaApkArmProp = (project.findProperty("sfaApkArm") as String?)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { File(it) }
+
+        val sfaArm64Source = if (enableReplacement) (sfaApkArm64Prop ?: autoSfaUniversalDir) else null
+        val sfaArmSource = if (enableReplacement) (sfaApkArmProp ?: autoSfaUniversalDir) else null
+
+        val keepAbis = mutableSetOf<String>()
+
+        if (sfaArm64Source != null) {
+            replaceLibboxSoFromSfaSource(sfaArm64Source, "arm64-v8a")
+            keepAbis.add("arm64-v8a")
+        }
+        if (sfaArmSource != null) {
+            val v7aSo = if (sfaArmSource.isDirectory) File(sfaArmSource, "lib/armeabi-v7a/libbox.so") else null
+            if (v7aSo == null || v7aSo.isFile) {
+                replaceLibboxSoFromSfaSource(sfaArmSource, "armeabi-v7a")
+                keepAbis.add("armeabi-v7a")
+            }
+        }
+
+        val targetAbis = when {
+            !abiOnly.isNullOrBlank() -> setOf(abiOnly)
+            keepAbis.isNotEmpty() -> keepAbis
+            else -> defaultAbis.toSet()
+        }
+
+        val jniDir = File(workDir, "jni")
+        if (jniDir.isDirectory) {
+            jniDir.walkTopDown()
+                .filter { it.isFile && it.name == "libbox.so" }
+                .forEach { so ->
+                    exec {
+                        commandLine(stripExe.absolutePath, "--strip-unneeded", so.absolutePath)
+                    }
+                }
+
+            jniDir.listFiles()
+                ?.filter { it.isDirectory && it.name !in targetAbis }
+                ?.forEach { it.deleteRecursively() }
+        }
+
+        val outAarFile = libboxStrippedAar.get().asFile
+        outAarFile.parentFile.mkdirs()
+        if (outAarFile.exists()) outAarFile.delete()
+        ant.invokeMethod(
+            "zip",
+            mapOf(
+                "destfile" to outAarFile.absolutePath,
+                "basedir" to workDir.absolutePath
+            )
+        )
+    }
+}
+
 android {
     namespace = "com.kunk.singbox"
     compileSdk = 36
+
+    ndkVersion = (project.findProperty("ndkVersion") as String?) ?: "29.0.14206865"
+
+    val preferSmallInstall = (project.findProperty("preferSmallInstall") as String?)?.toBoolean() ?: true
 
     defaultConfig {
         applicationId = "com.kunk.singbox"
@@ -26,12 +243,6 @@ android {
         }
 
         resConfigs("zh", "en") // 仅保留中文和英文资源，减少体积
-        
-        // 过滤 AAR 中的 native 库，仅保留 64 位架构 (arm64-v8a, x86_64)
-        // libbox.aar 包含 4 个架构，每个约 10MB+，移除 32 位架构可显著减小 APK 体积
-        ndk {
-            abiFilters += listOf("arm64-v8a")
-        }
     }
 
     signingConfigs {
@@ -78,8 +289,15 @@ android {
         }
     }
     
-    // 注意：不使用 splits.abi，因为与 ndk.abiFilters 冲突
-    // 使用 ndk.abiFilters 来过滤 AAR 中的 native 库
+    splits {
+        abi {
+            // AAB 构建时不能启用多 APK 输出（否则 buildReleasePreBundle 会报 multiple shrunk-resources）
+            isEnable = !isBundleBuild
+            reset()
+            isUniversalApk = false
+            include(*apkAbis.toTypedArray())
+        }
+    }
     
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
@@ -97,12 +315,18 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "**/kotlin/**"
+            excludes += "**/*.kotlin_*"
+            excludes += "**/META-INF/*.version"
+            excludes += "DebugProbesKt.bin"
+            excludes += "META-INF/*.kotlin_module"
+            excludes += "META-INF/proguard/*"
         }
-        // 优化 JNI 库打包方式，减少安装后占用空间
-        // useLegacyPackaging = false 让系统直接从 APK 读取 .so 文件，无需提取到 lib 目录
-        // 要求 minSdk >= 23 (Android 6.0+)，当前 minSdk=24 满足要求
+        // 优化 JNI 库打包方式
+        // useLegacyPackaging = true 会压缩 APK 中的 .so，使下载体积最小（类似 NekoBox）
+        // 但安装后会解压到 lib 目录，增加安装后占用。
         jniLibs {
-            useLegacyPackaging = true
+            useLegacyPackaging = !preferSmallInstall
         }
     }
     
@@ -112,11 +336,25 @@ android {
     }
 }
 
+// 如果 libbox.aar 已经是精简版（只包含目标架构），可以跳过 strip 任务
+val skipLibboxStrip = (project.findProperty("skipLibboxStrip") as String?)?.toBoolean() ?: true
+
+if (!skipLibboxStrip) {
+    tasks.named("preBuild") {
+        dependsOn(stripLibboxAar)
+    }
+}
+
 dependencies {
     // Sing-box 核心库 (libbox) - 本地 AAR 文件
     // 请从 sing-box 官方仓库下载或编译 libbox AAR 并放置在 app/libs 目录
     // 参见: https://github.com/SagerNet/sing-box
-    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
+    if (skipLibboxStrip) {
+        implementation(files(libboxInputAar))
+    } else {
+        implementation(files(libboxStrippedAar))
+    }
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
 
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
