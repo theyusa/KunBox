@@ -26,6 +26,58 @@ jobs:
           java-version: "17"
           distribution: "temurin"
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          check-latest: true
+
+      - name: Setup Android NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager "ndk;29.0.14206865"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/29.0.14206865" >> $GITHUB_ENV
+
+      - name: Build libbox.aar
+        shell: bash
+        run: |
+          # 1. Install gomobile
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          gomobile init
+
+          # 2. Clone sing-box source
+          SINGBOX_VERSION="1.12.13"
+          git clone --depth 1 --branch "v${SINGBOX_VERSION}" https://github.com/SagerNet/sing-box.git singbox-build
+
+          # 3. Download dependencies
+          cd singbox-build
+          go mod download
+          go get golang.org/x/mobile/bind
+
+          # 4. Build AAR
+          # Tags and flags matched from build_libbox.ps1
+          BUILD_TAGS="with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api"
+          
+          echo "Building libbox.aar..."
+          # ANDROID_NDK_HOME is already set in env
+          
+          # Use gomobile to build
+          gomobile bind -v -androidapi 21 \
+            -target "android/arm64" \
+            -tags "$BUILD_TAGS" \
+            -trimpath -ldflags "-s -w -buildid=" \
+            -o libbox.aar \
+            ./experimental/libbox
+
+          # 5. Move to app/libs
+          mkdir -p ../app/libs
+          cp libbox.aar ../app/libs/libbox.aar
+          echo "libbox.aar created successfully"
+          ls -lh ../app/libs/libbox.aar
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:

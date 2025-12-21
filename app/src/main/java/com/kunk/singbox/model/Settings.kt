@@ -42,7 +42,7 @@ data class AppSettings(
     
     // 路由设置
     @SerializedName("routingMode") val routingMode: RoutingMode = RoutingMode.RULE,
-    @SerializedName("defaultRule") val defaultRule: DefaultRule = DefaultRule.DIRECT,
+    @SerializedName("defaultRule") val defaultRule: DefaultRule = DefaultRule.PROXY,
     @SerializedName("blockAds") val blockAds: Boolean = true,
     @SerializedName("bypassLan") val bypassLan: Boolean = true,
     @SerializedName("blockQuic") val blockQuic: Boolean = true,
@@ -141,7 +141,7 @@ enum class DefaultRule(val displayName: String) {
     
     companion object {
         fun fromDisplayName(name: String): DefaultRule {
-            return entries.find { it.displayName == name } ?: DIRECT
+            return entries.find { it.displayName == name } ?: PROXY
         }
     }
 }

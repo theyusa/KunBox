@@ -112,7 +112,19 @@ class SettingsRepository(private val context: Context) {
         val customRulesJson = preferences[PreferencesKeys.CUSTOM_RULES]
         val customRules = if (customRulesJson != null) {
             try {
-                gson.fromJson<List<CustomRule>>(customRulesJson, object : TypeToken<List<CustomRule>>() {}.type) ?: emptyList()
+                val list = gson.fromJson<List<CustomRule>>(customRulesJson, object : TypeToken<List<CustomRule>>() {}.type) ?: emptyList()
+                list.map { rule ->
+                    if (rule.outboundMode != null) {
+                        rule
+                    } else {
+                        val migratedMode = when (rule.outbound) {
+                            com.kunk.singbox.model.OutboundTag.DIRECT -> com.kunk.singbox.model.RuleSetOutboundMode.DIRECT
+                            com.kunk.singbox.model.OutboundTag.BLOCK -> com.kunk.singbox.model.RuleSetOutboundMode.BLOCK
+                            com.kunk.singbox.model.OutboundTag.PROXY -> com.kunk.singbox.model.RuleSetOutboundMode.PROXY
+                        }
+                        rule.copy(outboundMode = migratedMode)
+                    }
+                }
             } catch (e: Exception) {
                 emptyList()
             }
@@ -242,7 +254,7 @@ class SettingsRepository(private val context: Context) {
             
             // 路由设置
             routingMode = RoutingMode.fromDisplayName(preferences[PreferencesKeys.ROUTING_MODE] ?: "规则模式"),
-            defaultRule = DefaultRule.fromDisplayName(preferences[PreferencesKeys.DEFAULT_RULE] ?: "直连"),
+            defaultRule = DefaultRule.fromDisplayName(preferences[PreferencesKeys.DEFAULT_RULE] ?: "代理"),
             blockAds = preferences[PreferencesKeys.BLOCK_ADS] ?: true,
             blockQuic = preferences[PreferencesKeys.BLOCK_QUIC] ?: true,
             latencyTestMethod = LatencyTestMethod.valueOf(preferences[PreferencesKeys.LATENCY_TEST_METHOD] ?: LatencyTestMethod.REAL_RTT.name),

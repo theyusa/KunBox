@@ -2195,8 +2195,8 @@ class ConfigRepository(private val context: Context) {
      */
     private fun buildCustomRuleSets(settings: AppSettings): List<RuleSetConfig> {
         val ruleSetRepo = RuleSetRepository.getInstance(context)
-        
-        return settings.ruleSets.map { ruleSet ->
+
+        val rules = settings.ruleSets.map { ruleSet ->
             if (ruleSet.type == RuleSetType.REMOTE) {
                 // 远程规则集：使用预下载的本地缓存
                 val localPath = ruleSetRepo.getRuleSetPath(ruleSet.tag)
@@ -2215,7 +2215,100 @@ class ConfigRepository(private val context: Context) {
                     path = ruleSet.path
                 )
             }
+        }.toMutableList()
+
+        if (settings.blockAds) {
+            val adBlockTag = "geosite-category-ads-all"
+            val adBlockPath = ruleSetRepo.getRuleSetPath(adBlockTag)
+            val adBlockFile = File(adBlockPath)
+
+            if (!adBlockFile.exists()) {
+                try {
+                    context.assets.open("rulesets/$adBlockTag.srs").use { input ->
+                        adBlockFile.parentFile?.mkdirs()
+                        adBlockFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+
+            if (adBlockFile.exists() && rules.none { it.tag == adBlockTag }) {
+                rules.add(
+                    RuleSetConfig(
+                        tag = adBlockTag,
+                        type = "local",
+                        format = "binary",
+                        path = adBlockPath
+                    )
+                )
+            }
         }
+
+        return rules
+    }
+
+    private fun buildCustomDomainRules(
+        settings: AppSettings,
+        defaultProxyTag: String,
+        outbounds: List<Outbound>,
+        nodeTagResolver: (String?) -> String?
+    ): List<RouteRule> {
+        fun splitValues(raw: String): List<String> {
+            return raw
+                .split("\n", "\r", ",", "，")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+        }
+
+        fun resolveOutboundTag(mode: RuleSetOutboundMode?, value: String?): String {
+            return when (mode ?: RuleSetOutboundMode.PROXY) {
+                RuleSetOutboundMode.DIRECT -> "direct"
+                RuleSetOutboundMode.BLOCK -> "block"
+                RuleSetOutboundMode.PROXY -> defaultProxyTag
+                RuleSetOutboundMode.NODE -> {
+                    val resolvedTag = nodeTagResolver(value)
+                    if (resolvedTag != null) resolvedTag else defaultProxyTag
+                }
+                RuleSetOutboundMode.PROFILE -> {
+                    val profileId = value
+                    val profileName = _profiles.value.find { it.id == profileId }?.name ?: "Profile_$profileId"
+                    val tag = "P:$profileName"
+                    if (outbounds.any { it.tag == tag }) tag else defaultProxyTag
+                }
+                RuleSetOutboundMode.GROUP -> {
+                    if (value.isNullOrBlank()) return defaultProxyTag
+                    if (outbounds.any { it.tag == value }) value else defaultProxyTag
+                }
+            }
+        }
+
+        return settings.customRules
+            .filter { it.enabled }
+            .filter {
+                it.type == RuleType.DOMAIN ||
+                    it.type == RuleType.DOMAIN_SUFFIX ||
+                    it.type == RuleType.DOMAIN_KEYWORD
+            }
+            .mapNotNull { rule ->
+                val values = splitValues(rule.value)
+                if (values.isEmpty()) return@mapNotNull null
+
+                val mode = rule.outboundMode ?: when (rule.outbound) {
+                    OutboundTag.DIRECT -> RuleSetOutboundMode.DIRECT
+                    OutboundTag.BLOCK -> RuleSetOutboundMode.BLOCK
+                    OutboundTag.PROXY -> RuleSetOutboundMode.PROXY
+                }
+
+                val outbound = resolveOutboundTag(mode, rule.outboundValue)
+                when (rule.type) {
+                    RuleType.DOMAIN -> RouteRule(domain = values, outbound = outbound)
+                    RuleType.DOMAIN_SUFFIX -> RouteRule(domainSuffix = values, outbound = outbound)
+                    RuleType.DOMAIN_KEYWORD -> RouteRule(domainKeyword = values, outbound = outbound)
+                    else -> null
+                }
+            }
     }
 
     /**
@@ -2974,11 +3067,26 @@ class ConfigRepository(private val context: Context) {
 
         val dnsTrafficRule = listOf(RouteRule(protocol = listOf("dns"), outbound = "dns-out"))
 
+        val adBlockEnabled = settings.blockAds && customRuleSets.any { it.tag == "geosite-category-ads-all" }
+        val adBlockRules = if (adBlockEnabled) {
+            listOf(RouteRule(ruleSet = listOf("geosite-category-ads-all"), outbound = "block"))
+        } else {
+            emptyList()
+        }
+
+        val customDomainRules = buildCustomDomainRules(settings, selectorTag, fixedOutbounds, nodeTagResolver)
+
+        val defaultRuleCatchAll = when (settings.defaultRule) {
+            DefaultRule.DIRECT -> listOf(RouteRule(outbound = "direct"))
+            DefaultRule.BLOCK -> listOf(RouteRule(outbound = "block"))
+            DefaultRule.PROXY -> listOf(RouteRule(outbound = selectorTag))
+        }
+
         val allRules = when (settings.routingMode) {
-            RoutingMode.GLOBAL_PROXY -> dnsTrafficRule
-            RoutingMode.GLOBAL_DIRECT -> dnsTrafficRule + listOf(RouteRule(outbound = "direct"))
+            RoutingMode.GLOBAL_PROXY -> dnsTrafficRule + adBlockRules
+            RoutingMode.GLOBAL_DIRECT -> dnsTrafficRule + adBlockRules + listOf(RouteRule(outbound = "direct"))
             RoutingMode.RULE -> {
-                dnsTrafficRule + quicRule + bypassLanRules + appRoutingRules + customRuleSetRules
+                dnsTrafficRule + adBlockRules + quicRule + bypassLanRules + appRoutingRules + customDomainRules + customRuleSetRules + defaultRuleCatchAll
             }
         }
         

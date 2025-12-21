@@ -29,7 +29,9 @@ data class CustomRule(
     @SerializedName("name") val name: String,
     @SerializedName("type") val type: RuleType,
     @SerializedName("value") val value: String, // e.g., "google.com", "cn"
-    @SerializedName("outbound") val outbound: OutboundTag,
+    @SerializedName("outbound") val outbound: OutboundTag = OutboundTag.PROXY,
+    @SerializedName("outboundMode") val outboundMode: RuleSetOutboundMode? = null,
+    @SerializedName("outboundValue") val outboundValue: String? = null, // ID for Node/Profile, or Name for Group
     @SerializedName("enabled") val enabled: Boolean = true
 )
 

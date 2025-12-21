@@ -5,7 +5,7 @@
 
 param(
     [string]$Version = "1.10.7",
-    [string]$OutputDir = "$PSScriptRoot\..\app\libs"
+    [string]$OutputDir = "$PSScriptRoot\..\..\app\libs"
 )
 
 $ErrorActionPreference = "Stop"

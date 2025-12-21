@@ -31,6 +31,7 @@ import com.kunk.singbox.ui.screens.CustomRulesScreen
 import com.kunk.singbox.ui.screens.AppRoutingScreen
 import com.kunk.singbox.ui.screens.RuleSetHubScreen
 import com.kunk.singbox.ui.screens.RuleSetRoutingScreen
+import com.kunk.singbox.ui.screens.DomainRulesScreen
 
 sealed class Screen(val route: String) {
     object Dashboard : Screen("dashboard")
@@ -51,6 +52,7 @@ sealed class Screen(val route: String) {
     object ConnectionSettings : Screen("connection_settings")
     object RuleSets : Screen("rule_sets")
     object CustomRules : Screen("custom_rules")
+    object DomainRules : Screen("domain_rules")
     object AppRules : Screen("app_rules")
     object RuleSetHub : Screen("rule_set_hub")
     object RuleSetRouting : Screen("rule_set_routing")
@@ -89,6 +91,7 @@ fun getTabForRoute(route: String?): String {
         route == Screen.ConnectionSettings.route -> Screen.Settings.route
         route == Screen.RuleSets.route -> Screen.Settings.route
         route == Screen.CustomRules.route -> Screen.Settings.route
+        route == Screen.DomainRules.route -> Screen.Settings.route
         route == Screen.AppRules.route -> Screen.Settings.route
         route == Screen.RuleSetHub.route -> Screen.Settings.route
         route == Screen.RuleSetRouting.route -> Screen.Settings.route
@@ -243,6 +246,13 @@ fun AppNavigation(navController: NavHostController) {
             popEnterTransition = popEnterTransition,
             popExitTransition = popExitTransition
         ) { CustomRulesScreen(navController) }
+        composable(
+            route = Screen.DomainRules.route,
+            enterTransition = enterTransition,
+            exitTransition = exitTransition,
+            popEnterTransition = popEnterTransition,
+            popExitTransition = popExitTransition
+        ) { DomainRulesScreen(navController) }
         composable(
             route = Screen.AppRules.route,
             enterTransition = enterTransition,

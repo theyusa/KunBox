@@ -218,6 +218,18 @@ fun RoutingSettingsScreen(
                     value = "${settings.appRules.size + settings.appGroups.size} 条规则",
                     onClick = { navController.navigate(Screen.AppRules.route) }
                 )
+                val domainRuleCount = settings.customRules.count {
+                    it.enabled && it.type in listOf(
+                        com.kunk.singbox.model.RuleType.DOMAIN,
+                        com.kunk.singbox.model.RuleType.DOMAIN_SUFFIX,
+                        com.kunk.singbox.model.RuleType.DOMAIN_KEYWORD
+                    )
+                }
+                SettingItem(
+                    title = "域名分流",
+                    value = "$domainRuleCount 条规则",
+                    onClick = { navController.navigate(Screen.DomainRules.route) }
+                )
                 SettingItem(title = "管理规则集", onClick = { navController.navigate(Screen.RuleSets.route) })
                 SettingItem(title = "规则集路由", onClick = { navController.navigate(Screen.RuleSetRouting.route) })
             }

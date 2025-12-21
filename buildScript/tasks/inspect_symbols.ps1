@@ -1,7 +1,7 @@
 # Script to inspect JNI symbols in libbox.so
 
 # Use PSScriptRoot to locate the AAR correctly
-$AarPath = Join-Path (Resolve-Path "$PSScriptRoot\..\app\libs") "libbox.aar"
+$AarPath = Join-Path (Resolve-Path "$PSScriptRoot\..\..\app\libs") "libbox.aar"
 $WorkDir = Join-Path $env:TEMP "symbol_inspect_$(Get-Random)"
 $AarZip = Join-Path $WorkDir "libbox.zip"
 $ExtractDir = Join-Path $WorkDir "extract"

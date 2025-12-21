@@ -3,8 +3,8 @@
 
 param(
     [string]$NekoBoxApkUrl = "https://github.com/MatsuriDayo/NekoBoxForAndroid/releases/download/1.3.3/NB4A-1.3.3-arm64-v8a.apk",
-    [string]$InputAar = "$PSScriptRoot\..\app\libs\libbox.aar",
-    [string]$OutputAar = "$PSScriptRoot\..\app\libs\libbox-nekobox.aar"
+    [string]$InputAar = "$PSScriptRoot\..\..\app\libs\libbox.aar",
+    [string]$OutputAar = "$PSScriptRoot\..\..\app\libs\libbox-nekobox.aar"
 )
 
 $ErrorActionPreference = "Stop"
@@ -73,7 +73,7 @@ Write-Host "[5/5] Repackaging AAR..." -ForegroundColor Yellow
 $outputAarPath = Resolve-Path $OutputAar -ErrorAction SilentlyContinue
 if (-not $outputAarPath) {
     # If file doesn't exist yet, construct path manually to avoid Resolve-Path error
-    $outputAarPath = Join-Path (Resolve-Path "$PSScriptRoot\..\app\libs") "libbox-nekobox.aar"
+    $outputAarPath = Join-Path (Resolve-Path "$PSScriptRoot\..\..\app\libs") "libbox-nekobox.aar"
 }
 
 # Create zip using .NET API

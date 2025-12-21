@@ -212,30 +212,66 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun addRuleSet(ruleSet: RuleSet, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
         viewModelScope.launch {
-            val currentSets = repository.getRuleSets().toMutableList()
-            val exists = currentSets.any { it.tag == ruleSet.tag && it.url == ruleSet.url }
-            if (exists) {
-                onResult(false, "规则集 \"${ruleSet.tag}\" 已存在")
+            fun normalizeRuleSetUrl(url: String, mirrorUrl: String): String {
+                var updatedUrl = url
+                if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains(mirrorUrl)) {
+                    val rawUrl = if (updatedUrl.contains("https://")) {
+                        "https://raw.githubusercontent.com/" + updatedUrl.substringAfter("raw.githubusercontent.com/")
+                    } else {
+                        updatedUrl
+                    }
+                    updatedUrl = mirrorUrl + rawUrl
+                }
+
+                val oldMirrors = listOf(
+                    "https://ghp.ci/",
+                    "https://mirror.ghproxy.com/",
+                    "https://ghproxy.com/",
+                    "https://ghproxy.net/",
+                    "https://ghfast.top/",
+                    "https://gh-proxy.com/",
+                    "https://ghproxy.link/"
+                )
+
+                for (mirror in oldMirrors) {
+                    if (updatedUrl.startsWith(mirror) && mirror != mirrorUrl) {
+                        updatedUrl = updatedUrl.replace(mirror, mirrorUrl)
+                    }
+                }
+                return updatedUrl
+            }
+
+            val normalizedRuleSet = if (ruleSet.type == RuleSetType.REMOTE) {
+                val mirrorUrl = settings.value.ghProxyMirror.url
+                ruleSet.copy(url = normalizeRuleSetUrl(ruleSet.url, mirrorUrl))
             } else {
-                currentSets.add(ruleSet)
+                ruleSet
+            }
+
+            val currentSets = repository.getRuleSets().toMutableList()
+            val exists = currentSets.any { it.tag == normalizedRuleSet.tag }
+            if (exists) {
+                onResult(false, "规则集 \"${normalizedRuleSet.tag}\" 已存在")
+            } else {
+                currentSets.add(normalizedRuleSet)
                 repository.setRuleSets(currentSets)
 
-                if (ruleSet.type == RuleSetType.REMOTE) {
-                    _downloadingRuleSets.value += ruleSet.tag
+                if (normalizedRuleSet.type == RuleSetType.REMOTE) {
+                    _downloadingRuleSets.value += normalizedRuleSet.tag
                 }
-                
+
                 val downloadOk = try {
-                    ruleSetRepository.prefetchRuleSet(ruleSet, forceUpdate = false, allowNetwork = true)
+                    ruleSetRepository.prefetchRuleSet(normalizedRuleSet, forceUpdate = false, allowNetwork = true)
                 } finally {
-                    if (ruleSet.type == RuleSetType.REMOTE) {
-                        _downloadingRuleSets.value -= ruleSet.tag
+                    if (normalizedRuleSet.type == RuleSetType.REMOTE) {
+                        _downloadingRuleSets.value -= normalizedRuleSet.tag
                     }
                 }
                 
                 if (downloadOk) {
-                    onResult(true, "已添加规则集 \"${ruleSet.tag}\"，并完成下载")
+                    onResult(true, "已添加规则集 \"${normalizedRuleSet.tag}\"，并完成下载")
                 } else {
-                    onResult(true, "已添加规则集 \"${ruleSet.tag}\"，但下载失败（稍后可手动更新）")
+                    onResult(true, "已添加规则集 \"${normalizedRuleSet.tag}\"，但下载失败（稍后可手动更新）")
                 }
             }
         }
@@ -246,11 +282,47 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val currentSets = repository.getRuleSets().toMutableList()
             val addedRuleSets = mutableListOf<RuleSet>()
 
+            fun normalizeRuleSetUrl(url: String, mirrorUrl: String): String {
+                var updatedUrl = url
+                if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains(mirrorUrl)) {
+                    val rawUrl = if (updatedUrl.contains("https://")) {
+                        "https://raw.githubusercontent.com/" + updatedUrl.substringAfter("raw.githubusercontent.com/")
+                    } else {
+                        updatedUrl
+                    }
+                    updatedUrl = mirrorUrl + rawUrl
+                }
+
+                val oldMirrors = listOf(
+                    "https://ghp.ci/",
+                    "https://mirror.ghproxy.com/",
+                    "https://ghproxy.com/",
+                    "https://ghproxy.net/",
+                    "https://ghfast.top/",
+                    "https://gh-proxy.com/",
+                    "https://ghproxy.link/"
+                )
+
+                for (mirror in oldMirrors) {
+                    if (updatedUrl.startsWith(mirror) && mirror != mirrorUrl) {
+                        updatedUrl = updatedUrl.replace(mirror, mirrorUrl)
+                    }
+                }
+                return updatedUrl
+            }
+
+            fun normalizeRuleSet(ruleSet: RuleSet): RuleSet {
+                if (ruleSet.type != RuleSetType.REMOTE) return ruleSet
+                val mirrorUrl = settings.value.ghProxyMirror.url
+                return ruleSet.copy(url = normalizeRuleSetUrl(ruleSet.url, mirrorUrl))
+            }
+
             ruleSets.forEach { ruleSet ->
-                val exists = currentSets.any { it.tag == ruleSet.tag && it.url == ruleSet.url }
+                val normalized = normalizeRuleSet(ruleSet)
+                val exists = currentSets.any { it.tag == normalized.tag }
                 if (!exists) {
-                    currentSets.add(ruleSet)
-                    addedRuleSets.add(ruleSet)
+                    currentSets.add(normalized)
+                    addedRuleSets.add(normalized)
                 }
             }
 

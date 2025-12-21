@@ -9,7 +9,9 @@ import com.kunk.singbox.model.HubRuleSet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -17,7 +19,9 @@ import java.io.IOException
 import android.util.Log
 import com.google.gson.annotations.SerializedName
 import com.kunk.singbox.repository.RuleSetRepository
+import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.model.GithubFile
+import com.kunk.singbox.model.AppSettings
 
 class RuleSetViewModel(application: Application) : AndroidViewModel(application) {
     
@@ -26,6 +30,15 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
     }
     
     private val ruleSetRepository = RuleSetRepository.getInstance(application)
+    private val settingsRepository = SettingsRepository.getInstance(application)
+    
+    // 监听 settings 变化，用于判断规则集是否已添加
+    val settings: StateFlow<AppSettings> = settingsRepository.settings
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = AppSettings()
+        )
     
     private val _ruleSets = MutableStateFlow<List<HubRuleSet>>(emptyList())
     val ruleSets: StateFlow<List<HubRuleSet>> = _ruleSets.asStateFlow()
@@ -33,8 +46,12 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
     
+    /**
+     * 检查规则集是否已添加到用户的规则集列表中
+     * 这里检查的是用户配置中是否存在该规则集，而不是物理文件是否存在
+     */
     fun isDownloaded(tag: String): Boolean {
-        return ruleSetRepository.isRuleSetLocal(tag)
+        return settings.value.ruleSets.any { it.tag == tag }
     }
 
     private val _error = MutableStateFlow<String?>(null)

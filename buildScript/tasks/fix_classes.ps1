@@ -3,7 +3,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$libsDir = "$PSScriptRoot\..\app\libs"
+$libsDir = "$PSScriptRoot\..\..\app\libs"
 $aarFile = "$libsDir\libbox.aar"
 $classesJar = "$libsDir\classes.jar"
 $tempDir = "$libsDir\temp_fix"

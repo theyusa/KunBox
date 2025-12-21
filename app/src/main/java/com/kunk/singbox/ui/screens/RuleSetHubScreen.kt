@@ -57,6 +57,13 @@ fun RuleSetHubScreen(
     val isLoading by activityRuleSetViewModel.isLoading.collectAsState()
     val error by activityRuleSetViewModel.error.collectAsState()
     val downloadingRuleSets by settingsViewModel.downloadingRuleSets.collectAsState()
+    // 收集 settings 以便在规则集列表变化时自动更新 UI（如删除规则集后）
+    val ruleSetSettings by activityRuleSetViewModel.settings.collectAsState()
+    
+    // 创建一个 Set 用于快速查找已添加的规则集
+    val addedRuleSetTags = remember(ruleSetSettings.ruleSets) {
+        ruleSetSettings.ruleSets.map { it.tag }.toSet()
+    }
     
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -155,7 +162,7 @@ fun RuleSetHubScreen(
                 HubRuleSetItem(
                     ruleSet = ruleSet,
                     isDownloading = downloadingRuleSets.contains(ruleSet.name),
-                    isDownloaded = activityRuleSetViewModel.isDownloaded(ruleSet.name),
+                    isDownloaded = addedRuleSetTags.contains(ruleSet.name),
                     onAddSource = {
                                 settingsViewModel.addRuleSet(
                                     RuleSet(
