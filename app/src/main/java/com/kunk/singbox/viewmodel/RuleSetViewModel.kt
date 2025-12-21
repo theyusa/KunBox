@@ -16,6 +16,7 @@ import okhttp3.Request
 import java.io.IOException
 import android.util.Log
 import com.google.gson.annotations.SerializedName
+import com.kunk.singbox.repository.RuleSetRepository
 
 class RuleSetViewModel(application: Application) : AndroidViewModel(application) {
     
@@ -23,12 +24,18 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
         private const val TAG = "RuleSetViewModel"
     }
     
+    private val ruleSetRepository = RuleSetRepository.getInstance(application)
+    
     private val _ruleSets = MutableStateFlow<List<HubRuleSet>>(emptyList())
     val ruleSets: StateFlow<List<HubRuleSet>> = _ruleSets.asStateFlow()
     
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
     
+    fun isDownloaded(tag: String): Boolean {
+        return ruleSetRepository.isRuleSetLocal(tag)
+    }
+
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 

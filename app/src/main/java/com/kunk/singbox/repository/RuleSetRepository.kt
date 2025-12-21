@@ -48,6 +48,13 @@ class RuleSetRepository(private val context: Context) {
     private val settingsRepository = SettingsRepository.getInstance(context)
 
     /**
+     * 检查本地规则集是否存在
+     */
+    fun isRuleSetLocal(tag: String): Boolean {
+        return getRuleSetFile(tag).exists()
+    }
+
+    /**
      * 确保所有需要的规则集都已就绪（本地存在）
      * 如果不存在，尝试从 assets 复制或下载
      * @param forceUpdate 是否强制更新（忽略过期时间）

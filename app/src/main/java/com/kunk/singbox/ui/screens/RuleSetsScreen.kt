@@ -137,6 +137,7 @@ fun RuleSetsScreen(
     settingsViewModel: SettingsViewModel = viewModel()
 ) {
     val settings by settingsViewModel.settings.collectAsState()
+    val downloadingRuleSets by settingsViewModel.downloadingRuleSets.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingRuleSet by remember { mutableStateOf<RuleSet?>(null) }
     var showDefaultRuleSetsDialog by remember { mutableStateOf(false) }
@@ -332,6 +333,7 @@ fun RuleSetsScreen(
                         ruleSet = ruleSet,
                         isSelectionMode = isSelectionMode,
                         isSelected = selectedItems[ruleSet.id] ?: false,
+                        isDownloading = downloadingRuleSets.contains(ruleSet.tag),
                         onClick = { 
                             if (isSelectionMode) {
                                 toggleSelection(ruleSet.id)
@@ -358,6 +360,7 @@ fun RuleSetItem(
     ruleSet: RuleSet,
     isSelectionMode: Boolean = false,
     isSelected: Boolean = false,
+    isDownloading: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {}
 ) {
@@ -380,12 +383,42 @@ fun RuleSetItem(
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = ruleSet.tag,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = ruleSet.tag,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (isDownloading) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color = TextPrimary
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "下载中...",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            color = Color(0xFF2E7D32).copy(alpha = 0.8f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "已就绪",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "${ruleSet.type.displayName} • ${ruleSet.format}",

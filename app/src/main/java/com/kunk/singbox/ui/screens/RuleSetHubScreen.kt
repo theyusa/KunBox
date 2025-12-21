@@ -49,6 +49,7 @@ fun RuleSetHubScreen(
     val ruleSets by ruleSetViewModel.ruleSets.collectAsState()
     val isLoading by ruleSetViewModel.isLoading.collectAsState()
     val error by ruleSetViewModel.error.collectAsState()
+    val downloadingRuleSets by settingsViewModel.downloadingRuleSets.collectAsState()
     
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -146,6 +147,7 @@ fun RuleSetHubScreen(
                     items(filteredRuleSets) { ruleSet ->
                         HubRuleSetItem(
                             ruleSet = ruleSet,
+                            isDownloading = downloadingRuleSets.contains(ruleSet.name),
                             onAddSource = {
                                 settingsViewModel.addRuleSet(
                                     RuleSet(
@@ -181,6 +183,7 @@ fun RuleSetHubScreen(
 @Composable
 fun HubRuleSetItem(
     ruleSet: HubRuleSet,
+    isDownloading: Boolean = false,
     onAddSource: () -> Unit,
     onAddBinary: () -> Unit
 ) {
@@ -197,12 +200,39 @@ fun HubRuleSetItem(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = ruleSet.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = ruleSet.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (isDownloading) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color = TextPrimary
+                        )
+                    } else if (ruleSetViewModel.isDownloaded(ruleSet.name)) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            color = Color(0xFF2E7D32),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "已下载",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
                 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ruleSet.tags.forEach { tag ->

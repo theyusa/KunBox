@@ -18,8 +18,10 @@ import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.model.GhProxyMirror
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.repository.SettingsRepository
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -28,6 +30,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val repository = SettingsRepository.getInstance(application)
     private val ruleSetRepository = RuleSetRepository.getInstance(application)
     
+    private val _downloadingRuleSets = MutableStateFlow<Set<String>>(emptySet())
+    val downloadingRuleSets: StateFlow<Set<String>> = _downloadingRuleSets.asStateFlow()
+
     val settings: StateFlow<AppSettings> = repository.settings
         .stateIn(
             scope = viewModelScope,
@@ -214,7 +219,18 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 currentSets.add(ruleSet)
                 repository.setRuleSets(currentSets)
 
-                val downloadOk = ruleSetRepository.prefetchRuleSet(ruleSet, forceUpdate = false, allowNetwork = true)
+                if (ruleSet.type == RuleSetType.REMOTE) {
+                    _downloadingRuleSets.value += ruleSet.tag
+                }
+                
+                val downloadOk = try {
+                    ruleSetRepository.prefetchRuleSet(ruleSet, forceUpdate = false, allowNetwork = true)
+                } finally {
+                    if (ruleSet.type == RuleSetType.REMOTE) {
+                        _downloadingRuleSets.value -= ruleSet.tag
+                    }
+                }
+                
                 if (downloadOk) {
                     onResult(true, "已添加规则集 \"${ruleSet.tag}\"，并完成下载")
                 } else {
@@ -241,7 +257,18 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
             // Best-effort prefetch for newly added rule sets.
             addedRuleSets.forEach { ruleSet ->
-                ruleSetRepository.prefetchRuleSet(ruleSet, forceUpdate = false, allowNetwork = true)
+                if (ruleSet.type == RuleSetType.REMOTE) {
+                    _downloadingRuleSets.value += ruleSet.tag
+                }
+                launch {
+                    try {
+                        ruleSetRepository.prefetchRuleSet(ruleSet, forceUpdate = false, allowNetwork = true)
+                    } finally {
+                        if (ruleSet.type == RuleSetType.REMOTE) {
+                            _downloadingRuleSets.value -= ruleSet.tag
+                        }
+                    }
+                }
             }
 
             onResult(addedRuleSets.size)
