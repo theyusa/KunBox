@@ -155,6 +155,9 @@ fun SingBoxApp() {
 
     LaunchedEffect(Unit) {
         SettingsRepository.restartRequiredEvents.collect {
+            // 如果 VPN 没有在运行，也没有正在启动，就不弹窗（因为下次启动自然生效）
+            if (!SingBoxService.isRunning && !SingBoxService.isStarting) return@collect
+
             // 如果已经有重启提示，就不再显示新的
             if (snackbarHostState.currentSnackbarData?.visuals?.message?.contains("重启") == true) return@collect
 
