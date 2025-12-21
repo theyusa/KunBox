@@ -29,7 +29,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.23.1"
           check-latest: true
 
       - name: Setup Android NDK
@@ -60,10 +60,10 @@ jobs:
           # 4. Build AAR
           # Tags and flags matched from build_libbox.ps1
           BUILD_TAGS="with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api"
-          
+
           echo "Building libbox.aar..."
           # ANDROID_NDK_HOME is already set in env
-          
+
           # Use gomobile to build
           gomobile bind -v -androidapi 21 \
             -target "android/arm64" \
