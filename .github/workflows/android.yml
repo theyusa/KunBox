@@ -29,7 +29,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.1"
+          go-version: "1.23.4"
           check-latest: true
 
       - name: Setup Android NDK
@@ -44,8 +44,8 @@ jobs:
         shell: bash
         run: |
           # 1. Install gomobile
-          go install golang.org/x/mobile/cmd/gomobile@latest
-          go install golang.org/x/mobile/cmd/gobind@latest
+          go install -v github.com/sagernet/gomobile/cmd/gomobile@v0.1.8
+          go install -v github.com/sagernet/gomobile/cmd/gobind@v0.1.8
           gomobile init
 
           # 2. Clone sing-box source
@@ -68,7 +68,8 @@ jobs:
           gomobile bind -v -androidapi 21 \
             -target "android/arm64" \
             -tags "$BUILD_TAGS" \
-            -trimpath -ldflags "-s -w -buildid=" \
+            -javapkg io.nekohasekai \
+            -trimpath -ldflags "-s -w -buildid= -checklinkname=0" \
             -o libbox.aar \
             ./experimental/libbox
 
