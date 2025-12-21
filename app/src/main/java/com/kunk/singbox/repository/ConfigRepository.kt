@@ -2244,36 +2244,6 @@ class ConfigRepository(private val context: Context) {
     }
 
     /**
-     * 构建广告拦截路由规则（使用在线规则集）
-     */
-    private fun buildAdBlockRules(): List<RouteRule> {
-        Log.v(TAG, "Building ad-block routing rules with rule-set")
-        
-        return listOf(
-            RouteRule(
-                ruleSet = listOf("geosite-category-ads-all"),
-                outbound = "block"
-            )
-        )
-    }
-    
-    /**
-     * 构建广告拦截规则集配置
-     */
-    private fun buildAdBlockRuleSet(settings: AppSettings): RuleSetConfig {
-        // 使用本地缓存路径，避免启动时下载
-        val ruleSetRepo = RuleSetRepository.getInstance(context)
-        val localPath = ruleSetRepo.getRuleSetPath("geosite-category-ads-all")
-        
-        return RuleSetConfig(
-            tag = "geosite-category-ads-all",
-            type = "local",
-            format = "binary",
-            path = localPath
-        )
-    }
-    
-    /**
      * 构建自定义规则集配置
      */
     private fun buildCustomRuleSets(settings: AppSettings): List<RuleSetConfig> {
@@ -3026,32 +2996,9 @@ class ConfigRepository(private val context: Context) {
         // 构建应用分流规则
         val appRoutingRules = buildAppRoutingRules(settings, selectorTag, fixedOutbounds, nodeTagResolver)
         
-        // 构建广告拦截规则和规则集
-        val adBlockRules = if (settings.blockAds) {
-            buildAdBlockRules()
-        } else {
-            emptyList()
-        }
-        
-        val adBlockRuleSet = if (settings.blockAds) {
-            listOf(buildAdBlockRuleSet(settings))
-        } else {
-            emptyList()
-        }
-
-        // 构建自定义简单路由规则
-        val customRules = buildCustomRules(settings, selectorTag)
-
         // 构建自定义规则集配置和路由规则
         val customRuleSets = buildCustomRuleSets(settings)
         val customRuleSetRules = buildCustomRuleSetRules(settings, selectorTag, fixedOutbounds, nodeTagResolver)
-        
-        // 添加路由配置（使用在线规则集，sing-box 1.12.0+）
-        // 合并规则集时去重，以 customRuleSets 为准（用户配置优先）
-        val adBlockTags = adBlockRuleSet.map { it.tag }.toSet()
-        val filteredAdBlockRuleSets = adBlockRuleSet.filter { rs ->
-            customRuleSets.none { it.tag == rs.tag }
-        }
         
         val quicRule = if (settings.blockQuic) {
             listOf(RouteRule(protocol = listOf("udp"), port = listOf(443), outbound = "block"))
@@ -3104,7 +3051,7 @@ class ConfigRepository(private val context: Context) {
         Log.v(TAG, "=== Final outbound: $selectorTag ===")
         
         val route = RouteConfig(
-            ruleSet = filteredAdBlockRuleSets + customRuleSets,
+            ruleSet = customRuleSets,
             rules = allRules,
             finalOutbound = selectorTag, // 路由指向 Selector
             findProcess = true,
