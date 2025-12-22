@@ -1830,7 +1830,7 @@ class ConfigRepository(private val context: Context) {
                     }
 
                     Log.v(TAG, "Testing latency for node: ${node.name} (${outbound.type})")
-                    val fixedOutbound = fixOutboundForRuntime(outbound)
+                    val fixedOutbound = buildOutboundForRuntime(outbound)
                     val latency = singBoxCore.testOutboundLatency(fixedOutbound)
 
                     _nodes.update { list ->
@@ -1901,7 +1901,7 @@ class ConfigRepository(private val context: Context) {
         val testInfoList = nodes.mapNotNull { node ->
             val config = loadConfig(node.sourceProfileId) ?: return@mapNotNull null
             val outbound = config.outbounds?.find { it.tag == node.name } ?: return@mapNotNull null
-            NodeTestInfo(fixOutboundForRuntime(outbound), node.id, node.sourceProfileId)
+            NodeTestInfo(buildOutboundForRuntime(outbound), node.id, node.sourceProfileId)
         }
 
         if (testInfoList.isEmpty()) {
@@ -2227,6 +2227,155 @@ class ConfigRepository(private val context: Context) {
         }
 
         return result
+    }
+
+    private fun buildOutboundForRuntime(outbound: Outbound): Outbound {
+        val fixed = fixOutboundForRuntime(outbound)
+        return when (fixed.type) {
+            "selector", "urltest", "url-test" -> Outbound(
+                type = "selector",
+                tag = fixed.tag,
+                outbounds = fixed.outbounds,
+                default = fixed.default,
+                interruptExistConnections = fixed.interruptExistConnections
+            )
+
+            "direct", "block", "dns" -> Outbound(type = fixed.type, tag = fixed.tag)
+
+            "vmess" -> Outbound(
+                type = fixed.type,
+                tag = fixed.tag,
+                server = fixed.server,
+                serverPort = fixed.serverPort,
+                uuid = fixed.uuid,
+                security = fixed.security,
+                packetEncoding = fixed.packetEncoding,
+                tls = fixed.tls,
+                transport = fixed.transport,
+                multiplex = fixed.multiplex
+            )
+
+            "vless" -> Outbound(
+                type = fixed.type,
+                tag = fixed.tag,
+                server = fixed.server,
+                serverPort = fixed.serverPort,
+                uuid = fixed.uuid,
+                flow = fixed.flow,
+                packetEncoding = fixed.packetEncoding,
+                tls = fixed.tls,
+                transport = fixed.transport,
+                multiplex = fixed.multiplex
+            )
+
+            "trojan" -> Outbound(
+                type = fixed.type,
+                tag = fixed.tag,
+                server = fixed.server,
+                serverPort = fixed.serverPort,
+                password = fixed.password,
+                tls = fixed.tls,
+                transport = fixed.transport,
+                multiplex = fixed.multiplex
+            )
+
+            "shadowsocks" -> Outbound(
+                type = fixed.type,
+                tag = fixed.tag,
+                server = fixed.server,
+                serverPort = fixed.serverPort,
+                method = fixed.method,
+                password = fixed.password,
+                plugin = fixed.plugin,
+                pluginOpts = fixed.pluginOpts,
+                udpOverTcp = fixed.udpOverTcp,
+                multiplex = fixed.multiplex
+            )
+
+            "hysteria", "hysteria2" -> Outbound(
+                type = fixed.type,
+                tag = fixed.tag,
+                server = fixed.server,
+                serverPort = fixed.serverPort,
+                password = fixed.password,
+                authStr = fixed.authStr,
+                upMbps = fixed.upMbps,
+                downMbps = fixed.downMbps,
+                obfs = fixed.obfs,
+                recvWindowConn = fixed.recvWindowConn,
+                recvWindow = fixed.recvWindow,
+                disableMtuDiscovery = fixed.disableMtuDiscovery,
+                hopInterval = fixed.hopInterval,
+                ports = fixed.ports,
+                tls = fixed.tls,
+                multiplex = fixed.multiplex
+            )
+
+            "tuic" -> Outbound(
+                type = fixed.type,
+                tag = fixed.tag,
+                server = fixed.server,
+                serverPort = fixed.serverPort,
+                uuid = fixed.uuid,
+                password = fixed.password,
+                congestionControl = fixed.congestionControl,
+                udpRelayMode = fixed.udpRelayMode,
+                zeroRttHandshake = fixed.zeroRttHandshake,
+                heartbeat = fixed.heartbeat,
+                disableSni = fixed.disableSni,
+                mtu = fixed.mtu,
+                tls = fixed.tls,
+                multiplex = fixed.multiplex
+            )
+
+            "anytls" -> Outbound(
+                type = fixed.type,
+                tag = fixed.tag,
+                server = fixed.server,
+                serverPort = fixed.serverPort,
+                password = fixed.password,
+                idleSessionCheckInterval = fixed.idleSessionCheckInterval,
+                idleSessionTimeout = fixed.idleSessionTimeout,
+                minIdleSession = fixed.minIdleSession,
+                tls = fixed.tls,
+                multiplex = fixed.multiplex
+            )
+
+            "wireguard" -> Outbound(
+                type = fixed.type,
+                tag = fixed.tag,
+                localAddress = fixed.localAddress,
+                privateKey = fixed.privateKey,
+                peerPublicKey = fixed.peerPublicKey,
+                preSharedKey = fixed.preSharedKey,
+                reserved = fixed.reserved,
+                peers = fixed.peers
+            )
+
+            "ssh" -> Outbound(
+                type = fixed.type,
+                tag = fixed.tag,
+                server = fixed.server,
+                serverPort = fixed.serverPort,
+                user = fixed.user,
+                password = fixed.password,
+                privateKeyPath = fixed.privateKeyPath,
+                privateKeyPassphrase = fixed.privateKeyPassphrase,
+                hostKey = fixed.hostKey,
+                hostKeyAlgorithms = fixed.hostKeyAlgorithms,
+                clientVersion = fixed.clientVersion
+            )
+
+            "shadowtls" -> Outbound(
+                type = fixed.type,
+                tag = fixed.tag,
+                version = fixed.version,
+                password = fixed.password,
+                detour = fixed.detour
+            )
+
+            else -> fixed
+        }
     }
 
     /**
@@ -2560,26 +2709,47 @@ class ConfigRepository(private val context: Context) {
      * 构建运行时配置
      */
     private fun buildRunConfig(baseConfig: SingBoxConfig, activeNode: NodeUi?, settings: AppSettings): SingBoxConfig {
-        // 配置日志级别为 warn 以减少日志量
-        val log = LogConfig(
+        val log = buildRunLogConfig()
+        val experimental = buildRunExperimentalConfig(settings)
+        val inbounds = buildRunInbounds(settings)
+        val dns = buildRunDns(settings)
+
+        val outboundsContext = buildRunOutbounds(baseConfig, activeNode, settings)
+        val route = buildRunRoute(settings, outboundsContext.selectorTag, outboundsContext.outbounds, outboundsContext.nodeTagResolver)
+
+        return baseConfig.copy(
+            log = log,
+            experimental = experimental,
+            inbounds = inbounds,
+            dns = dns,
+            route = route,
+            outbounds = outboundsContext.outbounds
+        )
+    }
+
+    private fun buildRunLogConfig(): LogConfig {
+        return LogConfig(
             level = "warn",
             timestamp = true
         )
+    }
 
+    private fun buildRunExperimentalConfig(settings: AppSettings): ExperimentalConfig {
         // 使用 filesDir 而非 cacheDir，确保 FakeIP 缓存不会被系统清理
         val singboxDataDir = File(context.filesDir, "singbox_data").also { it.mkdirs() }
-
-        val experimental = ExperimentalConfig(
+        return ExperimentalConfig(
             cacheFile = CacheFileConfig(
                 enabled = true,
                 path = File(singboxDataDir, "cache.db").absolutePath,
                 storeFakeip = settings.fakeDnsEnabled
             )
         )
-        
+    }
+
+    private fun buildRunInbounds(settings: AppSettings): List<Inbound> {
         // 添加入站配置
         val inbounds = mutableListOf<Inbound>()
-        
+
         // 1. 添加混合入站 (Mixed Port)
         if (settings.proxyPort > 0) {
             inbounds.add(
@@ -2625,7 +2795,11 @@ class ConfigRepository(private val context: Context) {
                 )
             )
         }
-        
+
+        return inbounds
+    }
+
+    private fun buildRunDns(settings: AppSettings): DnsConfig {
         // 添加 DNS 配置
         val dnsServers = mutableListOf<DnsServer>()
         val dnsRules = mutableListOf<DnsRule>()
@@ -2816,7 +2990,7 @@ class ConfigRepository(private val context: Context) {
             null
         }
 
-        val dns = DnsConfig(
+        return DnsConfig(
             servers = dnsServers,
             rules = dnsRules,
             finalServer = "local", // 兜底使用本地 DNS
@@ -2825,15 +2999,24 @@ class ConfigRepository(private val context: Context) {
             independentCache = true,
             fakeip = fakeIpConfig
         )
-        
+    }
+
+    private data class RunOutboundsContext(
+        val outbounds: List<Outbound>,
+        val selectorTag: String,
+        val nodeTagResolver: (String?) -> String?
+    )
+
+    private fun buildRunOutbounds(baseConfig: SingBoxConfig, activeNode: NodeUi?, settings: AppSettings): RunOutboundsContext {
         val rawOutbounds = baseConfig.outbounds
         if (rawOutbounds.isNullOrEmpty()) {
             Log.w(TAG, "No outbounds found in base config, adding defaults")
         }
+
         val fixedOutbounds = rawOutbounds?.map { outbound ->
-            fixOutboundForRuntime(outbound)
+            buildOutboundForRuntime(outbound)
         }?.toMutableList() ?: mutableListOf()
-        
+
         if (fixedOutbounds.none { it.tag == "direct" }) {
             fixedOutbounds.add(Outbound(type = "direct", tag = "direct"))
         }
@@ -2929,17 +3112,17 @@ class ConfigRepository(private val context: Context) {
 
             val node = allNodes.find { it.id == nodeId } ?: return@forEach
             val sourceProfileId = node.sourceProfileId
-            
+
             // 如果是当前配置但没找到tag(可能改名了?), 跳过
             if (sourceProfileId == activeProfileId) return@forEach
 
             // 加载外部配置
             val sourceConfig = loadConfig(sourceProfileId) ?: return@forEach
             val sourceOutbound = sourceConfig.outbounds?.find { it.tag == node.name } ?: return@forEach
-            
+
             // 运行时修复
-            var fixedSourceOutbound = fixOutboundForRuntime(sourceOutbound)
-            
+            var fixedSourceOutbound = buildOutboundForRuntime(sourceOutbound)
+
             // 处理标签冲突
             var finalTag = fixedSourceOutbound.tag
             if (existingTags.contains(finalTag)) {
@@ -2952,12 +3135,12 @@ class ConfigRepository(private val context: Context) {
                 }
                 fixedSourceOutbound = fixedSourceOutbound.copy(tag = finalTag)
             }
-            
+
             // 添加到 outbounds
             fixedOutbounds.add(fixedSourceOutbound)
             existingTags.add(finalTag)
             nodeTagMap[nodeId] = finalTag
-            
+
             Log.d(TAG, "Imported external node: ${node.name} -> $finalTag from profile $sourceProfileId")
         }
 
@@ -2965,7 +3148,7 @@ class ConfigRepository(private val context: Context) {
         requiredGroupNames.forEach { groupName ->
             val nodesInGroup = allNodes.filter { it.group == groupName }
             val nodeTags = nodesInGroup.mapNotNull { nodeTagMap[it.id] }
-            
+
             if (nodeTags.isNotEmpty()) {
                 val existingIndex = fixedOutbounds.indexOfFirst { it.tag == groupName }
                 if (existingIndex >= 0) {
@@ -3016,7 +3199,7 @@ class ConfigRepository(private val context: Context) {
                 }
             }
         }
-        
+
         // 收集所有代理节点名称 (包括新添加的外部节点)
         // 2025-fix: 扩展支持的协议列表，防止 wireguard/ssh/shadowtls 等被排除在 PROXY 组之外
         val proxyTags = fixedOutbounds.filter {
@@ -3047,7 +3230,7 @@ class ConfigRepository(private val context: Context) {
             default = selectorDefault, // 设置默认选中项（确保存在于 outbounds 中）
             interruptExistConnections = true // 切换节点时断开现有连接，确保立即生效
         )
-        
+
         // 避免重复 tag：订阅配置通常已自带 PROXY selector
         // 若已存在同 tag outbound，直接替换（并删除多余重复项）
         val existingProxyIndexes = fixedOutbounds.withIndex()
@@ -3061,9 +3244,9 @@ class ConfigRepository(private val context: Context) {
 
         // 将 Selector 添加到 outbounds 列表的最前面（或者合适的位置）
         fixedOutbounds.add(0, selectorOutbound)
-        
+
         Log.d(TAG, "Created selector '$selectorTag' with ${proxyTags.size} nodes. Default: ${activeNode?.name}")
-        
+
         // 定义节点标签解析器
         val nodeTagResolver: (String?) -> String? = { value ->
             if (value.isNullOrBlank()) {
@@ -3075,13 +3258,42 @@ class ConfigRepository(private val context: Context) {
             }
         }
 
+        // Final safety check: Filter out non-existent references in Selector/URLTest
+        val allOutboundTags = fixedOutbounds.map { it.tag }.toSet()
+        val safeOutbounds = fixedOutbounds.map { outbound ->
+            if (outbound.type == "selector" || outbound.type == "urltest" || outbound.type == "url-test") {
+                val validRefs = outbound.outbounds?.filter { allOutboundTags.contains(it) } ?: emptyList()
+                val safeRefs = if (validRefs.isEmpty()) listOf("direct") else validRefs
+
+                if (safeRefs.size != (outbound.outbounds?.size ?: 0)) {
+                    Log.w(TAG, "Filtered invalid refs in ${outbound.tag}: ${outbound.outbounds} -> $safeRefs")
+                }
+                outbound.copy(outbounds = safeRefs)
+            } else {
+                outbound
+            }
+        }
+
+        return RunOutboundsContext(
+            outbounds = safeOutbounds,
+            selectorTag = selectorTag,
+            nodeTagResolver = nodeTagResolver
+        )
+    }
+
+    private fun buildRunRoute(
+        settings: AppSettings,
+        selectorTag: String,
+        outbounds: List<Outbound>,
+        nodeTagResolver: (String?) -> String?
+    ): RouteConfig {
         // 构建应用分流规则
-        val appRoutingRules = buildAppRoutingRules(settings, selectorTag, fixedOutbounds, nodeTagResolver)
-        
+        val appRoutingRules = buildAppRoutingRules(settings, selectorTag, outbounds, nodeTagResolver)
+
         // 构建自定义规则集配置和路由规则
         val customRuleSets = buildCustomRuleSets(settings)
-        val customRuleSetRules = buildCustomRuleSetRules(settings, selectorTag, fixedOutbounds, nodeTagResolver)
-        
+        val customRuleSetRules = buildCustomRuleSetRules(settings, selectorTag, outbounds, nodeTagResolver)
+
         val quicRule = if (settings.blockQuic) {
             listOf(RouteRule(protocol = listOf("udp"), port = listOf(443), outbound = "block"))
         } else {
@@ -3116,7 +3328,7 @@ class ConfigRepository(private val context: Context) {
             emptyList()
         }
 
-        val customDomainRules = buildCustomDomainRules(settings, selectorTag, fixedOutbounds, nodeTagResolver)
+        val customDomainRules = buildCustomDomainRules(settings, selectorTag, outbounds, nodeTagResolver)
 
         val defaultRuleCatchAll = when (settings.defaultRule) {
             DefaultRule.DIRECT -> listOf(RouteRule(outbound = "direct"))
@@ -3131,7 +3343,7 @@ class ConfigRepository(private val context: Context) {
                 dnsTrafficRule + adBlockRules + quicRule + bypassLanRules + appRoutingRules + customDomainRules + customRuleSetRules + defaultRuleCatchAll
             }
         }
-        
+
         // 记录所有生成的路由规则
         Log.v(TAG, "=== Generated Route Rules (${allRules.size} total) ===")
         allRules.forEachIndexed { index, rule ->
@@ -3146,38 +3358,13 @@ class ConfigRepository(private val context: Context) {
             Log.v(TAG, "  Rule[$index]: $ruleDesc")
         }
         Log.v(TAG, "=== Final outbound: $selectorTag ===")
-        
-        val route = RouteConfig(
+
+        return RouteConfig(
             ruleSet = customRuleSets,
             rules = allRules,
             finalOutbound = selectorTag, // 路由指向 Selector
             findProcess = true,
             autoDetectInterface = true
-        )
-
-        // Final safety check: Filter out non-existent references in Selector/URLTest
-        val allOutboundTags = fixedOutbounds.map { it.tag }.toSet()
-        val safeOutbounds = fixedOutbounds.map { outbound ->
-            if (outbound.type == "selector" || outbound.type == "urltest" || outbound.type == "url-test") {
-                val validRefs = outbound.outbounds?.filter { allOutboundTags.contains(it) } ?: emptyList()
-                val safeRefs = if (validRefs.isEmpty()) listOf("direct") else validRefs
-                
-                if (safeRefs.size != (outbound.outbounds?.size ?: 0)) {
-                    Log.w(TAG, "Filtered invalid refs in ${outbound.tag}: ${outbound.outbounds} -> $safeRefs")
-                }
-                outbound.copy(outbounds = safeRefs)
-            } else {
-                outbound
-            }
-        }
-        
-        return baseConfig.copy(
-            log = log,
-            experimental = experimental,
-            inbounds = inbounds,
-            dns = dns,
-            route = route,
-            outbounds = safeOutbounds
         )
     }
     
