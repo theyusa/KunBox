@@ -18,66 +18,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: true
-          fetch-depth: 0 # Required for git rev-list
 
       - name: set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: "17"
           distribution: "temurin"
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.23.4"
-          check-latest: true
-
-      - name: Setup Android NDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android NDK
-        run: |
-          sdkmanager "ndk;29.0.14206865"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/29.0.14206865" >> $GITHUB_ENV
-
-      - name: Build libbox.aar
-        shell: bash
-        run: |
-          # 1. Install gomobile
-          go install -v github.com/sagernet/gomobile/cmd/gomobile@v0.1.8
-          go install -v github.com/sagernet/gomobile/cmd/gobind@v0.1.8
-          gomobile init
-
-          # 2. Clone sing-box source
-          SINGBOX_VERSION="1.12.13"
-          git clone --depth 1 --branch "v${SINGBOX_VERSION}" https://github.com/SagerNet/sing-box.git singbox-build
-
-          # 3. Download dependencies
-          cd singbox-build
-          go mod download
-          go get golang.org/x/mobile/bind
-
-          # 4. Build AAR
-          # Tags and flags matched from build_libbox.ps1
-          BUILD_TAGS="with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api"
-
-          echo "Building libbox.aar..."
-          # ANDROID_NDK_HOME is already set in env
-
-          # Use gomobile to build
-          gomobile bind -v -androidapi 21 \
-            -target "android/arm64" \
-            -tags "$BUILD_TAGS" \
-            -javapkg io.nekohasekai \
-            -trimpath -ldflags "-s -w -buildid= -checklinkname=0" \
-            -o libbox.aar \
-            ./experimental/libbox
-
-          # 5. Move to app/libs
-          mkdir -p ../app/libs
-          cp libbox.aar ../app/libs/libbox.aar
-          echo "libbox.aar created successfully"
-          ls -lh ../app/libs/libbox.aar
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -90,34 +36,8 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
 
-      - name: Calculate Version
-        id: version
-        run: |
-          COMMIT_COUNT=$(git rev-list --count HEAD)
-          if [[ $GITHUB_REF == refs/tags/* ]]; then
-            VERSION_NAME=${GITHUB_REF#refs/tags/v}
-            # If tag is v1.0.9, VERSION_NAME becomes 1.0.9
-            # We can also try to derive a versionCode from the tag if it follows a pattern
-            # For example, 1.0.9 -> 10009
-            if [[ $VERSION_NAME =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-              MAJOR=${BASH_REMATCH[1]}
-              MINOR=${BASH_REMATCH[2]}
-              PATCH=${BASH_REMATCH[3]}
-              VERSION_CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
-            else
-              VERSION_CODE=$COMMIT_COUNT
-            fi
-          else
-            VERSION_NAME="1.0.$COMMIT_COUNT"
-            VERSION_CODE=$COMMIT_COUNT
-          fi
-          echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_ENV
-          echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
-          echo "count=$VERSION_CODE" >> $GITHUB_OUTPUT
-          echo "name=$VERSION_NAME" >> $GITHUB_OUTPUT
-
       - name: Build with Gradle
-        run: gradle assembleRelease -PversionCode=${{ env.VERSION_CODE }} -PversionName=${{ env.VERSION_NAME }}
+        run: gradle assembleRelease
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/release.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}

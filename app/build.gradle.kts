@@ -232,11 +232,8 @@ android {
         minSdk = 24
         targetSdk = 36
         
-        val gitCommitCount = project.findProperty("versionCode")?.toString()?.toIntOrNull() ?: 1
-        val gitVersionName = project.findProperty("versionName")?.toString() ?: "1.0"
-        
-        versionCode = gitCommitCount
-        versionName = gitVersionName
+        versionCode = 5946
+        versionName = "9.7.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
