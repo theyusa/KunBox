@@ -145,6 +145,39 @@ class SingBoxService : VpnService() {
             connectionOwnerLastEvent = ""
         }
     }
+
+    private fun closeRecentConnectionsBestEffort(reason: String) {
+        val ids = recentConnectionIds
+        if (ids.isEmpty()) return
+
+        val client: Any = commandClientConnections ?: commandClient ?: return
+        var closed = 0
+        for (id in ids) {
+            if (id.isBlank()) continue
+            if (invokeCloseConnection(client, id)) {
+                closed++
+            }
+        }
+        if (closed > 0) {
+            LogRepository.getInstance().addLog("INFO SingBoxService: closeConnection($reason) closed=$closed total=${ids.size}")
+        }
+    }
+
+    private fun invokeCloseConnection(client: Any, connId: String): Boolean {
+        val names = listOf("closeConnection", "CloseConnection")
+        for (name in names) {
+            try {
+                val m = client.javaClass.getMethod(name, String::class.java)
+                val r = m.invoke(client, connId)
+                if (r is Boolean) return r
+                return true
+            } catch (_: NoSuchMethodException) {
+            } catch (_: Exception) {
+                return false
+            }
+        }
+        return false
+    }
     
     enum class ServiceState {
         STOPPED,
@@ -243,6 +276,10 @@ class SingBoxService : VpnService() {
                 Log.w(TAG, "Failed to close connections: ${e.message}")
             }
 
+            runCatching {
+                closeRecentConnectionsBestEffort(reason = "hotSwitch")
+            }
+
             // 4. 重置网络栈 & 清理 DNS
             try {
                 boxService?.resetNetwork()
@@ -254,9 +291,6 @@ class SingBoxService : VpnService() {
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to reset network stack: ${e.message}")
             }
-            
-            realTimeNodeName = nodeTag
-            updateNotification()
             
             runCatching {
                 LogRepository.getInstance().addLog("SUCCESS SingBoxService: Hot switch to $nodeTag completed")
@@ -290,6 +324,7 @@ class SingBoxService : VpnService() {
     private var commandClient: io.nekohasekai.libbox.CommandClient? = null
     private var commandClientConnections: io.nekohasekai.libbox.CommandClient? = null
     @Volatile private var activeConnectionNode: String? = null
+    @Volatile private var recentConnectionIds: List<String> = emptyList()
 
     @Volatile private var lastRuleSetCheckMs: Long = 0L
     private val ruleSetCheckIntervalMs: Long = 6 * 60 * 60 * 1000L
@@ -2049,6 +2084,7 @@ class SingBoxService : VpnService() {
                 try {
                     val iterator = message.iterator()
                     var newestConnection: Connection? = null
+                    val ids = ArrayList<String>(64)
                     
                     while (iterator.hasNext()) {
                         val conn = iterator.next()
@@ -2061,7 +2097,13 @@ class SingBoxService : VpnService() {
                         if (newestConnection == null || conn.createdAt > newestConnection.createdAt) {
                             newestConnection = conn
                         }
+
+                        runCatching {
+                            ids.add(conn.id)
+                        }
                     }
+
+                    recentConnectionIds = ids
                     
                     var newNode: String? = null
                     if (newestConnection != null) {

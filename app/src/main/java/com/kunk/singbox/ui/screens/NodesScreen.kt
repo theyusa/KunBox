@@ -119,14 +119,14 @@ fun NodesScreen(
                 try {
                     val settingsRepository = SettingsRepository.getInstance(context)
                     settingsRepository.checkAndMigrateRuleSets()
-                    val configPath = ConfigRepository.getInstance(context).generateConfigFile()
-                    if (configPath.isNullOrBlank()) {
+                    val configResult = ConfigRepository.getInstance(context).generateConfigFile()
+                    if (configResult?.path.isNullOrBlank()) {
                         snackbarHostState.showSnackbar("配置生成失败")
                         return@launch
                     }
                     val intent = Intent(context, SingBoxService::class.java).apply {
                         action = SingBoxService.ACTION_START
-                        putExtra(SingBoxService.EXTRA_CONFIG_PATH, configPath)
+                        putExtra(SingBoxService.EXTRA_CONFIG_PATH, configResult?.path)
                     }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         context.startForegroundService(intent)
@@ -377,14 +377,14 @@ fun NodesScreen(
                                         try {
                                             val settingsRepository = SettingsRepository.getInstance(context)
                                             settingsRepository.checkAndMigrateRuleSets()
-                                            val configPath = ConfigRepository.getInstance(context).generateConfigFile()
-                                            if (configPath.isNullOrBlank()) {
+                                            val configResult = ConfigRepository.getInstance(context).generateConfigFile()
+                                            if (configResult?.path.isNullOrBlank()) {
                                                 snackbarHostState.showSnackbar("配置生成失败")
                                                 return@launch
                                             }
                                             val intent = Intent(context, SingBoxService::class.java).apply {
                                                 action = SingBoxService.ACTION_START
-                                                putExtra(SingBoxService.EXTRA_CONFIG_PATH, configPath)
+                                                putExtra(SingBoxService.EXTRA_CONFIG_PATH, configResult?.path)
                                             }
                                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                                 context.startForegroundService(intent)

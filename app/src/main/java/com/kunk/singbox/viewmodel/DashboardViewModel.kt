@@ -326,12 +326,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             try {
                 // 在生成配置前先执行强制迁移，修复可能导致 404 的旧配置
-                val configPath = withContext(Dispatchers.IO) {
+                val configResult = withContext(Dispatchers.IO) {
                     val settingsRepository = com.kunk.singbox.repository.SettingsRepository.getInstance(context)
                     settingsRepository.checkAndMigrateRuleSets()
                     configRepository.generateConfigFile()
                 }
-                if (configPath == null) {
+                if (configResult == null) {
                     _connectionState.value = ConnectionState.Error
                     _testStatus.value = "配置生成失败"
                     delay(2000)
@@ -341,7 +341,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 
                 val intent = Intent(context, SingBoxService::class.java).apply {
                     action = SingBoxService.ACTION_START
-                    putExtra(SingBoxService.EXTRA_CONFIG_PATH, configPath)
+                    putExtra(SingBoxService.EXTRA_CONFIG_PATH, configResult.path)
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     context.startForegroundService(intent)

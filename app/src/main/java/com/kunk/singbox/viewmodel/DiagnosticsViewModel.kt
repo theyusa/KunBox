@@ -71,11 +71,12 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             _isRunConfigLoading.value = true
             _resultTitle.value = "运行配置 (running_config.json)"
             try {
-                val configPath = withContext(Dispatchers.IO) { configRepository.generateConfigFile() }
-                if (configPath.isNullOrBlank()) {
+                val configResult = withContext(Dispatchers.IO) { configRepository.generateConfigFile() }
+                if (configResult?.path.isNullOrBlank()) {
                     _resultMessage.value = "无法生成运行配置：未选择配置或生成失败。"
                 } else {
-                    val rawJson = withContext(Dispatchers.IO) { File(configPath).readText() }
+                    val realPath = configResult!!.path
+                    val rawJson = withContext(Dispatchers.IO) { File(realPath).readText() }
                     val runConfig = try {
                         gson.fromJson(rawJson, SingBoxConfig::class.java)
                     } catch (_: Exception) {
@@ -93,7 +94,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                     val samplePkgs = samplePkgRule?.packageName?.take(5).orEmpty()
 
                     _resultMessage.value = buildString {
-                        appendLine("文件: $configPath")
+                        appendLine("文件: $realPath")
                         appendLine("final 出站: $finalOutbound")
                         appendLine("路由规则数: ${rules.size}")
                         appendLine("应用分流规则数(package_name): ${pkgRules.size}")
@@ -121,11 +122,11 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             _isRunConfigLoading.value = true
             _resultTitle.value = "导出运行配置"
             try {
-                val configPath = withContext(Dispatchers.IO) { configRepository.generateConfigFile() }
-                if (configPath.isNullOrBlank()) {
+                val configResult = withContext(Dispatchers.IO) { configRepository.generateConfigFile() }
+                if (configResult?.path.isNullOrBlank()) {
                     _resultMessage.value = "无法导出：未选择配置或生成失败。"
                 } else {
-                    val src = File(configPath)
+                    val src = File(configResult!!.path)
                     val outBase = getApplication<Application>().getExternalFilesDir(null)
                     if (outBase == null) {
                         _resultMessage.value = "无法导出：externalFilesDir 不可用。"

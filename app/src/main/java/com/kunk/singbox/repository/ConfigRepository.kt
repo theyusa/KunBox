@@ -9,6 +9,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
 import com.kunk.singbox.core.SingBoxCore
 import com.kunk.singbox.ipc.VpnStateStore
+import com.kunk.singbox.ipc.SingBoxRemote
 import com.kunk.singbox.model.*
 import com.kunk.singbox.service.SingBoxService
 import com.kunk.singbox.utils.parser.Base64Parser
@@ -1701,9 +1702,15 @@ class ConfigRepository(private val context: Context) {
     suspend fun setActiveNodeWithResult(nodeId: String): NodeSwitchResult {
         _activeNodeId.value = nodeId
         saveProfiles()
-        
-        if (!VpnStateStore.getActive(context)) {
+
+        val persistedActive = VpnStateStore.getActive(context)
+        val remoteRunning = SingBoxRemote.isRunning.value || SingBoxRemote.isStarting.value
+        if (!persistedActive && !remoteRunning) {
+            Log.i(TAG, "setActiveNodeWithResult: VPN not running (persistedActive=false, remoteRunning=false)")
             return NodeSwitchResult.NotRunning
+        }
+        if (!persistedActive && remoteRunning) {
+            Log.w(TAG, "setActiveNodeWithResult: persistedActive=false but remoteRunning=true; proceeding with hot switch")
         }
         
         return withContext(Dispatchers.IO) {

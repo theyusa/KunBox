@@ -217,12 +217,12 @@ class VpnTileService : TileService() {
                         Toast.makeText(this@VpnTileService, "正在切换 VPN...", Toast.LENGTH_SHORT).show()
                     }
                     val configRepository = ConfigRepository.getInstance(applicationContext)
-                    val configPath = configRepository.generateConfigFile()
-                    if (configPath != null) {
+                    val configResult = configRepository.generateConfigFile()
+                    if (configResult != null) {
                         persistVpnPending(this@VpnTileService, "starting")
                         val intent = Intent(this@VpnTileService, SingBoxService::class.java).apply {
                             action = SingBoxService.ACTION_START
-                            putExtra(SingBoxService.EXTRA_CONFIG_PATH, configPath)
+                            putExtra(SingBoxService.EXTRA_CONFIG_PATH, configResult.path)
                         }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             startForegroundService(intent)
