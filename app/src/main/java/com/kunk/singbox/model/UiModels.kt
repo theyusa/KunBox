@@ -148,7 +148,8 @@ enum class ConnectionState {
 @Keep
 data class SavedProfilesData(
     @SerializedName("profiles") val profiles: List<ProfileUi>,
-    @SerializedName("activeProfileId") val activeProfileId: String?
+    @SerializedName("activeProfileId") val activeProfileId: String?,
+    @SerializedName("activeNodeId") val activeNodeId: String?
 )
 
 /**

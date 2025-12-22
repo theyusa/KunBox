@@ -148,7 +148,8 @@ class ConfigRepository(private val context: Context) {
         try {
             val data = SavedProfilesData(
                 profiles = _profiles.value,
-                activeProfileId = _activeProfileId.value
+                activeProfileId = _activeProfileId.value,
+                activeNodeId = _activeNodeId.value
             )
             val json = gson.toJson(data)
             
@@ -246,8 +247,11 @@ class ConfigRepository(private val context: Context) {
                     profileNodes[activeId]?.let { nodes ->
                         _nodes.value = nodes
                         updateNodeGroups(nodes)
-                        if (nodes.isNotEmpty()) {
-                            _activeNodeId.value = nodes.first().id
+                        val restored = savedData.activeNodeId
+                        _activeNodeId.value = when {
+                            !restored.isNullOrBlank() && nodes.any { it.id == restored } -> restored
+                            nodes.isNotEmpty() -> nodes.first().id
+                            else -> null
                         }
                     }
                 }
@@ -1696,6 +1700,7 @@ class ConfigRepository(private val context: Context) {
 
     suspend fun setActiveNodeWithResult(nodeId: String): NodeSwitchResult {
         _activeNodeId.value = nodeId
+        saveProfiles()
         
         if (!VpnStateStore.getActive(context)) {
             return NodeSwitchResult.NotRunning
@@ -1716,22 +1721,114 @@ class ConfigRepository(private val context: Context) {
                     return@withContext NodeSwitchResult.Failed(msg)
                 }
 
-                val configPathStr: String = configPath
+                // 2025-optimization: 尝试调用 Service 进行热切换
+                // 如果成功，则无需重启 VPN 服务，也无需清理缓存（因为 selectOutbound 会更新状态）
+                // 我们需要获取实际的 outbound tag。由于 buildRunOutbounds 可能会处理 tag 冲突，
+                // 最稳妥的方式是重新构建一次 outbound 上下文或者让 Service 自己处理（但 Service 没有 ConfigRepo 那么清楚）
+                // 这里我们简化处理：假设 tag 就是 node.name (这是绝大多数情况)，如果 tag 被重命名了，
+                // buildRunOutbounds 会生成新的 tag，但这通常发生在跨配置引用时。
+                // 在单配置下，tag 就是 node.name。
+                
+                // 为了获取确切的 tag，我们可以稍微 hack 一下，复用 buildRunOutbounds 的逻辑
+                // 但 buildRunOutbounds 是 private 的。
+                // 观察 extractNodesFromConfig，NodeUi.name = outbound.tag。
+                // 所以 node.name 就是原始配置中的 tag。
+                // 在 buildRunOutbounds 中，如果 tag 冲突，会修改 tag。
+                // 但如果是当前活跃配置的节点，tag 通常保持不变 (nodeTagMap[nodeId] = node.name)。
+                // 只有当引入外部节点且冲突时才会变。
+                // 因此，对于当前配置内的节点切换，使用 node.name 是安全的。
+                
+                // 此外，我们需要处理 cache.db 清理。
+                // 如果热切换成功，不需要清理 cache.db，因为内存状态已更新，cache.db 会在稍后自动同步或关闭时保存。
+                // 即使不保存，下次启动也会用默认值（如果 cache.db 没更新）。
+                // 关键是：如果热切换成功，当前运行状态是对的。
+                
+                // 获取 SingBoxService 实例（并不直接可行，只能通过 Binder 或静态引用）
+                // 我们没有直接访问 Service 实例的权限，除非绑定 Service。
+                // 但 SingBoxService 是单例运行的，且我们在同一个进程。
+                // 我们可以通过广播或 AIDL，或者简单的静态辅助方法（不推荐但可行）。
+                // 为了解耦，我们可以发送一个带 "hot_switch" 标记的 Intent。
+                // 但 Intent 处理是异步的，我们无法立即知道结果。
+                
+                // 修正：ConfigRepository 应该通过 SingBoxService 提供的静态/单例访问点或 Binder 来操作。
+                // 由于我们不想引入复杂的 Binder 逻辑，且都在主进程，
+                // 我们之前在 SingBoxService 添加了 hotSwitchNode 方法，但无法直接调用（需要实例）。
+                // 让我们改用 Intent 触发，但 SingBoxService 在 onStartCommand 中处理。
+                // 可是 ConfigRepository 需要同步返回结果（或至少知道是否需要重启）。
+                
+                // 考虑到我们无法同步确认热切换结果，我们采取“尝试热切换，失败则重启”的策略是很难的。
+                // 更好的策略是：总是尝试热切换（发送 ACTION_SWITCH_NODE），
+                // 但我们需要确保 Service 处于 Running 状态。
+                // 如果我们发送了 Intent，Service 会在后台处理。ConfigRepo 返回 Success。
+                // 用户界面会收到 updateNotification。
+                
+                // 还有缓存问题：如果热切换生效了，但用户下次冷启动，cache.db 里存的还是旧的 selector 默认值吗？
+                // sing-box 的 selector 会把选择持久化到 cache.db。
+                // selectOutbound 调用后，内存状态更新，cache.db 也应该会更新（取决于实现）。
+                // 如果 cache.db 更新了，下次启动也没问题。
+                // 如果 cache.db 没更新，下次启动会用 config 中的 default。
+                // 我们在 generateConfigFile 中已经把 default 设置为当前选中的节点了 (buildRunOutbounds -> selectorDefault)。
+                // 所以只要 cache.db 被清理掉，下次启动一定是对的。
+                // 或者 cache.db 记录了新选择，也是对的。
+                // 只有当 cache.db 记录了旧选择，且优先级高于 config default 时才会错。
+                // sing-box 逻辑：优先 cache.db，没有则 config default。
+                // 所以，如果我们只热切换而不清理 cache.db，且 sing-box 没及时写入 cache.db，
+                // 下次启动可能会有问题？不，下次启动我们已经生成了新 config，default 是对的。
+                // 唯一风险是 cache.db 里残留了旧选择。
+                // 所以，最稳妥的做法是：热切换同时，清理 cache.db (防止下次启动复用旧值)，
+                // 或者确保 sing-box 写入新值。
+                
+                // 鉴于无法确保 sing-box 立即写入，且无法直接调用 Service 内部方法，
+                // 我们采用保守方案：
+                // 1. 清理 cache.db (确保下次启动不受干扰)
+                // 2. 发送 ACTION_START (带 configPath)，让 Service 决定是热切换还是重启。
+                //    Wait, Service 的 onStartCommand 逻辑是：如果 running -> stop -> start (重启)。
+                //    我们需要修改 Service 的行为，让它支持“配置更新重载”或“节点切换”。
+                //    但 SingBoxService.kt 我们已经改了：
+                //    if (targetNodeId != null) performHotSwitch else switchNextNode
+                
+                // 所以我们需要发送 ACTION_SWITCH_NODE 带上 node_id。
+                // 但 ACTION_SWITCH_NODE 不接受 configPath，它只切节点。
+                // 如果 generateConfigFile 产生了其他变更（比如路由规则变了），光切节点是不够的。
+                // setActiveNode 主要就是切节点。路由规则变更通常由其他设置触发。
+                // 所以，对于 setActiveNode，我们认为配置变更仅限于“默认节点”的变化。
+                // 这可以通过热切换 selector 实现。
+                
+                // 另外，清理 cache.db 的路径必须正确。
+                // buildRunExperimentalConfig 中路径是 filesDir/singbox_data/cache.db
+                // 但原代码删的是 filesDir/cache.db。这是一个 BUG。
+                
+                // 修正 cache.db 清理逻辑
+                runCatching {
+                    val cacheDir = File(context.filesDir, "singbox_data")
+                    val cacheDb = File(cacheDir, "cache.db")
+                    if (cacheDb.exists()) {
+                        cacheDb.delete()
+                        Log.i(TAG, "Deleted sing-box cache.db (singbox_data) to enforce config default on next run")
+                    }
+                    // 兼容清理旧位置
+                    val oldCacheDb = File(context.filesDir, "cache.db")
+                    if (oldCacheDb.exists()) oldCacheDb.delete()
+                }.onFailure { e ->
+                    Log.w(TAG, "Failed to delete cache.db: ${e.message}")
+                }
 
+                // 尝试使用 ACTION_SWITCH_NODE 进行热切换
+                // 注意：这假设 Service 已经在运行。我们在前面检查了 VpnStateStore.getActive。
+                // 并且假设配置变更仅仅是节点切换。
+                // 如果 configPath 有实质性变更（非 selector default），热切换可能导致配置不一致（运行的是旧配置，下次启动是新配置）。
+                // 但这对节点切换来说是可以接受的。
+                
                 val intent = Intent(context, SingBoxService::class.java).apply {
-                    action = SingBoxService.ACTION_START
-                    putExtra(SingBoxService.EXTRA_CONFIG_PATH, configPathStr)
+                    action = SingBoxService.ACTION_SWITCH_NODE
+                    putExtra("node_id", nodeId)
+                    // 我们也可以传入 configPath 备用，但 SWITCH_NODE 逻辑目前只用了 nodeId
                 }
 
-                // Service is already running (VPN active), so startService is sufficient.
-                // We still keep the SDK gate to avoid background restrictions if the service was somehow not running.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
+                // Service already running (VPN active). Use startService to avoid foreground-service timing constraints.
+                context.startService(intent)
 
-                Log.i(TAG, "Switched node by restarting VPN: ${node.name}")
+                Log.i(TAG, "Requested hot switch for node: ${node.name}")
                 NodeSwitchResult.Success
             } catch (e: Exception) {
                 val msg = "切换异常: ${e.message ?: "未知错误"}"

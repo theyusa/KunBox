@@ -21,14 +21,16 @@ if (-not (Test-Path $CacheDir)) { New-Item -ItemType Directory -Force -Path $Cac
 # 1. Check/Download Go 1.23
 if (-not (Test-Path "$GoBin\go.exe")) {
     if (-not (Test-Path $GoZipPath)) {
-        Write-Host "[2/6] Downloading Go 1.23.4 (Required for build compatibility)..." -ForegroundColor Yellow
+        Write-Host "[2/6] Downloading Go 1.24.0 (Required for gomobile compatibility)..." -ForegroundColor Yellow
         try {
-            Invoke-WebRequest -Uri "https://go.dev/dl/go1.23.4.windows-amd64.zip" -OutFile $GoZipPath
-        } catch {
+            Invoke-WebRequest -Uri "https://go.dev/dl/go1.24.0.windows-amd64.zip" -OutFile $GoZipPath
+        }
+        catch {
             Write-Host "Download failed." -ForegroundColor Red
             exit 1
         }
-    } else {
+    }
+    else {
         Write-Host "[2/6] Found cached Go zip..." -ForegroundColor Green
     }
     
@@ -36,7 +38,8 @@ if (-not (Test-Path "$GoBin\go.exe")) {
     if (Test-Path $GoExtractPath) { Remove-Item -Recurse -Force $GoExtractPath }
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [System.IO.Compression.ZipFile]::ExtractToDirectory($GoZipPath, $GoExtractPath)
-} else {
+}
+else {
     Write-Host "[2/6] Using cached Go 1.23.4 environment..." -ForegroundColor Green
 }
 
@@ -46,6 +49,16 @@ $env:GOROOT = $GoRoot
 $env:PATH = "$GoBin;$env:PATH"
 $env:GOPATH = Join-Path $CacheDir "gopath"
 $env:PATH = "$env:PATH;$env:GOPATH\bin"
+
+# Fix NDK Path - Use explicit valid version
+$ValidNdkPath = "C:\Users\33039\AppData\Local\Android\Sdk\ndk\28.0.13004108"
+if (Test-Path $ValidNdkPath) {
+    Write-Host "Setting ANDROID_NDK_HOME to $ValidNdkPath" -ForegroundColor Cyan
+    $env:ANDROID_NDK_HOME = $ValidNdkPath
+}
+else {
+    Write-Warning "Preferred NDK path not found: $ValidNdkPath"
+}
 
 # 3. Install Tools
 Write-Host "[4/6] Installing build tools..." -ForegroundColor Yellow
@@ -73,7 +86,7 @@ go get golang.org/x/mobile/bind
 go mod tidy
 
 # 5. Build
-$BUILD_TAGS = "with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api"
+$BUILD_TAGS = "with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,with_conntrack"
 Write-Host "Building optimized kernel (Package: io.nekohasekai.libbox)..." -ForegroundColor Yellow
 
 # IMPORTANT: -javapkg should be the prefix. Gomobile appends the go package name 'libbox'.
@@ -86,7 +99,8 @@ if ($LASTEXITCODE -eq 0) {
     if (-not (Test-Path $Dest)) { New-Item -ItemType Directory -Force -Path $Dest | Out-Null }
     Copy-Item "libbox.aar" (Join-Path $Dest "libbox.aar") -Force
     Write-Host "Updated libbox.aar at $Dest" -ForegroundColor Cyan
-} else {
+}
+else {
     Write-Host "Build failed." -ForegroundColor Red
 }
 

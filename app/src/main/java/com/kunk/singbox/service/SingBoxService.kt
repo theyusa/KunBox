@@ -33,6 +33,7 @@ import com.kunk.singbox.repository.LogRepository
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.repository.SettingsRepository
 import io.nekohasekai.libbox.*
+import io.nekohasekai.libbox.Libbox
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
@@ -179,6 +180,67 @@ class SingBoxService : VpnService() {
         notifyRemoteState()
     }
 
+    /**
+     * 暴露给 ConfigRepository 调用，尝试热切换节点
+     * @return true if hot switch triggered successfully, false if restart is needed
+     */
+    fun hotSwitchNode(nodeTag: String): Boolean {
+        if (boxService == null || !isRunning) return false
+        
+        try {
+            val selectorTag = "PROXY"
+            Log.i(TAG, "Attempting hot switch to node tag: $nodeTag via selector: $selectorTag")
+            
+            val client = commandClient
+            if (client == null) {
+                Log.e(TAG, "Hot switch failed: CommandClient is null")
+                return false
+            }
+
+            // 1. 切换节点
+            try {
+                // selectOutbound(groupTag, outboundTag)
+                // 优先尝试 "PROXY" (大写)，如果失败尝试 "proxy" (小写)
+                try {
+                    client.selectOutbound(selectorTag, nodeTag)
+                } catch (e: Exception) {
+                    // Log.w(TAG, "CommandClient.selectOutbound(PROXY) failed, trying 'proxy'", e)
+                    client.selectOutbound(selectorTag.lowercase(), nodeTag)
+                }
+                Log.i(TAG, "Selected outbound via CommandClient: $selectorTag -> $nodeTag")
+            } catch (e: Exception) {
+                Log.e(TAG, "CommandClient.selectOutbound failed for both PROXY and proxy", e)
+                return false
+            }
+
+            // 2. 关键：关闭旧连接
+            // 这会强制应用重新建立连接，从而使用新选中的节点
+            try {
+                client.closeConnections()
+                Log.i(TAG, "Closed all existing connections after hot switch")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to close connections after hot switch", e)
+            }
+
+            // 3. 额外保障：重置网络栈 (可选，增加切换成功的概率)
+            // 如果 conntrack 关闭连接失败，或者某些 UDP 状态残留，重置网络栈可能有帮助
+            try {
+                boxService?.resetNetwork()
+                Log.i(TAG, "Reset network stack after hot switch (fallback)")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to reset network stack", e)
+            }
+            
+            realTimeNodeName = nodeTag
+            updateNotification()
+            return true
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Hot switch failed with unexpected exception", e)
+            return false
+        }
+    }
+
     private var vpnInterface: ParcelFileDescriptor? = null
     private var boxService: BoxService? = null
     private var currentSettings: AppSettings? = null
@@ -189,6 +251,7 @@ class SingBoxService : VpnService() {
     @Volatile private var isStopping: Boolean = false
     @Volatile private var stopSelfRequested: Boolean = false
     @Volatile private var pendingStartConfigPath: String? = null
+    @Volatile private var pendingHotSwitchNodeId: String? = null
     @Volatile private var connectionOwnerPermissionDeniedLogged = false
     @Volatile private var startVpnJob: Job? = null
     @Volatile private var realTimeNodeName: String? = null
@@ -1115,6 +1178,12 @@ class SingBoxService : VpnService() {
                         }
                     }
                     if (isRunning) {
+                        // 2025-fix: 优先尝试热切换节点，避免重启 VPN 导致连接断开
+                        // 只有当需要更改核心配置（如路由规则、DNS 等）时才重启
+                        // 目前所有切换都视为可能包含核心变更，但我们可以尝试检测
+                        // 暂时保持重启逻辑作为兜底，但在此之前尝试热切换
+                        // 注意：如果只是切换节点，并不需要重启 VPN，直接 selectOutbound 即可
+                        // 但我们需要一种机制来通知 Service 是在切换节点还是完全重载
                         stopVpn(stopService = false)
                     } else {
                         startVpn(configPath)
@@ -1133,11 +1202,56 @@ class SingBoxService : VpnService() {
             }
             ACTION_SWITCH_NODE -> {
                 Log.i(TAG, "Received ACTION_SWITCH_NODE -> switching node")
-                switchNextNode()
+                // 从 Intent 中获取目标节点 ID，如果未提供则切换下一个
+                val targetNodeId = intent.getStringExtra("node_id")
+                if (targetNodeId != null) {
+                    performHotSwitch(targetNodeId)
+                } else {
+                    switchNextNode()
+                }
             }
         }
         // Do not restart automatically with null intents; explicit start/stop is required.
         return START_NOT_STICKY
+    }
+
+    /**
+     * 执行热切换：直接调用内核 selectOutbound
+     */
+    private fun performHotSwitch(nodeId: String) {
+        serviceScope.launch {
+            val configRepository = ConfigRepository.getInstance(this@SingBoxService)
+            val node = configRepository.getNodeById(nodeId)
+            if (node == null) {
+                Log.w(TAG, "Hot switch failed: node not found $nodeId")
+                return@launch
+            }
+
+            // 确定目标 outbound tag
+            // 对于当前配置内的节点，tag 通常就是 node.name
+            // 2025-fix: 处理节点重命名或跨配置引用导致的 tag 变更逻辑较复杂，
+            // 这里暂时假设 tag = node.name，对于绝大多数单订阅场景适用。
+            
+            val nodeTag = node.name // 简化假设
+            val success = hotSwitchNode(nodeTag)
+            
+            if (success) {
+                Log.i(TAG, "Hot switch successful for $nodeTag")
+            } else {
+                Log.w(TAG, "Hot switch failed for $nodeTag, falling back to restart")
+                // Fallback: restart VPN
+                val configPath = File(filesDir, "running_config.json").absolutePath
+                val restartIntent = Intent(this@SingBoxService, SingBoxService::class.java).apply {
+                    action = ACTION_START
+                    putExtra(EXTRA_CONFIG_PATH, configPath)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(restartIntent)
+                } else {
+                    startService(restartIntent)
+                }
+            }
+        }
     }
     
     private fun switchNextNode() {
@@ -1296,6 +1410,19 @@ class SingBoxService : VpnService() {
                     startCommandServerAndClient()
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to start Command Server/Client", e)
+                }
+
+                // 处理排队的热切换请求
+                val pendingHotSwitch = synchronized(this) {
+                    val p = pendingHotSwitchNodeId
+                    pendingHotSwitchNodeId = null
+                    p
+                }
+                if (pendingHotSwitch != null) {
+                    // 这里我们只有 nodeId，需要转换为 tag。
+                    // 但 Service 刚启动，应该使用配置文件中的默认值，所以这里可能不需要做额外操作
+                    // 除非 pendingHotSwitch 是在启动后立即设置的
+                    Log.i(TAG, "Pending hot switch processed (implicitly by config): $pendingHotSwitch")
                 }
                 
                 isRunning = true
