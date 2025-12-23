@@ -15,6 +15,7 @@ val Neutral200 = Color(0xFFE5E5E5)
 val PureWhite = Color(0xFFFFFFFF)
 
 val Red500 = Color(0xFFEF4444) // Destructive
+val Primary = Color(0xFF3B82F6) // Blue 500
 
 // Semantic Colors
 val AppBackground = OLEDBlack

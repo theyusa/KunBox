@@ -21,11 +21,15 @@ import android.system.OsConstants
 import android.util.Log
 import android.service.quicksettings.TileService
 import android.content.ComponentName
+import com.google.gson.Gson
 import com.kunk.singbox.MainActivity
 import com.kunk.singbox.R
 import com.kunk.singbox.core.SingBoxCore
 import com.kunk.singbox.ipc.SingBoxIpcHub
+import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.model.AppSettings
+import com.kunk.singbox.model.Outbound
+import com.kunk.singbox.model.SingBoxConfig
 import com.kunk.singbox.model.VpnAppMode
 import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.repository.ConfigRepository
@@ -54,6 +58,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 class SingBoxService : VpnService() {
+
+    private val gson = Gson()
+    private var routeGroupAutoSelectJob: Job? = null
 
     data class ConnectionOwnerStatsSnapshot(
         val calls: Long,
@@ -146,6 +153,119 @@ class SingBoxService : VpnService() {
             connectionOwnerLastUid = 0
             connectionOwnerLastEvent = ""
         }
+    }
+
+    private fun tryRegisterRunningServiceForLibbox() {
+        val svc = boxService ?: return
+        try {
+            val m = Libbox::class.java.methods.firstOrNull { it.name == "setRunningService" && it.parameterTypes.size == 1 }
+            m?.invoke(null, svc)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun tryClearRunningServiceForLibbox() {
+        val svc = boxService ?: return
+        try {
+            val m = Libbox::class.java.methods.firstOrNull { it.name == "clearRunningService" && it.parameterTypes.size == 1 }
+            m?.invoke(null, svc)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun startRouteGroupAutoSelect(configContent: String) {
+        routeGroupAutoSelectJob?.cancel()
+
+        routeGroupAutoSelectJob = serviceScope.launch {
+            delay(1200)
+            while (isRunning && !isStopping) {
+                runCatching {
+                    autoSelectBestForRouteGroupsOnce(configContent)
+                }
+                val intervalMs = 30L * 60L * 1000L
+                delay(intervalMs)
+            }
+        }
+    }
+
+    private suspend fun autoSelectBestForRouteGroupsOnce(configContent: String) {
+        val cfg = runCatching { gson.fromJson(configContent, SingBoxConfig::class.java) }.getOrNull() ?: return
+        val routeRules = cfg.route?.rules.orEmpty()
+        val referencedOutbounds = routeRules.mapNotNull { it.outbound }.toSet()
+
+        if (referencedOutbounds.isEmpty()) return
+
+        val outbounds = cfg.outbounds.orEmpty()
+        val byTag = outbounds.associateBy { it.tag }
+
+        val targetSelectors = outbounds.filter {
+            it.type == "selector" &&
+                referencedOutbounds.contains(it.tag) &&
+                !it.tag.equals("PROXY", ignoreCase = true)
+        }
+
+        if (targetSelectors.isEmpty()) return
+
+        val client = waitForCommandClient(timeoutMs = 4500L) ?: return
+        val core = SingBoxCore.getInstance(this@SingBoxService)
+        val semaphore = kotlinx.coroutines.sync.Semaphore(permits = 4)
+
+        for (selector in targetSelectors) {
+            if (!isRunning || isStopping) return
+
+            val groupTag = selector.tag
+            val candidates = selector.outbounds
+                .orEmpty()
+                .filter { it.isNotBlank() }
+                .filterNot { it.equals("direct", true) || it.equals("block", true) || it.equals("dns-out", true) }
+
+            if (candidates.isEmpty()) continue
+
+            val results = ConcurrentHashMap<String, Long>()
+
+            coroutineScope {
+                candidates.map { tag ->
+                    async(Dispatchers.IO) {
+                        semaphore.acquire()
+                        try {
+                            val outbound = byTag[tag] ?: return@async
+                            val rtt = try {
+                                core.testOutboundLatency(outbound)
+                            } catch (_: Exception) {
+                                -1L
+                            }
+                            if (rtt >= 0) {
+                                results[tag] = rtt
+                            }
+                        } finally {
+                            semaphore.release()
+                        }
+                    }
+                }.awaitAll()
+            }
+
+            val best = results.entries.minByOrNull { it.value }?.key ?: continue
+            val currentSelected = groupSelectedOutbounds[groupTag]
+            if (currentSelected != null && currentSelected == best) continue
+
+            runCatching {
+                try {
+                    client.selectOutbound(groupTag, best)
+                } catch (_: Exception) {
+                    client.selectOutbound(groupTag.lowercase(), best)
+                }
+            }
+        }
+    }
+
+    private suspend fun waitForCommandClient(timeoutMs: Long): io.nekohasekai.libbox.CommandClient? {
+        val start = SystemClock.elapsedRealtime()
+        while (SystemClock.elapsedRealtime() - start < timeoutMs) {
+            val c = commandClient
+            if (c != null) return c
+            delay(120)
+        }
+        return commandClient
     }
 
     private fun closeRecentConnectionsBestEffort(reason: String) {
@@ -1486,6 +1606,14 @@ class SingBoxService : VpnService() {
                 // 0. 预先注册网络回调，确保 lastKnownNetwork 就绪
                 // 这一步必须在 Libbox 启动前完成，避免 openTun() 时没有有效的底层网络
                 ensureNetworkCallbackReadyWithTimeout()
+
+                val physicalNetwork = waitForUsablePhysicalNetwork(timeoutMs = 4500L)
+                if (physicalNetwork == null) {
+                    throw IllegalStateException("No usable physical network (NOT_VPN+INTERNET) before VPN start")
+                } else {
+                    lastKnownNetwork = physicalNetwork
+                    networkCallbackReady = true
+                }
                 
                 // 1. 确保规则集就绪（预下载）
                 // 如果本地缓存不存在，允许网络下载；如果下载失败也继续启动
@@ -1536,6 +1664,8 @@ class SingBoxService : VpnService() {
                 boxService?.start()
                 Log.i(TAG, "BoxService started")
 
+                tryRegisterRunningServiceForLibbox()
+
                 // 启动 CommandServer 和 CommandClient 以监听实时节点变化
                 try {
                     startCommandServerAndClient()
@@ -1548,7 +1678,7 @@ class SingBoxService : VpnService() {
                 lastDownlinkTotal = 0
 
                 // 处理排队的热切换请求
-                val pendingHotSwitch = synchronized(this) {
+                val pendingHotSwitch = synchronized(this@SingBoxService) {
                     val p = pendingHotSwitchNodeId
                     pendingHotSwitchNodeId = null
                     p
@@ -1565,9 +1695,12 @@ class SingBoxService : VpnService() {
                 setLastError(null)
                 Log.i(TAG, "SingBox VPN started successfully")
                 VpnTileService.persistVpnState(applicationContext, true)
+                VpnStateStore.setMode(applicationContext, VpnStateStore.CoreMode.VPN)
                 VpnTileService.persistVpnPending(applicationContext, "")
                 updateServiceState(ServiceState.RUNNING)
                 updateTileState()
+
+                startRouteGroupAutoSelect(configContent)
 
                 serviceScope.launch postStart@{
                     val delays = listOf(800L, 2000L, 5000L)
@@ -1733,14 +1866,22 @@ class SingBoxService : VpnService() {
         nativeUrlTestWarmupJob?.cancel()
         nativeUrlTestWarmupJob = null
 
-        // Reset cached network state to avoid stale underlying network binding across restarts
-        networkCallbackReady = false
-        lastKnownNetwork = null
-        noPhysicalNetworkWarningLogged = false
-        defaultInterfaceName = ""
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-            runCatching { setUnderlyingNetworks(null) }
+        routeGroupAutoSelectJob?.cancel()
+        routeGroupAutoSelectJob = null
+
+        if (stopService) {
+            networkCallbackReady = false
+            lastKnownNetwork = null
+            noPhysicalNetworkWarningLogged = false
+            defaultInterfaceName = ""
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                runCatching { setUnderlyingNetworks(null) }
+            }
+        } else {
+            noPhysicalNetworkWarningLogged = false
         }
+
+        tryClearRunningServiceForLibbox()
 
         Log.i(TAG, "stopVpn(stopService=$stopService) isManuallyStopped=$isManuallyStopped")
 
@@ -1801,6 +1942,7 @@ class SingBoxService : VpnService() {
                 }
                 Log.i(TAG, "VPN stopped")
                 VpnTileService.persistVpnState(applicationContext, false)
+                VpnStateStore.setMode(applicationContext, VpnStateStore.CoreMode.NONE)
                 VpnTileService.persistVpnPending(applicationContext, "")
                 updateServiceState(ServiceState.STOPPED)
                 updateTileState()
@@ -2149,6 +2291,30 @@ class SingBoxService : VpnService() {
                     .addLog("WARN startVpn: No physical network found after ${timeoutMs}ms - VPN may not work correctly")
             }
         }
+    }
+
+    private suspend fun waitForUsablePhysicalNetwork(timeoutMs: Long): Network? {
+        val cm = connectivityManager ?: getSystemService(ConnectivityManager::class.java).also {
+            connectivityManager = it
+        } ?: return null
+
+        val start = SystemClock.elapsedRealtime()
+        var best: Network? = null
+        while (SystemClock.elapsedRealtime() - start < timeoutMs) {
+            val candidate = findBestPhysicalNetwork()
+            if (candidate != null) {
+                val caps = cm.getNetworkCapabilities(candidate)
+                val hasInternet = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+                val notVpn = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true
+                if (hasInternet && notVpn) {
+                    best = candidate
+                    val validated = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+                    if (validated) return candidate
+                }
+            }
+            delay(100)
+        }
+        return best
     }
     
     private fun startCommandServerAndClient() {

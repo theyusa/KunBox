@@ -17,14 +17,17 @@ import android.widget.Toast
 import com.kunk.singbox.aidl.ISingBoxService
 import com.kunk.singbox.aidl.ISingBoxServiceCallback
 import com.kunk.singbox.R
+import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.ipc.SingBoxIpcService
 import com.kunk.singbox.repository.ConfigRepository
+import com.kunk.singbox.repository.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class VpnTileService : TileService() {
@@ -119,7 +122,9 @@ class VpnTileService : TileService() {
                 .getBoolean(KEY_VPN_ACTIVE, false)
         }.getOrDefault(false)
 
-        if (persistedActive && !hasSystemVpnTransport()) {
+        val coreMode = VpnStateStore.getMode(this)
+
+        if (persistedActive && coreMode == VpnStateStore.CoreMode.VPN && !hasSystemVpnTransport()) {
             persistVpnState(this, false)
             persistVpnPending(this, "")
             persistedActive = false
@@ -219,23 +224,19 @@ class VpnTileService : TileService() {
                 persistVpnPending(this, "stopping")
                 persistVpnState(this, false)
                 updateTile()
-                val intent = Intent(this, SingBoxService::class.java).apply {
-                    action = SingBoxService.ACTION_STOP
+                val coreMode = VpnStateStore.getMode(this)
+                val intent = if (coreMode == VpnStateStore.CoreMode.PROXY) {
+                    Intent(this, ProxyOnlyService::class.java).apply {
+                        action = ProxyOnlyService.ACTION_STOP
+                    }
+                } else {
+                    Intent(this, SingBoxService::class.java).apply {
+                        action = SingBoxService.ACTION_STOP
+                    }
                 }
                 startService(intent)
             }
             SingBoxService.ServiceState.STOPPED -> {
-                val prepareIntent = VpnService.prepare(this)
-                if (prepareIntent != null) {
-                    persistVpnPending(this, "")
-                    persistVpnState(this, false)
-                    lastServiceState = SingBoxService.ServiceState.STOPPED
-                    updateTile()
-                    prepareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    runCatching { startActivityAndCollapse(prepareIntent) }
-                    return
-                }
-
                 persistVpnPending(this, "starting")
                 updateTile()
                 serviceScope.launch {
@@ -243,12 +244,50 @@ class VpnTileService : TileService() {
                         Toast.makeText(this@VpnTileService, "正在切换 VPN...", Toast.LENGTH_SHORT).show()
                     }
                     val configRepository = ConfigRepository.getInstance(applicationContext)
+                    val settings = SettingsRepository.getInstance(applicationContext).settings.first()
+
+                    if (settings.tunEnabled) {
+                        val prepareIntent = VpnService.prepare(this@VpnTileService)
+                        if (prepareIntent != null) {
+                            persistVpnPending(this@VpnTileService, "")
+                            persistVpnState(this@VpnTileService, false)
+                            lastServiceState = SingBoxService.ServiceState.STOPPED
+                            updateTile()
+                            prepareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            runCatching { startActivityAndCollapse(prepareIntent) }
+                            return@launch
+                        }
+                    }
                     val configResult = configRepository.generateConfigFile()
                     if (configResult != null) {
                         persistVpnPending(this@VpnTileService, "starting")
-                        val intent = Intent(this@VpnTileService, SingBoxService::class.java).apply {
-                            action = SingBoxService.ACTION_START
-                            putExtra(SingBoxService.EXTRA_CONFIG_PATH, configResult.path)
+
+                        // Avoid running VPN and proxy-only cores at the same time (local mixed port conflict).
+                        if (settings.tunEnabled) {
+                            runCatching {
+                                startService(Intent(this@VpnTileService, ProxyOnlyService::class.java).apply {
+                                    action = ProxyOnlyService.ACTION_STOP
+                                })
+                            }
+                        } else {
+                            runCatching {
+                                startService(Intent(this@VpnTileService, SingBoxService::class.java).apply {
+                                    action = SingBoxService.ACTION_STOP
+                                })
+                            }
+                        }
+                        delay(600)
+
+                        val intent = if (settings.tunEnabled) {
+                            Intent(this@VpnTileService, SingBoxService::class.java).apply {
+                                action = SingBoxService.ACTION_START
+                                putExtra(SingBoxService.EXTRA_CONFIG_PATH, configResult.path)
+                            }
+                        } else {
+                            Intent(this@VpnTileService, ProxyOnlyService::class.java).apply {
+                                action = ProxyOnlyService.ACTION_START
+                                putExtra(ProxyOnlyService.EXTRA_CONFIG_PATH, configResult.path)
+                            }
                         }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             startForegroundService(intent)

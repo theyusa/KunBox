@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.FilterAlt
 import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
@@ -46,8 +47,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -56,10 +55,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import android.app.Activity
-import android.content.Intent
-import android.net.VpnService
-import android.os.Build
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -71,17 +66,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.kunk.singbox.repository.ConfigRepository
-import com.kunk.singbox.repository.SettingsRepository
-import com.kunk.singbox.ipc.SingBoxRemote
-import com.kunk.singbox.service.SingBoxService
+import com.kunk.singbox.viewmodel.FilterMode
 import com.kunk.singbox.viewmodel.NodesViewModel
 import com.kunk.singbox.ui.components.InputDialog
+import com.kunk.singbox.ui.components.NodeFilterDialog
 import com.kunk.singbox.ui.components.SingleSelectDialog
 import com.kunk.singbox.ui.components.NodeCard
 import com.kunk.singbox.ui.navigation.Screen
 import com.kunk.singbox.ui.theme.AppBackground
 import com.kunk.singbox.ui.theme.Neutral500
+import com.kunk.singbox.ui.theme.Primary
 import com.kunk.singbox.ui.theme.PureWhite
 import com.kunk.singbox.ui.theme.TextPrimary
 
@@ -101,47 +95,10 @@ fun NodesScreen(
     val switchResult by viewModel.switchResult.collectAsState()
     val latencyMessage by viewModel.latencyMessage.collectAsState()
     val addNodeResult by viewModel.addNodeResult.collectAsState()
-
-    val isVpnRunning by SingBoxRemote.isRunning.collectAsState()
-    val isVpnStarting by SingBoxRemote.isStarting.collectAsState()
+    val nodeFilter by viewModel.nodeFilter.collectAsState()
     
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var pendingStartAfterPermission by remember { mutableStateOf(false) }
-
-    val vpnPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        val granted = result.resultCode == Activity.RESULT_OK
-        if (granted && pendingStartAfterPermission) {
-            pendingStartAfterPermission = false
-            scope.launch {
-                try {
-                    val settingsRepository = SettingsRepository.getInstance(context)
-                    settingsRepository.checkAndMigrateRuleSets()
-                    val configResult = ConfigRepository.getInstance(context).generateConfigFile()
-                    if (configResult?.path.isNullOrBlank()) {
-                        snackbarHostState.showSnackbar("配置生成失败")
-                        return@launch
-                    }
-                    val intent = Intent(context, SingBoxService::class.java).apply {
-                        action = SingBoxService.ACTION_START
-                        putExtra(SingBoxService.EXTRA_CONFIG_PATH, configResult?.path)
-                    }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        context.startForegroundService(intent)
-                    } else {
-                        context.startService(intent)
-                    }
-                } catch (e: Exception) {
-                    snackbarHostState.showSnackbar("启动失败: ${e.message}")
-                }
-            }
-        } else {
-            pendingStartAfterPermission = false
-        }
-    }
-    
     var selectedGroupIndex by remember { mutableStateOf(0) }
     val isTesting by viewModel.isTesting.collectAsState()
     
@@ -155,7 +112,7 @@ fun NodesScreen(
     // 显示单节点测速失败/超时提示
     LaunchedEffect(latencyMessage) {
         latencyMessage?.let { message ->
-            snackbarHostState.showSnackbar(message)
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
             viewModel.clearLatencyMessage()
         }
     }
@@ -188,6 +145,7 @@ fun NodesScreen(
     }
     
     var showSortDialog by remember { mutableStateOf(false) }
+    var showFilterDialog by remember { mutableStateOf(false) }
     var exportLink by remember { mutableStateOf<String?>(null) }
     var isFabExpanded by remember { mutableStateOf(false) }
     var showAddNodeDialog by remember { mutableStateOf(false) }
@@ -222,6 +180,18 @@ fun NodesScreen(
                 showAddNodeDialog = false
             },
             onDismiss = { showAddNodeDialog = false }
+        )
+    }
+    
+    // 节点筛选对话框
+    if (showFilterDialog) {
+        NodeFilterDialog(
+            currentFilter = nodeFilter,
+            onConfirm = { filter ->
+                viewModel.setNodeFilter(filter)
+                showFilterDialog = false
+            },
+            onDismiss = { showFilterDialog = false }
         )
     }
     
@@ -360,50 +330,13 @@ fun NodesScreen(
                 )
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = {
-                            if (isVpnRunning || isVpnStarting) {
-                                val intent = Intent(context, SingBoxService::class.java).apply {
-                                    action = SingBoxService.ACTION_STOP
-                                }
-                                context.startService(intent)
-                            } else {
-                                val prepareIntent = VpnService.prepare(context)
-                                if (prepareIntent != null) {
-                                    pendingStartAfterPermission = true
-                                    vpnPermissionLauncher.launch(prepareIntent)
-                                } else {
-                                    scope.launch {
-                                        try {
-                                            val settingsRepository = SettingsRepository.getInstance(context)
-                                            settingsRepository.checkAndMigrateRuleSets()
-                                            val configResult = ConfigRepository.getInstance(context).generateConfigFile()
-                                            if (configResult?.path.isNullOrBlank()) {
-                                                snackbarHostState.showSnackbar("配置生成失败")
-                                                return@launch
-                                            }
-                                            val intent = Intent(context, SingBoxService::class.java).apply {
-                                                action = SingBoxService.ACTION_START
-                                                putExtra(SingBoxService.EXTRA_CONFIG_PATH, configResult?.path)
-                                            }
-                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                                context.startForegroundService(intent)
-                                            } else {
-                                                context.startService(intent)
-                                            }
-                                        } catch (e: Exception) {
-                                            snackbarHostState.showSnackbar("启动失败: ${e.message}")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    ) {
-                        val running = isVpnRunning || isVpnStarting
+                    // 筛选按钮（替换原来的启动按钮）
+                    IconButton(onClick = { showFilterDialog = true }) {
+                        val hasFilter = nodeFilter.filterMode != FilterMode.NONE
                         Icon(
-                            imageVector = if (running) Icons.Rounded.Close else Icons.Rounded.Bolt,
-                            contentDescription = if (running) "断开" else "连接",
-                            tint = PureWhite
+                            imageVector = Icons.Rounded.FilterAlt,
+                            contentDescription = "筛选",
+                            tint = if (hasFilter) Primary else PureWhite
                         )
                     }
                     IconButton(onClick = { showSortDialog = true }) {
@@ -498,10 +431,12 @@ fun NodesScreen(
                         onExport = onExport,
                         onLatency = onLatency,
                         onDelete = onDelete,
-                        modifier = Modifier.graphicsLayer(
-                            alpha = alpha,
-                            translationY = translateY
-                        )
+                        modifier = Modifier
+                            .animateItemPlacement()
+                            .graphicsLayer(
+                                alpha = alpha,
+                                translationY = translateY
+                            )
                     )
                 }
             }

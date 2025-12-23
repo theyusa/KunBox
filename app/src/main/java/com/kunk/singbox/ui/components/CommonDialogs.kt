@@ -66,6 +66,8 @@ import com.kunk.singbox.ui.theme.PureWhite
 import com.kunk.singbox.ui.theme.SurfaceCard
 import com.kunk.singbox.ui.theme.TextPrimary
 import com.kunk.singbox.ui.theme.TextSecondary
+import com.kunk.singbox.viewmodel.FilterMode
+import com.kunk.singbox.viewmodel.NodeFilter
 
 @Composable
 fun ConfirmDialog(
@@ -534,6 +536,210 @@ fun AboutDialog(onDismiss: () -> Unit) {
                     fontWeight = FontWeight.Bold,
                     color = Color.Black
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun NodeFilterDialog(
+    currentFilter: NodeFilter,
+    onConfirm: (NodeFilter) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var filterMode by remember { mutableStateOf(currentFilter.filterMode) }
+    var keywordsText by remember {
+        mutableStateOf(currentFilter.keywords.joinToString(", "))
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(SurfaceCard, RoundedCornerShape(28.dp))
+                .padding(24.dp)
+        ) {
+            Text(
+                text = "节点筛选",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
+            )
+            
+            Spacer(modifier = Modifier.height(20.dp))
+            
+            // 过滤模式选择
+            Text(
+                text = "过滤模式",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
+            )
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            // 不过滤选项
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (filterMode == FilterMode.NONE) Color.White.copy(alpha = 0.05f) else Color.Transparent)
+                    .clickable { filterMode = FilterMode.NONE }
+                    .padding(vertical = 12.dp, horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = if (filterMode == FilterMode.NONE) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
+                    contentDescription = null,
+                    tint = if (filterMode == FilterMode.NONE) PureWhite else Neutral500,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(
+                    text = "不过滤",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (filterMode == FilterMode.NONE) TextPrimary else TextSecondary
+                )
+            }
+            
+            // 只显示包含选项
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (filterMode == FilterMode.INCLUDE) Color.White.copy(alpha = 0.05f) else Color.Transparent)
+                    .clickable { filterMode = FilterMode.INCLUDE }
+                    .padding(vertical = 12.dp, horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = if (filterMode == FilterMode.INCLUDE) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
+                    contentDescription = null,
+                    tint = if (filterMode == FilterMode.INCLUDE) PureWhite else Neutral500,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(
+                    text = "只显示包含",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (filterMode == FilterMode.INCLUDE) TextPrimary else TextSecondary
+                )
+            }
+            
+            // 排除包含选项
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (filterMode == FilterMode.EXCLUDE) Color.White.copy(alpha = 0.05f) else Color.Transparent)
+                    .clickable { filterMode = FilterMode.EXCLUDE }
+                    .padding(vertical = 12.dp, horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = if (filterMode == FilterMode.EXCLUDE) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
+                    contentDescription = null,
+                    tint = if (filterMode == FilterMode.EXCLUDE) PureWhite else Neutral500,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(
+                    text = "排除包含",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (filterMode == FilterMode.EXCLUDE) TextPrimary else TextSecondary
+                )
+            }
+            
+            // 关键字输入区域（当模式不为NONE时显示）
+            if (filterMode != FilterMode.NONE) {
+                Spacer(modifier = Modifier.height(20.dp))
+                
+                Text(
+                    text = "关键字",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                OutlinedTextField(
+                    value = keywordsText,
+                    onValueChange = { keywordsText = it },
+                    placeholder = { Text("多个关键字用逗号分隔，如：香港, HK, 港", color = Neutral500) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = false,
+                    minLines = 2,
+                    maxLines = 3,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedBorderColor = PureWhite,
+                        unfocusedBorderColor = Divider,
+                        focusedLabelColor = PureWhite,
+                        unfocusedLabelColor = Neutral500
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Text(
+                    text = "提示：关键字匹配节点名称，不区分大小写",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Neutral500
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            // 按钮区域
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // 清空按钮
+                TextButton(
+                    onClick = {
+                        filterMode = FilterMode.NONE
+                        keywordsText = ""
+                    },
+                    modifier = Modifier.weight(1f).height(50.dp),
+                    colors = ButtonDefaults.textButtonColors(contentColor = Destructive)
+                ) {
+                    Text("清空")
+                }
+                
+                // 取消按钮
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f).height(50.dp),
+                    colors = ButtonDefaults.textButtonColors(contentColor = Neutral500)
+                ) {
+                    Text("取消")
+                }
+                
+                // 确定按钮
+                Button(
+                    onClick = {
+                        val keywords = if (filterMode == FilterMode.NONE) {
+                            emptyList()
+                        } else {
+                            keywordsText
+                                .split(",", "，") // 支持中英文逗号
+                                .map { it.trim() }
+                                .filter { it.isNotEmpty() }
+                        }
+                        onConfirm(NodeFilter(keywords, filterMode))
+                    },
+                    modifier = Modifier.weight(1f).height(50.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = Color.Black),
+                    shape = RoundedCornerShape(25.dp)
+                ) {
+                    Text(
+                        text = "确定",
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Black
+                    )
+                }
             }
         }
     }

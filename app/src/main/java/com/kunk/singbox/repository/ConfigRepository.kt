@@ -12,6 +12,7 @@ import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.ipc.SingBoxRemote
 import com.kunk.singbox.model.*
 import com.kunk.singbox.service.SingBoxService
+import com.kunk.singbox.service.ProxyOnlyService
 import com.kunk.singbox.utils.parser.Base64Parser
 import com.kunk.singbox.utils.parser.NodeLinkParser
 import com.kunk.singbox.utils.parser.SingBoxParser
@@ -207,7 +208,7 @@ class ConfigRepository(private val context: Context) {
     private fun updateLatencyInAllNodes(nodeId: String, latency: Long) {
         _allNodes.update { list ->
             list.map {
-                if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else null) else it
+                if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else -1L) else it
             }
         }
     }
@@ -385,22 +386,11 @@ class ConfigRepository(private val context: Context) {
                     // 假设除此之外的流量数据都是已用流量，或者匹配特定图标/格式
                     // 示例中的已用流量是两个 🚀: value，分别对应 up/down 或已用
                     // 我们简单地提取所有类似 X:ValueGB 的格式，除了 TOT
-                    val trafficMatches = Regex("[:=]\\s*([\\d.]+[KMGTPE]?)B?").findAll(firstLine)
+                    // 我们重新策略：
+                    // 如果有 upload/download 关键字更好。如果没有，尝试解析所有数字。
+                    // 针对 specific case: 🚀:0.12GB,🚀:37.95GB
+                    // 匹配所有非 TOT 的流量
                     var usedAccumulator = 0L
-                    trafficMatches.forEach { match ->
-                        val valStr = match.groupValues[1]
-                        // 排除已经匹配到的 Total 值 (简单的字符串比较可能不准确，这里假设 Total 是通过 TOT: 明确标识的)
-                        // 如果当前匹配的值解析后等于 Total，且之前已经设置了 Total，则跳过? 不靠谱。
-                        // 更好的是：只提取未被 TOT: 捕获的部分。
-                        
-                        // 重新策略：
-                        // 如果有 upload/download 关键字更好。如果没有，尝试解析所有数字。
-                        // 针对 specific case: 🚀:0.12GB,🚀:37.95GB
-                        // 匹配所有非 TOT 的流量
-                    }
-                    
-                    // 针对该特定格式的 Hack:
-                    // split by comma
                     val parts = firstLine.substringAfter("STATUS=").split(",")
                     parts.forEach { part ->
                         if (part.contains("TOT:")) return@forEach
@@ -1277,7 +1267,7 @@ class ConfigRepository(private val context: Context) {
                 clientVersion = clientVersion
             )
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "Failed to parse ssh link", e)
         }
         return null
     }
@@ -1928,11 +1918,21 @@ class ConfigRepository(private val context: Context) {
                 // 尝试使用 ACTION_SWITCH_NODE 进行热切换
                 // 注意：这假设 Service 已经在运行。我们在前面检查了 VpnStateStore.getActive。
                 
-                val intent = Intent(context, SingBoxService::class.java).apply {
-                    action = SingBoxService.ACTION_SWITCH_NODE
-                    putExtra("node_id", nodeId)
-                    putExtra("outbound_tag", generationResult.activeNodeTag)
-                    putExtra(SingBoxService.EXTRA_CONFIG_PATH, generationResult.path)
+                val coreMode = VpnStateStore.getMode(context)
+                val intent = if (coreMode == VpnStateStore.CoreMode.PROXY) {
+                    Intent(context, ProxyOnlyService::class.java).apply {
+                        action = ProxyOnlyService.ACTION_SWITCH_NODE
+                        putExtra("node_id", nodeId)
+                        putExtra("outbound_tag", generationResult.activeNodeTag)
+                        putExtra(ProxyOnlyService.EXTRA_CONFIG_PATH, generationResult.path)
+                    }
+                } else {
+                    Intent(context, SingBoxService::class.java).apply {
+                        action = SingBoxService.ACTION_SWITCH_NODE
+                        putExtra("node_id", nodeId)
+                        putExtra("outbound_tag", generationResult.activeNodeTag)
+                        putExtra(SingBoxService.EXTRA_CONFIG_PATH, generationResult.path)
+                    }
                 }
 
                 // Service already running (VPN active). Use startService to avoid foreground-service timing constraints.
@@ -2056,12 +2056,12 @@ class ConfigRepository(private val context: Context) {
 
                     _nodes.update { list ->
                         list.map {
-                            if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else null) else it
+                            if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else -1L) else it
                         }
                     }
 
                     profileNodes[node.sourceProfileId] = profileNodes[node.sourceProfileId]?.map {
-                        if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else null) else it
+                        if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else -1L) else it
                     } ?: emptyList()
                     updateLatencyInAllNodes(nodeId, latency)
 
@@ -2109,8 +2109,13 @@ class ConfigRepository(private val context: Context) {
         }
     }
 
-    suspend fun testAllNodesLatency() = withContext(Dispatchers.IO) {
-        val nodes = _nodes.value
+    suspend fun testAllNodesLatency(targetNodeIds: List<String>? = null, onNodeComplete: ((String) -> Unit)? = null) = withContext(Dispatchers.IO) {
+        val allNodes = _nodes.value
+        val nodes = if (targetNodeIds != null) {
+            allNodes.filter { it.id in targetNodeIds }
+        } else {
+            allNodes
+        }
         Log.d(TAG, "Starting latency test for ${nodes.size} nodes")
 
         data class NodeTestInfo(
@@ -2135,7 +2140,7 @@ class ConfigRepository(private val context: Context) {
 
         singBoxCore.testOutboundsLatency(outbounds) { tag, latency ->
             val info = tagToInfo[tag] ?: return@testOutboundsLatency
-            val latencyValue = if (latency > 0) latency else null
+            val latencyValue = if (latency > 0) latency else -1L
             
             _nodes.update { list ->
                 list.map {
@@ -2150,6 +2155,7 @@ class ConfigRepository(private val context: Context) {
             updateLatencyInAllNodes(info.nodeId, latency)
 
             Log.d(TAG, "Latency: ${info.outbound.tag} = ${latency}ms")
+            onNodeComplete?.invoke(info.nodeId)
         }
 
         Log.d(TAG, "Latency test completed for all nodes")
@@ -3428,7 +3434,8 @@ class ConfigRepository(private val context: Context) {
                         val combinedTags = ((existing.outbounds ?: emptyList()) + nodeTags).distinct()
                         // 确保列表不为空
                         val safeTags = if (combinedTags.isEmpty()) listOf("direct") else combinedTags
-                        fixedOutbounds[existingIndex] = existing.copy(outbounds = safeTags)
+                        val safeDefault = existing.default?.takeIf { it in safeTags } ?: safeTags.firstOrNull()
+                        fixedOutbounds[existingIndex] = existing.copy(outbounds = safeTags, default = safeDefault)
                         Log.d(TAG, "Updated group '$groupName' with ${safeTags.size} nodes")
                     } else {
                         Log.w(TAG, "Tag collision: '$groupName' is needed as group but exists as ${existing.type}")
@@ -3439,6 +3446,7 @@ class ConfigRepository(private val context: Context) {
                         type = "selector",
                         tag = groupName,
                         outbounds = nodeTags.distinct(),
+                        default = nodeTags.firstOrNull(),
                         interruptExistConnections = false
                     )
                     // Insert at beginning to ensure visibility/precedence
@@ -3462,6 +3470,7 @@ class ConfigRepository(private val context: Context) {
                         type = "selector",
                         tag = tag,
                         outbounds = nodeTags.distinct(),
+                        default = nodeTags.firstOrNull(),
                         interruptExistConnections = false
                     )
                     fixedOutbounds.add(0, newSelector)
@@ -3566,7 +3575,7 @@ class ConfigRepository(private val context: Context) {
         val customRuleSetRules = buildCustomRuleSetRules(settings, selectorTag, outbounds, nodeTagResolver)
 
         val quicRule = if (settings.blockQuic) {
-            listOf(RouteRule(protocol = listOf("udp"), port = listOf(443), outbound = "block"))
+            listOf(RouteRule(protocol = listOf("quic"), outbound = "block"))
         } else {
             emptyList()
         }

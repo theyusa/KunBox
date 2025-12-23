@@ -10,6 +10,13 @@ object VpnStateStore {
     private const val KEY_VPN_ACTIVE_LABEL = "vpn_active_label"
     private const val KEY_VPN_LAST_ERROR = "vpn_last_error"
     private const val KEY_VPN_MANUALLY_STOPPED = "vpn_manually_stopped"
+    private const val KEY_CORE_MODE = "core_mode"
+
+    enum class CoreMode {
+        NONE,
+        VPN,
+        PROXY
+    }
 
     fun prefs(context: Context) = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -41,5 +48,14 @@ object VpnStateStore {
 
     fun setManuallyStopped(context: Context, value: Boolean) {
         prefs(context).edit().putBoolean(KEY_VPN_MANUALLY_STOPPED, value).commit()
+    }
+
+    fun getMode(context: Context): CoreMode {
+        val raw = prefs(context).getString(KEY_CORE_MODE, CoreMode.NONE.name).orEmpty()
+        return runCatching { CoreMode.valueOf(raw) }.getOrDefault(CoreMode.NONE)
+    }
+
+    fun setMode(context: Context, mode: CoreMode) {
+        prefs(context).edit().putString(KEY_CORE_MODE, mode.name).commit()
     }
 }

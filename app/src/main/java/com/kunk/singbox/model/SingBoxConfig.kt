@@ -108,7 +108,7 @@ data class Outbound(
     
     // VMess/VLESS 字段
     @SerializedName("uuid") val uuid: String? = null,
-    @SerializedName(value = "cipher", alternate = ["security"]) val security: String? = null,
+    @SerializedName(value = "security", alternate = ["cipher"]) val security: String? = null,
     // 注意：sing-box 不支持 alter_id 字段，只支持 AEAD 加密的 VMess (alterId=0)
     @SerializedName("flow") val flow: String? = null,
     @SerializedName("packet_encoding") val packetEncoding: String? = null,

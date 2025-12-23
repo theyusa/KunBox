@@ -175,10 +175,9 @@ class SingBoxCore private constructor(private val context: Context) {
         val url = adjustUrlForMode(finalSettings.latencyTestUrl, finalSettings.latencyTestMethod)
         
         // 尝试使用 NekoBox 原生 urlTest
-        // Use mutex to protect native calls
-        val nativeRtt = libboxMutex.withLock {
-            testWithLibboxStaticUrlTest(outbound, url, 5000, finalSettings.latencyTestMethod)
-        }
+        // Remove mutex to allow concurrent testing
+        val nativeRtt = testWithLibboxStaticUrlTest(outbound, url, 5000, finalSettings.latencyTestMethod)
+        
         if (nativeRtt >= 0) {
             return@withContext nativeRtt
         }
@@ -311,7 +310,7 @@ class SingBoxCore private constructor(private val context: Context) {
     }
 
     private suspend fun testWithLocalHttpProxy(outbound: Outbound, targetUrl: String, fallbackUrl: String? = null, timeoutMs: Int): Long = withContext(Dispatchers.IO) {
-        // Mutex required because we're starting a new service instance
+        // Mutex required because we're starting a new service instance which might conflict on global resources (e.g. bbolt DB in workingDir)
         libboxMutex.withLock {
             testWithLocalHttpProxyInternal(outbound, targetUrl, fallbackUrl, timeoutMs)
         }
@@ -522,16 +521,14 @@ class SingBoxCore private constructor(private val context: Context) {
         timeoutMs: Int,
         method: LatencyTestMethod
     ): Long = withContext(Dispatchers.IO) {
-        libboxMutex.withLock {
-            // 尝试调用 native 方法 (如果 VPN 正在运行)
-            if (VpnStateStore.getActive(context) && libboxAvailable) {
-                val rtt = testWithLibboxStaticUrlTest(outbound, targetUrl, timeoutMs, method)
-                if (rtt >= 0) return@withLock rtt
-            }
-            
-            // 内核不支持或未运行，直接走 HTTP 代理测速
-            testWithLocalHttpProxyInternal(outbound, targetUrl, fallbackUrl, timeoutMs)
+        // 尝试调用 native 方法 (如果 VPN 正在运行)
+        if (VpnStateStore.getActive(context) && libboxAvailable) {
+            val rtt = testWithLibboxStaticUrlTest(outbound, targetUrl, timeoutMs, method)
+            if (rtt >= 0) return@withContext rtt
         }
+        
+        // 内核不支持或未运行，直接走 HTTP 代理测速
+        testWithLocalHttpProxyInternal(outbound, targetUrl, fallbackUrl, timeoutMs)
     }
 
     private suspend fun testOutboundsLatencyOfflineWithTemporaryService(
@@ -542,8 +539,18 @@ class SingBoxCore private constructor(private val context: Context) {
         method: LatencyTestMethod,
         onResult: (tag: String, latency: Long) -> Unit
     ) = withContext(Dispatchers.IO) {
-        outbounds.forEach { outbound ->
-            onResult(outbound.tag, testWithLocalHttpProxy(outbound, targetUrl, fallbackUrl, timeoutMs))
+        // Limit concurrency for heavy offline tests (starting multiple services)
+        val semaphore = Semaphore(permits = 4)
+        coroutineScope {
+            val jobs = outbounds.map { outbound ->
+                async {
+                    semaphore.withPermit {
+                        val latency = testWithLocalHttpProxy(outbound, targetUrl, fallbackUrl, timeoutMs)
+                        onResult(outbound.tag, latency)
+                    }
+                }
+            }
+            jobs.awaitAll()
         }
     }
 

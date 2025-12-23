@@ -127,19 +127,18 @@ fun NodeCard(
                         }
                         
                         if (isTesting) {
-                            Text(
-                                text = "Testing...",
-                                style = MaterialTheme.typography.labelSmall,
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(12.dp),
                                 color = PureWhite.copy(alpha = 0.7f),
-                                fontWeight = FontWeight.Medium
+                                strokeWidth = 2.dp
                             )
                         } else if (latency != null) {
                             val latencyColor = remember(latency) {
                                 when {
                                     latency < 0 -> Color.Red
-                                    latency < 200 -> Color(0xFF4CAF50)
-                                    latency < 500 -> Color(0xFFFFC107)
-                                    else -> Color.Red
+                                    latency < 1000 -> Color(0xFF4CAF50) // Green < 1000ms
+                                    latency < 2000 -> Color(0xFFFFC107) // Orange 1000-2000ms
+                                    else -> Color.Red // > 2000ms or Timeout
                                 }
                             }
                             val latencyText = remember(latency) {

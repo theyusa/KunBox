@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.kunk.singbox.ipc.SingBoxRemote
 import com.kunk.singbox.model.NodeUi
 import com.kunk.singbox.repository.ConfigRepository
+import com.kunk.singbox.repository.SettingsRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -16,6 +17,19 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+// 过滤模式枚举
+enum class FilterMode {
+    NONE,      // 不过滤
+    INCLUDE,   // 只显示包含关键字的节点
+    EXCLUDE    // 排除包含关键字的节点
+}
+
+// 节点过滤配置数据类
+data class NodeFilter(
+    val keywords: List<String> = emptyList(),
+    val filterMode: FilterMode = FilterMode.NONE
+)
+
 class NodesViewModel(application: Application) : AndroidViewModel(application) {
     
     enum class SortType {
@@ -23,6 +37,7 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     }
     
     private val configRepository = ConfigRepository.getInstance(application)
+    private val settingsRepository = SettingsRepository.getInstance(application)
 
     private var testingJob: Job? = null
 
@@ -36,12 +51,58 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     private val _sortType = MutableStateFlow(SortType.DEFAULT)
     val sortType: StateFlow<SortType> = _sortType.asStateFlow()
 
-    val nodes: StateFlow<List<NodeUi>> = combine(configRepository.nodes, _sortType) { nodes, sortType ->
+    // 节点过滤状态
+    private val _nodeFilter = MutableStateFlow(NodeFilter())
+    val nodeFilter: StateFlow<NodeFilter> = _nodeFilter.asStateFlow()
+
+    init {
+        // 加载保存的过滤配置
+        viewModelScope.launch {
+            _nodeFilter.value = settingsRepository.getNodeFilter()
+        }
+    }
+
+    val nodes: StateFlow<List<NodeUi>> = combine(
+        configRepository.nodes,
+        _sortType,
+        _nodeFilter
+    ) { nodes, sortType, filter ->
+        // 先过滤
+        val filtered = when (filter.filterMode) {
+            FilterMode.NONE -> nodes
+            FilterMode.INCLUDE -> {
+                if (filter.keywords.isEmpty()) {
+                    nodes
+                } else {
+                    nodes.filter { node ->
+                        filter.keywords.any { keyword ->
+                            node.displayName.contains(keyword, ignoreCase = true)
+                        }
+                    }
+                }
+            }
+            FilterMode.EXCLUDE -> {
+                if (filter.keywords.isEmpty()) {
+                    nodes
+                } else {
+                    nodes.filter { node ->
+                        filter.keywords.none { keyword ->
+                            node.displayName.contains(keyword, ignoreCase = true)
+                        }
+                    }
+                }
+            }
+        }
+        // 再排序
         when (sortType) {
-            SortType.DEFAULT -> nodes
-            SortType.LATENCY -> nodes.sortedWith(compareBy<NodeUi> { it.latencyMs == null }.thenBy { it.latencyMs })
-            SortType.NAME -> nodes.sortedBy { it.name }
-            SortType.REGION -> nodes.sortedBy { it.regionFlag ?: "\uFFFF" } // Put no flag at end
+            SortType.DEFAULT -> filtered
+            SortType.LATENCY -> filtered.sortedWith(compareBy<NodeUi> {
+                val l = it.latencyMs
+                // 将未测试(null)和超时/失败(<=0)的节点排到最后
+                if (l == null || l <= 0) Long.MAX_VALUE else l
+            })
+            SortType.NAME -> filtered.sortedBy { it.name }
+            SortType.REGION -> filtered.sortedBy { it.regionFlag ?: "\uFFFF" } // Put no flag at end
         }
     }.stateIn(
         scope = viewModelScope,
@@ -142,9 +203,22 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
         
         testingJob = viewModelScope.launch {
             _isTesting.value = true
+            // 测速期间暂停排序，防止列表跳动 (暂时切回默认排序，或者保持当前排序但锁定更新?)
+            // 这里为了简单且符合用户"最后一次性排好序"的要求，我们暂时将排序设为 DEFAULT
+            _sortType.value = SortType.DEFAULT
+            
+            // 只测试当前列表显示的节点（已过滤）
+            val currentNodes = nodes.value
+            val targetIds = currentNodes.map { it.id }
+            _testingNodeIds.value = targetIds.toSet()
+
             try {
                 // 使用 ConfigRepository 的批量测试功能，它已经在内部实现了并行化
-                configRepository.testAllNodesLatency()
+                configRepository.testAllNodesLatency(targetIds) { finishedNodeId ->
+                    _testingNodeIds.value = _testingNodeIds.value - finishedNodeId
+                }
+                // 测速完成后自动切换到延迟排序
+                setSortType(SortType.LATENCY)
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
@@ -167,6 +241,23 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     
     fun setSortType(type: SortType) {
         _sortType.value = type
+    }
+    
+    // 设置节点过滤条件
+    fun setNodeFilter(filter: NodeFilter) {
+        _nodeFilter.value = filter
+        viewModelScope.launch {
+            settingsRepository.setNodeFilter(filter)
+        }
+    }
+    
+    // 清除节点过滤条件
+    fun clearNodeFilter() {
+        val emptyFilter = NodeFilter()
+        _nodeFilter.value = emptyFilter
+        viewModelScope.launch {
+            settingsRepository.setNodeFilter(emptyFilter)
+        }
     }
     
     fun clearLatency() {

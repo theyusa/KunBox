@@ -24,6 +24,7 @@ import com.kunk.singbox.model.LatencyTestMethod
 import com.kunk.singbox.model.VpnAppMode
 import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.model.GhProxyMirror
+import com.kunk.singbox.viewmodel.NodeFilter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -103,6 +104,7 @@ class SettingsRepository(private val context: Context) {
         val APP_RULES = stringPreferencesKey("app_rules")
         val APP_GROUPS = stringPreferencesKey("app_groups")
         val DNS_MIGRATED = booleanPreferencesKey("dns_migrated")
+        val NODE_FILTER = stringPreferencesKey("node_filter")
     }
     
     val settings: Flow<AppSettings> = context.dataStore.data.map { preferences ->
@@ -472,6 +474,25 @@ class SettingsRepository(private val context: Context) {
         notifyRestartRequired()
     }
     
+    suspend fun setNodeFilter(value: NodeFilter) {
+        context.dataStore.edit { it[PreferencesKeys.NODE_FILTER] = gson.toJson(value) }
+    }
+
+    suspend fun getNodeFilter(): NodeFilter {
+        return context.dataStore.data.map { preferences ->
+            val json = preferences[PreferencesKeys.NODE_FILTER]
+            if (json != null) {
+                try {
+                    gson.fromJson(json, NodeFilter::class.java) ?: NodeFilter()
+                } catch (e: Exception) {
+                    NodeFilter()
+                }
+            } else {
+                NodeFilter()
+            }
+        }.first()
+    }
+
     suspend fun checkAndMigrateRuleSets() {
         try {
             // Also migrate legacy vpnAppMode persisted as displayName to stable enum.name
