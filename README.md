@@ -45,14 +45,15 @@
 - **启动速度**: 毫秒级冷启动
 - **连接稳定性**: 优秀的连接复用与保活机制
 
-### 🛡️ 企业级分流引擎 (Rule-Based Routing)
+### 🛡️ 智能分流与规则集中心 (Smart Routing & RuleSet Hub)
 内置强大的路由引擎，支持复杂的规则集匹配。
-- **GeoSite/GeoIP**: 基于地理位置的自动分流
-- **Domain/Suffix/Keyword**: 灵活的域名匹配
-- **Process Name**: 基于 Android 应用包名的精准分流
+- **规则集中心**: 在线下载与管理海量规则集（GeoSite/GeoIP/AdGuard 等），支持 Source 与 Binary 格式。
+- **精准应用分流**: 采用 `UID` + `Package Name` 双重匹配机制，有效解决部分系统环境下应用分流失效的问题。
+- **灵活策略**: 支持 GeoSite、GeoIP、域名后缀、关键字、进程名等多种匹配维度。
 
-### 📊 真实延迟测试 (Real-World Latency)
-摒弃无意义的 TCP Ping。我们通过建立真实的代理连接来测试 HTTP 响应时间（URL-Test），准确反映节点在 YouTube、Google 等目标网站的真实加载速度。
+### ⚡ 便捷交互 (Quick Actions)
+- **Quick Settings Tile**: 支持系统下拉栏快捷开关，无需进入应用即可一键启停 VPN。
+- **真·延迟测试**: 基于 URL-Test 的真实连接测试，准确反映 YouTube/Google 等目标网站的真实加载速度。
 
 ## 🌐 协议矩阵
 
@@ -76,6 +77,7 @@
 - **Sing-box JSON**: 原生支持，特性最全。
 - **Clash YAML**: 完美兼容 Clash / Clash Meta (Mihomo) 配置，自动转换策略组。
 - **Standard Base64**: 兼容 V2RayN / Shadowrocket 订阅格式。
+- **导入方式**: 支持 剪贴板导入、URL 订阅导入。
 
 ## 🏗️ 项目结构
 
@@ -85,7 +87,7 @@
 SingBox-Android/
 ├── app/
 │   ├── src/main/java/com/kunk/singbox/
-│   │   ├── model/           # 数据模型 (Config, Profile, UI Models)
+│   │   ├── model/           # 数据模型 (Config, Profile, RuleSet)
 │   │   │   ├── SingBoxConfig.kt   # Sing-box 核心配置映射
 │   │   │   └── Outbound.kt        # 节点出站定义
 │   │   │
@@ -94,13 +96,15 @@ SingBox-Android/
 │   │   │   └── LogRepository.kt     # 日志持久化
 │   │   │
 │   │   ├── service/         # Android 服务组件
-│   │   │   └── VpnTileService.kt    # 快捷开关服务
+│   │   │   ├── SingBoxService.kt    # VpnService 核心实现
+│   │   │   └── VpnTileService.kt    # 快捷开关服务 (QS Tile)
 │   │   │
 │   │   ├── ui/              # 界面层 (Jetpack Compose)
 │   │   │   ├── components/  # 可复用 UI 组件 (Cards, Inputs)
 │   │   │   ├── screens/     # 页面级 Composable
-│   │   │   │   ├── NodesScreen.kt   # 节点列表页
-│   │   │   │   └── LogsScreen.kt    # 日志监控页
+│   │   │   │   ├── ProfilesScreen.kt   # 节点列表页
+│   │   │   │   ├── RuleSetHubScreen.kt # 规则集中心
+│   │   │   │   └── LogsScreen.kt       # 日志监控页
 │   │   │   └── theme/       # OLED 主题定义
 │   │   │
 │   │   ├── utils/           # 工具类集合
@@ -129,15 +133,16 @@ SingBox-Android/
 | **Core Engine** | Sing-box (Go) | 通过 JNI (Java Native Interface) 与 Go 核心库通信 |
 | **Network** | OkHttp 4 | 用于订阅更新、延迟测试等辅助网络请求 |
 | **Serialization** | Gson & SnakeYAML | 高性能 JSON 和 YAML 解析 |
-| **Dependency Injection** | Hilt (Planned) | 计划引入依赖注入框架 |
-| **CI/CD** | GitHub Actions | 自动化构建与发布流程 |
+| **Build System** | Gradle & CMake | 混合构建系统 |
 
 ## 📅 路线图 (Roadmap)
 
 - [x] **v1.0**: 基础功能发布，支持核心协议，Clash/URL 导入。
 - [x] **v1.1**: UI 细节打磨，OLED 主题优化，延迟测试重构。
-- [ ] **v1.2**: 引入 **Tun 模式** 配置向导，简化 VPN 权限处理。
-- [ ] **v1.3**: 支持 **Sub-Store** 格式，更强大的订阅管理。
+- [x] **v1.2**: 规则集中心 (RuleSet Hub) 上线，支持在线下载与管理路由规则。
+- [x] **v1.3**: 应用分流机制重构 (UID + PackageName)，显著提升分流稳定性。
+- [ ] **v1.4**: 引入 **Tun 模式** 配置向导，简化 VPN 权限处理。
+- [ ] **v1.5**: 支持 **Sub-Store** 格式，更强大的订阅管理。
 - [ ] **v2.0**: 插件系统，支持用户自定义脚本与规则集。
 
 ## 📦 构建指南
