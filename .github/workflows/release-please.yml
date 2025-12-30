@@ -1,0 +1,21 @@
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/release-please-action@v4
+        with:
+          # 使用 GITHUB_TOKEN 自动创建 PR 和 Release
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # 简单模式，根据 commit message 计算版本号并发布
+          release-type: simple
