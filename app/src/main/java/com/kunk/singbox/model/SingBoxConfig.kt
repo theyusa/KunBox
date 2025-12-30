@@ -323,3 +323,4 @@ data class CacheFileConfig(
     @SerializedName("path") val path: String? = null,
     @SerializedName("store_fakeip") val storeFakeip: Boolean? = null
 )
+

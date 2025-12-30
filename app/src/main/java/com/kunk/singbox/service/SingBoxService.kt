@@ -16,6 +16,8 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.os.SystemClock
+import android.os.PowerManager
+import android.net.wifi.WifiManager
 import android.provider.Settings
 import android.system.OsConstants
 import android.util.Log
@@ -614,6 +616,9 @@ class SingBoxService : VpnService() {
     @Volatile private var noPhysicalNetworkWarningLogged: Boolean = false
     @Volatile private var postTunRebindJob: Job? = null
     
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
+
     // Platform interface implementation
 private val platformInterface = object : PlatformInterface {
     override fun localDNSTransport(): io.nekohasekai.libbox.LocalDNSTransport {
@@ -878,6 +883,10 @@ private val platformInterface = object : PlatformInterface {
                 }
 
                 Log.i(TAG, "TUN interface established with fd: $fd")
+                
+                // Force a network reset after TUN is ready to clear any stale connections
+                requestCoreNetworkReset(reason = "openTun:success", force = false)
+                
                 return fd
             } finally {
                 isConnectingTun.set(false)
@@ -1097,6 +1106,8 @@ private val platformInterface = object : PlatformInterface {
                     if (!isVpn) {
                         networkCallbackReady = true
                         updateDefaultInterface(network)
+                        // Ensure libbox is aware of the new physical interface immediately
+                        requestCoreNetworkReset(reason = "networkAvailable:$network", force = false)
                     }
                 }
                 
@@ -1114,6 +1125,8 @@ private val platformInterface = object : PlatformInterface {
                     if (!isVpn) {
                         networkCallbackReady = true
                         updateDefaultInterface(network)
+                        // Trigger reset to ensure libbox updates its interface list if properties changed
+                        requestCoreNetworkReset(reason = "networkCapsChanged:$network", force = false)
                     }
                 }
             }
@@ -1641,6 +1654,22 @@ private val platformInterface = object : PlatformInterface {
         startVpnJob?.cancel()
         startVpnJob = serviceScope.launch {
             try {
+                // Acquire locks
+                try {
+                    val pm = getSystemService(PowerManager::class.java)
+                    wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "KunBox:VpnService")
+                    wakeLock?.setReferenceCounted(false)
+                    wakeLock?.acquire(24 * 60 * 60 * 1000L) // Limit to 24h just in case
+
+                    val wm = getSystemService(WifiManager::class.java)
+                    wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "KunBox:VpnService")
+                    wifiLock?.setReferenceCounted(false)
+                    wifiLock?.acquire()
+                    Log.i(TAG, "WakeLock and WifiLock acquired")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to acquire locks", e)
+                }
+
                 val prepareIntent = VpnService.prepare(this@SingBoxService)
                 if (prepareIntent != null) {
                     val msg = "需要授予 VPN 权限，请在系统弹窗中允许（如果已开启其他 VPN，系统可能会要求再次确认）"
@@ -1793,6 +1822,15 @@ private val platformInterface = object : PlatformInterface {
                 boxService = Libbox.newService(configContent, platformInterface)
                 boxService?.start()
                 Log.i(TAG, "BoxService started")
+
+                // Force initial network reset to ensure libbox picks up current interfaces
+                // This is critical when VPN restarts quickly and physical interfaces might have changed ID/Index
+                try {
+                    boxService?.resetNetwork()
+                    Log.i(TAG, "Initial boxService.resetNetwork() called")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to call initial resetNetwork", e)
+                }
 
                 tryRegisterRunningServiceForLibbox()
 
@@ -2050,6 +2088,17 @@ private val platformInterface = object : PlatformInterface {
 
         val interfaceToClose = vpnInterface
         vpnInterface = null
+
+        // Release locks
+        try {
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+            wakeLock = null
+            if (wifiLock?.isHeld == true) wifiLock?.release()
+            wifiLock = null
+            Log.i(TAG, "WakeLock and WifiLock released")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to release locks", e)
+        }
 
         // Stop command client/server
         try {
