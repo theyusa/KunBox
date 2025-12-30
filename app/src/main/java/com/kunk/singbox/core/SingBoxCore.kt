@@ -357,7 +357,7 @@ class SingBoxCore private constructor(private val context: Context) {
                 outbounds = listOf(outbound, direct),
                 route = com.kunk.singbox.model.RouteConfig(
                     rules = listOf(
-                        com.kunk.singbox.model.RouteRule(protocol = listOf("dns"), outbound = "direct"),
+                        com.kunk.singbox.model.RouteRule(protocolRaw = listOf("dns"), outbound = "direct"),
                         com.kunk.singbox.model.RouteRule(inbound = listOf("test-in"), outbound = outbound.tag)
                     ),
                     finalOutbound = "direct",

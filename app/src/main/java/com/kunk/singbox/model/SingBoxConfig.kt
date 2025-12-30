@@ -10,7 +10,9 @@ data class SingBoxConfig(
     @SerializedName("inbounds") val inbounds: List<Inbound>? = null,
     @SerializedName("outbounds") val outbounds: List<Outbound>? = null,
     @SerializedName("route") val route: RouteConfig? = null,
-    @SerializedName("experimental") val experimental: ExperimentalConfig? = null
+    @SerializedName("experimental") val experimental: ExperimentalConfig? = null,
+    // Add default outbounds for compatibility with non-standard config formats where outbounds are in a different field or handled differently
+    @SerializedName("proxies") val proxies: List<Outbound>? = null
 )
 
 @Keep
@@ -60,8 +62,16 @@ data class DnsRule(
     @SerializedName("package_name") val packageName: List<String>? = null,
     @SerializedName("user_id") val userId: List<Int>? = null,
     @SerializedName("server") val server: String? = null,
-    @SerializedName("outbound") val outbound: String? = null
-)
+    // outbound can be a String or List<String>, use Any to avoid parsing error
+    @SerializedName("outbound") val outboundRaw: Any? = null
+) {
+    val outbound: String?
+        get() = when (outboundRaw) {
+            is String -> outboundRaw
+            is List<*> -> outboundRaw.firstOrNull()?.toString()
+            else -> null
+        }
+}
 
 @Keep
 data class Inbound(
@@ -266,7 +276,7 @@ data class RouteConfig(
 
 @Keep
 data class RouteRule(
-    @SerializedName("protocol") val protocol: List<String>? = null,
+    @SerializedName("protocol") val protocolRaw: Any? = null,
     @SerializedName("domain") val domain: List<String>? = null,
     @SerializedName("domain_suffix") val domainSuffix: List<String>? = null,
     @SerializedName("domain_keyword") val domainKeyword: List<String>? = null,
@@ -281,7 +291,14 @@ data class RouteRule(
     @SerializedName("process_name") val processName: List<String>? = null,
     @SerializedName("user_id") val userId: List<Int>? = null,
     @SerializedName("outbound") val outbound: String? = null
-)
+) {
+    val protocol: List<String>?
+        get() = when (protocolRaw) {
+            is String -> listOf(protocolRaw)
+            is List<*> -> protocolRaw.filterIsInstance<String>()
+            else -> null
+        }
+}
 
 @Keep
 data class RuleSetConfig(

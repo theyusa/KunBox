@@ -1120,10 +1120,16 @@ class ConfigRepository(private val context: Context) {
         // 1. 尝试直接解析为 sing-box JSON
         try {
             val config = gson.fromJson(normalizedContent, SingBoxConfig::class.java)
-            if (config.outbounds != null && config.outbounds.isNotEmpty()) {
-                return config
+            // 兼容 outbounds 在 proxies 字段的情况
+            val outbounds = config.outbounds ?: config.proxies
+            if (outbounds != null && outbounds.isNotEmpty()) {
+                // 如果是从 proxies 字段读取的，需要将其移动到 outbounds 字段
+                return if (config.outbounds == null) config.copy(outbounds = outbounds) else config
+            } else {
+                Log.w(TAG, "Parsed as JSON but outbounds/proxies is empty/null. content snippet: ${sanitizeSubscriptionSnippet(normalizedContent)}")
             }
         } catch (e: JsonSyntaxException) {
+            Log.w(TAG, "Failed to parse as JSON: ${e.message}")
             // 继续尝试其他格式
         }
 
@@ -1146,10 +1152,15 @@ class ConfigRepository(private val context: Context) {
             // 尝试解析解码后的内容为 JSON
             try {
                 val config = gson.fromJson(decoded, SingBoxConfig::class.java)
-                if (config.outbounds != null && config.outbounds.isNotEmpty()) {
-                    return config
+                val outbounds = config.outbounds ?: config.proxies
+                if (outbounds != null && outbounds.isNotEmpty()) {
+                    return if (config.outbounds == null) config.copy(outbounds = outbounds) else config
+                } else {
+                    Log.w(TAG, "Parsed decoded Base64 as JSON but outbounds is empty/null")
                 }
-            } catch (e: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to parse decoded Base64 as JSON: ${e.message}")
+            }
 
             try {
                 val yamlConfig = parseClashYamlConfig(decoded)
@@ -3766,7 +3777,7 @@ class ConfigRepository(private val context: Context) {
         val customRuleSetRules = buildCustomRuleSetRules(settings, selectorTag, outbounds, nodeTagResolver)
 
         val quicRule = if (settings.blockQuic) {
-            listOf(RouteRule(protocol = listOf("quic"), outbound = "block"))
+            listOf(RouteRule(protocolRaw = listOf("quic"), outbound = "block"))
         } else {
             emptyList()
         }
@@ -3790,7 +3801,7 @@ class ConfigRepository(private val context: Context) {
             emptyList()
         }
 
-        val dnsTrafficRule = listOf(RouteRule(protocol = listOf("dns"), outbound = "dns-out"))
+        val dnsTrafficRule = listOf(RouteRule(protocolRaw = listOf("dns"), outbound = "dns-out"))
 
         val adBlockEnabled = settings.blockAds && customRuleSets.any { it.tag == "geosite-category-ads-all" }
         val adBlockRules = if (adBlockEnabled) {
@@ -3819,7 +3830,7 @@ class ConfigRepository(private val context: Context) {
         Log.v(TAG, "=== Generated Route Rules (${allRules.size} total) ===")
         allRules.forEachIndexed { index, rule ->
             val ruleDesc = buildString {
-                rule.protocol?.let { append("protocol=$it ") }
+                rule.protocolRaw?.let { append("protocol=$it ") }
                 rule.ruleSet?.let { append("ruleSet=$it ") }
                 rule.packageName?.let { append("pkg=$it ") }
                 rule.domain?.let { append("domain=$it ") }
