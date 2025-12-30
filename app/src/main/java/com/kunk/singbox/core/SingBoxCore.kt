@@ -186,9 +186,9 @@ class SingBoxCore private constructor(private val context: Context) {
         return@withContext try {
             val fallbackUrl = try {
                 if (finalSettings.latencyTestMethod == com.kunk.singbox.model.LatencyTestMethod.TCP) {
-                    adjustUrlForMode("http://cp.cloudflare.com/generate_204", finalSettings.latencyTestMethod)
+                    adjustUrlForMode("http://www.gstatic.com/generate_204", finalSettings.latencyTestMethod)
                 } else {
-                    adjustUrlForMode("https://cp.cloudflare.com/generate_204", finalSettings.latencyTestMethod)
+                    adjustUrlForMode("https://www.gstatic.com/generate_204", finalSettings.latencyTestMethod)
                 }
             } catch (_: Exception) { url }
             testWithLocalHttpProxy(outbound, url, fallbackUrl, 5000)
@@ -572,9 +572,9 @@ class SingBoxCore private constructor(private val context: Context) {
 
         val fallbackUrl = try {
             if (settings.latencyTestMethod == com.kunk.singbox.model.LatencyTestMethod.TCP) {
-                adjustUrlForMode("http://cp.cloudflare.com/generate_204", settings.latencyTestMethod)
+                adjustUrlForMode("http://www.gstatic.com/generate_204", settings.latencyTestMethod)
             } else {
-                adjustUrlForMode("https://cp.cloudflare.com/generate_204", settings.latencyTestMethod)
+                adjustUrlForMode("https://www.gstatic.com/generate_204", settings.latencyTestMethod)
             }
         } catch (_: Exception) { url }
 
@@ -630,9 +630,9 @@ class SingBoxCore private constructor(private val context: Context) {
         val url = adjustUrlForMode(settings.latencyTestUrl, settings.latencyTestMethod)
         val fallbackUrl = try {
             if (settings.latencyTestMethod == com.kunk.singbox.model.LatencyTestMethod.TCP) {
-                adjustUrlForMode("http://cp.cloudflare.com/generate_204", settings.latencyTestMethod)
+                adjustUrlForMode("http://www.gstatic.com/generate_204", settings.latencyTestMethod)
             } else {
-                adjustUrlForMode("https://cp.cloudflare.com/generate_204", settings.latencyTestMethod)
+                adjustUrlForMode("https://www.gstatic.com/generate_204", settings.latencyTestMethod)
             }
         } catch (_: Exception) { url }
         testOutboundsLatencyOfflineWithTemporaryService(outbounds, url, fallbackUrl, 5000, settings.latencyTestMethod, onResult)

@@ -232,8 +232,20 @@ android {
         minSdk = 24
         targetSdk = 36
         
-        versionCode = 5946
-        versionName = "9.7.1"
+        // Dynamic versioning
+        val cmd = "git rev-list --count HEAD"
+        val process = Runtime.getRuntime().exec(cmd)
+        val gitCommitCount = process.inputStream.bufferedReader().readText().trim().toIntOrNull() ?: 1
+        // Offset to ensure versionCode > previous hardcoded value (5946)
+        val gitVersionCode = 6000 + gitCommitCount
+
+        val gitVersionName = System.getenv("VERSION_NAME") ?: run {
+             val p = Runtime.getRuntime().exec("git describe --tags --always")
+             p.inputStream.bufferedReader().readText().trim()
+        }
+
+        versionCode = gitVersionCode
+        versionName = gitVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

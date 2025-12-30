@@ -901,7 +901,7 @@ class ConfigRepository(private val context: Context) {
                         )
                     }
                     "url-test", "urltest" -> {
-                        val url = asString(gm["url"]) ?: "https://www.gstatic.com/generate_204"
+                        val url = asString(gm["url"]) ?: "http://www.gstatic.com/generate_204"
                         val interval = asString(gm["interval"]) ?: asInt(gm["interval"])?.toString() ?: "300s"
                         val tolerance = asInt(gm["tolerance"]) ?: 50
                         outbounds.add(
@@ -1962,15 +1962,26 @@ class ConfigRepository(private val context: Context) {
         _nodeGroups.value = listOf("全部") + groups
     }
     
-    fun setActiveProfile(profileId: String) {
+    fun setActiveProfile(profileId: String, targetNodeId: String? = null) {
         _activeProfileId.value = profileId
         val cached = profileNodes[profileId]
-        if (cached != null) {
-            _nodes.value = cached
-            updateNodeGroups(cached)
-            if (cached.isNotEmpty() && _activeNodeId.value !in cached.map { it.id }) {
-                _activeNodeId.value = cached.first().id
+
+        fun updateState(nodes: List<NodeUi>) {
+            _nodes.value = nodes
+            updateNodeGroups(nodes)
+
+            // 如果指定了目标节点且存在于列表中，直接选中
+            if (targetNodeId != null && nodes.any { it.id == targetNodeId }) {
+                _activeNodeId.value = targetNodeId
             }
+            // 否则，如果当前选中节点不在列表中，重置为第一个
+            else if (nodes.isNotEmpty() && _activeNodeId.value !in nodes.map { it.id }) {
+                _activeNodeId.value = nodes.first().id
+            }
+        }
+
+        if (cached != null) {
+            updateState(cached)
         } else {
             _nodes.value = emptyList()
             _nodeGroups.value = listOf("全部")
@@ -1978,11 +1989,9 @@ class ConfigRepository(private val context: Context) {
                 val cfg = loadConfig(profileId) ?: return@launch
                 val nodes = extractNodesFromConfig(cfg, profileId)
                 profileNodes[profileId] = nodes
-                _nodes.value = nodes
-                updateNodeGroups(nodes)
-                if (nodes.isNotEmpty() && _activeNodeId.value !in nodes.map { it.id }) {
-                    _activeNodeId.value = nodes.first().id
-                }
+                
+                updateState(nodes)
+                
                 if (allNodesUiActiveCount.get() > 0) {
                     updateAllNodesAndGroups()
                 }
@@ -2009,7 +2018,7 @@ class ConfigRepository(private val context: Context) {
         val targetNode = allNodesSnapshot.find { it.id == nodeId }
         if (targetNode != null && targetNode.sourceProfileId != _activeProfileId.value) {
             Log.i(TAG, "Cross-profile switch detected: ${_activeProfileId.value} -> ${targetNode.sourceProfileId}")
-            setActiveProfile(targetNode.sourceProfileId)
+            setActiveProfile(targetNode.sourceProfileId, nodeId)
             
         }
 

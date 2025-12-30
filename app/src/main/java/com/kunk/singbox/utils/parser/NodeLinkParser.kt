@@ -35,48 +35,186 @@ class NodeLinkParser(private val gson: Gson) {
 
     private fun parseShadowsocksLink(link: String): Outbound? {
         try {
-            val uri = link.removePrefix("ss://")
-            val nameIndex = uri.lastIndexOf('#')
-            val name = if (nameIndex > 0) java.net.URLDecoder.decode(uri.substring(nameIndex + 1), "UTF-8") else "SS Node"
-            val mainPart = if (nameIndex > 0) uri.substring(0, nameIndex) else uri
-            
-            val atIndex = mainPart.lastIndexOf('@')
-            if (atIndex > 0) {
-                val userInfo = String(Base64.decode(mainPart.substring(0, atIndex), Base64.URL_SAFE or Base64.NO_PADDING))
-                val serverPart = mainPart.substring(atIndex + 1)
-                val colonIndex = serverPart.lastIndexOf(':')
-                val server = serverPart.substring(0, colonIndex)
-                val port = serverPart.substring(colonIndex + 1).toInt()
-                val methodPassword = userInfo.split(":", limit = 2)
-                
-                return Outbound(
-                    type = "shadowsocks",
-                    tag = name,
-                    server = server,
-                    serverPort = port,
-                    method = methodPassword[0],
-                    password = methodPassword.getOrElse(1) { "" }
-                )
-            } else {
-                val decoded = String(Base64.decode(mainPart, Base64.URL_SAFE or Base64.NO_PADDING))
-                val regex = Regex("(.+):(.+)@(.+):(\\d+)")
-                val match = regex.find(decoded)
-                if (match != null) {
-                    val (method, password, server, port) = match.destructured
-                    return Outbound(
-                        type = "shadowsocks",
-                        tag = name,
-                        server = server,
-                        serverPort = port.toInt(),
-                        method = method,
-                        password = password
-                    )
+            var uriString = link.removePrefix("ss://")
+
+            // 1. Extract Name (Fragment)
+            val nameIndex = uriString.lastIndexOf('#')
+            val name = if (nameIndex > 0) {
+                val tag = uriString.substring(nameIndex + 1)
+                uriString = uriString.substring(0, nameIndex)
+                try {
+                    java.net.URLDecoder.decode(tag, "UTF-8")
+                } catch (e: Exception) {
+                    tag
+                }
+            } else "SS Node"
+
+            // 2. Extract Query Parameters
+            var params = mutableMapOf<String, String>()
+            val questionIndex = uriString.indexOf('?')
+            if (questionIndex > 0) {
+                val query = uriString.substring(questionIndex + 1)
+                uriString = uriString.substring(0, questionIndex)
+
+                query.split("&").forEach {
+                    val parts = it.split("=", limit = 2)
+                    if (parts.size == 2) {
+                        try {
+                            params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
+                        } catch (e: Exception) {
+                            params[parts[0]] = parts[1]
+                        }
+                    }
                 }
             }
+
+            var server: String
+            var port: Int
+            var method: String
+            var password: String
+
+            val atIndex = uriString.lastIndexOf('@')
+            if (atIndex > 0) {
+                // SIP002 Format: userinfo@host:port
+                val userInfoBase64 = uriString.substring(0, atIndex)
+                val serverPart = uriString.substring(atIndex + 1)
+
+                // Try decode Base64, fallback to raw if it contains colon (common non-standard format)
+                var userInfo = tryDecodeBase64(userInfoBase64)
+                if (userInfo == null && userInfoBase64.contains(":")) {
+                    userInfo = userInfoBase64
+                }
+                if (userInfo == null) return null
+
+                val methodPwd = userInfo.split(":", limit = 2)
+                method = methodPwd[0]
+                password = methodPwd.getOrElse(1) { "" }
+
+                val portParts = parseHostPort(serverPart)
+                server = portParts.first
+                port = portParts.second
+            } else {
+                // Legacy Format: Base64(method:password@host:port)
+                // Also support raw method:password@host:port
+                var decoded = tryDecodeBase64(uriString)
+                if (decoded == null && uriString.contains("@")) {
+                    decoded = uriString
+                }
+                if (decoded == null) return null
+
+                val lastAt = decoded.lastIndexOf('@')
+                if (lastAt == -1) return null
+
+                val userPart = decoded.substring(0, lastAt)
+                val hostPart = decoded.substring(lastAt + 1)
+
+                val methodPwd = userPart.split(":", limit = 2)
+                method = methodPwd[0]
+                password = methodPwd.getOrElse(1) { "" }
+
+                // Check parameters in hostPart
+                var cleanHostPart = hostPart
+                val qIndex = cleanHostPart.indexOf('?')
+                if (qIndex > 0) {
+                    val query = cleanHostPart.substring(qIndex + 1)
+                    cleanHostPart = cleanHostPart.substring(0, qIndex)
+
+                    query.split("&").forEach {
+                        val parts = it.split("=", limit = 2)
+                        if (parts.size == 2) {
+                            try {
+                                params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
+                            } catch (e: Exception) {
+                                params[parts[0]] = parts[1]
+                            }
+                        }
+                    }
+                }
+
+                val portParts = parseHostPort(cleanHostPart)
+                server = portParts.first
+                port = portParts.second
+            }
+
+            // 3. Process Plugin
+            // Sing-box shadowsocks inbound/outbound does not support native transport/tls fields directly.
+            // It relies on external plugins (v2ray-plugin, obfs-local) if transport wrapping is needed.
+            // So we parse and pass the plugin fields as is.
+            
+            var pluginStr = params["plugin"]
+            var pluginOptsStr: String? = null
+
+            if (pluginStr != null) {
+                // Format: name;opts (SIP002)
+                // If the link is ss://...?plugin=v2ray-plugin%3Bmode%3Dwebsocket...
+                // It decodes to "v2ray-plugin;mode=websocket..."
+                
+                val semiIndex = pluginStr.indexOf(';')
+                if (semiIndex > 0) {
+                    val namePart = pluginStr.substring(0, semiIndex)
+                    val optsPart = pluginStr.substring(semiIndex + 1)
+                    
+                    pluginStr = namePart
+                    pluginOptsStr = optsPart
+                } else {
+                    // No options, just plugin name
+                    pluginOptsStr = null
+                }
+            }
+
+            return Outbound(
+                type = "shadowsocks",
+                tag = name,
+                server = server,
+                serverPort = port,
+                method = method.lowercase(),
+                password = password,
+                plugin = pluginStr,
+                pluginOpts = pluginOptsStr
+            )
         } catch (e: Exception) {
             Log.e("NodeLinkParser", "Failed to parse SS link", e)
         }
         return null
+    }
+
+    private fun tryDecodeBase64(content: String): String? {
+        val candidates = arrayOf(
+            Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP,
+            Base64.URL_SAFE or Base64.NO_WRAP,
+            Base64.DEFAULT,
+            Base64.NO_WRAP
+        )
+        for (flags in candidates) {
+            try {
+                val decoded = Base64.decode(content, flags)
+                // Basic validation: string should not contain excessive control chars
+                return String(decoded)
+            } catch (e: Exception) {
+                // Continue
+            }
+        }
+        return null
+    }
+
+    private fun parseHostPort(hostPort: String): Pair<String, Int> {
+        val lastColon = hostPort.lastIndexOf(':')
+        val lastBracket = hostPort.lastIndexOf(']')
+        
+        var server: String
+        var port: Int = 8388
+        
+        if (lastColon > lastBracket) {
+            server = hostPort.substring(0, lastColon)
+            port = hostPort.substring(lastColon + 1).toIntOrNull() ?: 8388
+        } else {
+            server = hostPort
+        }
+        
+        if (server.startsWith("[") && server.endsWith("]")) {
+            server = server.substring(1, server.length - 1)
+        }
+        return server to port
     }
 
     private fun parseVMessLink(link: String): Outbound? {
