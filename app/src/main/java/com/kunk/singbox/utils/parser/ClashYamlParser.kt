@@ -48,6 +48,48 @@ class ClashYamlParser : SubscriptionParser {
             if (ob != null) outbounds.add(ob)
         }
         
+        // 解析 proxy-groups
+        val proxyGroupsRaw = rootMap["proxy-groups"] as? List<*>
+        if (proxyGroupsRaw != null) {
+            for (g in proxyGroupsRaw) {
+                val gm = g as? Map<*, *> ?: continue
+                val name = asString(gm["name"]) ?: continue
+                val type = asString(gm["type"])?.lowercase() ?: continue
+                val proxies = (gm["proxies"] as? List<*>)?.mapNotNull { asString(it) }?.filter { it.isNotBlank() } ?: emptyList()
+                if (proxies.isEmpty()) continue
+
+                when (type) {
+                    "select", "selector" -> {
+                        outbounds.add(
+                            Outbound(
+                                type = "selector",
+                                tag = name,
+                                outbounds = proxies,
+                                default = proxies.firstOrNull(),
+                                interruptExistConnections = false
+                            )
+                        )
+                    }
+                    "url-test", "urltest" -> {
+                        val url = asString(gm["url"]) ?: "http://www.gstatic.com/generate_204"
+                        val interval = asString(gm["interval"]) ?: asInt(gm["interval"])?.toString() ?: "300s"
+                        val tolerance = asInt(gm["tolerance"]) ?: 50
+                        outbounds.add(
+                            Outbound(
+                                type = "urltest",
+                                tag = name,
+                                outbounds = proxies,
+                                url = url,
+                                interval = interval,
+                                tolerance = tolerance,
+                                interruptExistConnections = false
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
         // 如果没有解析出任何代理节点，返回 null
         if (outbounds.isEmpty()) return null
 
@@ -78,7 +120,9 @@ class ClashYamlParser : SubscriptionParser {
             "ss", "shadowsocks" -> parseShadowsocks(proxyMap, name, server, port)
             "trojan" -> parseTrojan(proxyMap, name, server, port)
             "hysteria2", "hy2" -> parseHysteria2(proxyMap, name, server, port)
+            "hysteria" -> parseHysteria(proxyMap, name, server, port)
             "tuic" -> parseTuic(proxyMap, name, server, port)
+            "anytls" -> parseAnyTLS(proxyMap, name, server, port)
             "ssh" -> parseSSH(proxyMap, name, server, port)
             "wireguard" -> parseWireGuard(proxyMap, name, server, port)
             else -> null
@@ -439,6 +483,67 @@ class ClashYamlParser : SubscriptionParser {
             privateKey = privateKey,
             peers = listOf(peer),
             mtu = mtu
+        )
+    }
+
+    private fun parseAnyTLS(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
+        if (server == null || port == null) return null
+        val password = asString(map["password"]) ?: return null
+        val sni = asString(map["sni"]) ?: server
+        val insecure = asBool(map["skip-cert-verify"]) == true
+        val alpn = asStringList(map["alpn"])
+        val fingerprint = asString(map["client-fingerprint"])
+        
+        val idleSessionCheckInterval = asString(map["idle-session-check-interval"])
+        val idleSessionTimeout = asString(map["idle-session-timeout"])
+        val minIdleSession = asInt(map["min-idle-session"])
+
+        return Outbound(
+            type = "anytls",
+            tag = name,
+            server = server,
+            serverPort = port,
+            password = password,
+            idleSessionCheckInterval = idleSessionCheckInterval,
+            idleSessionTimeout = idleSessionTimeout,
+            minIdleSession = minIdleSession,
+            tls = TlsConfig(
+                enabled = true,
+                serverName = sni,
+                insecure = insecure,
+                alpn = alpn,
+                utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
+            )
+        )
+    }
+
+    private fun parseHysteria(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
+        if (server == null || port == null) return null
+        val authStr = asString(map["auth-str"]) ?: asString(map["auth_str"]) ?: asString(map["auth"])
+        val upMbps = asInt(map["up"]) ?: asInt(map["up-mbps"])
+        val downMbps = asInt(map["down"]) ?: asInt(map["down-mbps"])
+        val sni = asString(map["sni"]) ?: server
+        val insecure = asBool(map["skip-cert-verify"]) == true
+        val alpn = asStringList(map["alpn"])
+        val fingerprint = asString(map["client-fingerprint"])
+        val obfs = asString(map["obfs"])
+
+        return Outbound(
+            type = "hysteria",
+            tag = name,
+            server = server,
+            serverPort = port,
+            authStr = authStr,
+            upMbps = upMbps,
+            downMbps = downMbps,
+            tls = TlsConfig(
+                enabled = true,
+                serverName = sni,
+                insecure = insecure,
+                alpn = alpn,
+                utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
+            ),
+            obfs = if (obfs != null) com.kunk.singbox.model.ObfsConfig(type = obfs) else null
         )
     }
 
