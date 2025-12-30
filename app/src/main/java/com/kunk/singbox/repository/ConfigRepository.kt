@@ -2900,6 +2900,7 @@ class ConfigRepository(private val context: Context) {
                     autoRoute = false, // Handled by Android VpnService
                     strictRoute = false, // Can cause issues on some Android versions
                     stack = settings.tunStack.name.lowercase(), // gvisor/system/mixed/lwip
+                    endpointIndependentNat = settings.endpointIndependentNat,
                     sniff = true,
                     sniffOverrideDestination = true,
                     sniffTimeout = "300ms"

@@ -125,6 +125,9 @@ class ClashYamlParser : SubscriptionParser {
             "anytls" -> parseAnyTLS(proxyMap, name, server, port)
             "ssh" -> parseSSH(proxyMap, name, server, port)
             "wireguard" -> parseWireGuard(proxyMap, name, server, port)
+            "http" -> parseHttp(proxyMap, name, server, port)
+            "socks5" -> parseSocks(proxyMap, name, server, port)
+            "shadowtls" -> parseShadowTLS(proxyMap, name, server, port)
             else -> null
         }
     }
@@ -544,6 +547,57 @@ class ClashYamlParser : SubscriptionParser {
                 utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
             ),
             obfs = if (obfs != null) com.kunk.singbox.model.ObfsConfig(type = obfs) else null
+        )
+    }
+
+    private fun parseHttp(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
+        if (server == null || port == null) return null
+        val username = asString(map["username"])
+        val password = asString(map["password"])
+        val tlsEnabled = asBool(map["tls"]) == true
+        
+        return Outbound(
+            type = "http",
+            tag = name,
+            server = server,
+            serverPort = port,
+            username = username,
+            password = password,
+            tls = if (tlsEnabled) TlsConfig(enabled = true) else null
+        )
+    }
+
+    private fun parseSocks(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
+        if (server == null || port == null) return null
+        val username = asString(map["username"])
+        val password = asString(map["password"])
+        
+        return Outbound(
+            type = "socks",
+            tag = name,
+            server = server,
+            serverPort = port,
+            username = username,
+            password = password
+        )
+    }
+
+    private fun parseShadowTLS(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
+        if (server == null || port == null) return null
+        val password = asString(map["password"]) ?: return null
+        val version = asInt(map["version"]) ?: 3
+        
+        return Outbound(
+            type = "shadowtls",
+            tag = name,
+            server = server,
+            serverPort = port,
+            version = version,
+            password = password,
+            tls = TlsConfig(
+                enabled = true,
+                serverName = asString(map["sni"]) ?: server
+            )
         )
     }
 

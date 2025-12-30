@@ -5,8 +5,12 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.IntOffset
 import androidx.navigation.NavBackStackEntry
@@ -103,6 +107,10 @@ fun AppNavigation(navController: NavHostController) {
         durationMillis = NAV_ANIMATION_DURATION,
         easing = FastOutSlowInEasing
     )
+    val fadeSpec = tween<Float>(
+        durationMillis = NAV_ANIMATION_DURATION,
+        easing = FastOutSlowInEasing
+    )
 
     val enterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
         slideInHorizontally(initialOffsetX = { it }, animationSpec = slideSpec)
@@ -118,17 +126,11 @@ fun AppNavigation(navController: NavHostController) {
     }
 
     val tabEnterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
-        val from = tabIndex(initialState.destination.route)
-        val to = tabIndex(targetState.destination.route)
-        val direction = if (to >= from) 1 else -1
-        slideInHorizontally(initialOffsetX = { direction * it }, animationSpec = slideSpec)
+        fadeIn(animationSpec = fadeSpec)
     }
 
     val tabExitTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
-        val from = tabIndex(initialState.destination.route)
-        val to = tabIndex(targetState.destination.route)
-        val direction = if (to >= from) 1 else -1
-        slideOutHorizontally(targetOffsetX = { -direction * it }, animationSpec = slideSpec)
+        fadeOut(animationSpec = fadeSpec)
     }
 
     NavHost(
@@ -140,29 +142,29 @@ fun AppNavigation(navController: NavHostController) {
             route = Screen.Dashboard.route,
             enterTransition = tabEnterTransition,
             exitTransition = tabExitTransition,
-            popEnterTransition = { EnterTransition.None },
-            popExitTransition = { ExitTransition.None }
+            popEnterTransition = tabEnterTransition,
+            popExitTransition = tabExitTransition
         ) { DashboardScreen(navController) }
         composable(
             route = Screen.Nodes.route,
             enterTransition = tabEnterTransition,
             exitTransition = tabExitTransition,
-            popEnterTransition = { EnterTransition.None },
-            popExitTransition = { ExitTransition.None }
+            popEnterTransition = tabEnterTransition,
+            popExitTransition = tabExitTransition
         ) { NodesScreen(navController) }
         composable(
             route = Screen.Profiles.route,
             enterTransition = tabEnterTransition,
             exitTransition = tabExitTransition,
-            popEnterTransition = { EnterTransition.None },
-            popExitTransition = { ExitTransition.None }
+            popEnterTransition = tabEnterTransition,
+            popExitTransition = tabExitTransition
         ) { ProfilesScreen(navController) }
         composable(
             route = Screen.Settings.route,
             enterTransition = tabEnterTransition,
             exitTransition = tabExitTransition,
-            popEnterTransition = { EnterTransition.None },
-            popExitTransition = { ExitTransition.None }
+            popEnterTransition = tabEnterTransition,
+            popExitTransition = tabExitTransition
         ) { SettingsScreen(navController) }
         
         // Sub Screens

@@ -68,6 +68,7 @@ class SettingsRepository(private val context: Context) {
         val TUN_INTERFACE_NAME = stringPreferencesKey("tun_interface_name")
         val AUTO_ROUTE = booleanPreferencesKey("auto_route")
         val STRICT_ROUTE = booleanPreferencesKey("strict_route")
+        val ENDPOINT_INDEPENDENT_NAT = booleanPreferencesKey("endpoint_independent_nat")
         val VPN_ROUTE_MODE = stringPreferencesKey("vpn_route_mode")
         val VPN_ROUTE_INCLUDE_CIDRS = stringPreferencesKey("vpn_route_include_cidrs")
         val VPN_APP_MODE = stringPreferencesKey("vpn_app_mode")
@@ -238,8 +239,9 @@ class SettingsRepository(private val context: Context) {
             tunStack = TunStack.fromDisplayName(preferences[PreferencesKeys.TUN_STACK] ?: TunStack.SYSTEM.displayName),
             tunMtu = preferences[PreferencesKeys.TUN_MTU] ?: 1280,
             tunInterfaceName = preferences[PreferencesKeys.TUN_INTERFACE_NAME] ?: "tun0",
-            autoRoute = preferences[PreferencesKeys.AUTO_ROUTE] ?: true,
+            autoRoute = preferences[PreferencesKeys.AUTO_ROUTE] ?: false,
             strictRoute = preferences[PreferencesKeys.STRICT_ROUTE] ?: true,
+            endpointIndependentNat = preferences[PreferencesKeys.ENDPOINT_INDEPENDENT_NAT] ?: false,
             vpnRouteMode = VpnRouteMode.fromDisplayName(preferences[PreferencesKeys.VPN_ROUTE_MODE] ?: VpnRouteMode.GLOBAL.displayName),
             vpnRouteIncludeCidrs = preferences[PreferencesKeys.VPN_ROUTE_INCLUDE_CIDRS] ?: "",
             vpnAppMode = parseVpnAppMode(preferences[PreferencesKeys.VPN_APP_MODE]),
@@ -327,6 +329,11 @@ class SettingsRepository(private val context: Context) {
     
     suspend fun setStrictRoute(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.STRICT_ROUTE] = value }
+        notifyRestartRequired()
+    }
+
+    suspend fun setEndpointIndependentNat(value: Boolean) {
+        context.dataStore.edit { it[PreferencesKeys.ENDPOINT_INDEPENDENT_NAT] = value }
         notifyRestartRequired()
     }
 

@@ -224,6 +224,12 @@ fun TunSettingsScreen(
                     onCheckedChange = { settingsViewModel.setAutoRoute(it) }
                 )
                 SettingSwitchItem(
+                    title = "独立 NAT",
+                    subtitle = "改善 P2P 连接 (Full Cone)",
+                    checked = settings.endpointIndependentNat,
+                    onCheckedChange = { settingsViewModel.setEndpointIndependentNat(it) }
+                )
+                SettingSwitchItem(
                     title = "严格路由",
                     subtitle = "防止 DNS 泄露",
                     checked = settings.strictRoute,

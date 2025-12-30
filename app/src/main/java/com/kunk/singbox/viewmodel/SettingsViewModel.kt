@@ -84,6 +84,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { repository.setStrictRoute(value) }
     }
 
+    fun setEndpointIndependentNat(value: Boolean) {
+        viewModelScope.launch { repository.setEndpointIndependentNat(value) }
+    }
+
     fun setVpnRouteMode(value: VpnRouteMode) {
         viewModelScope.launch { repository.setVpnRouteMode(value) }
     }

@@ -1744,10 +1744,9 @@ private val platformInterface = object : PlatformInterface {
                                 // Force stack to system or mixed? System is safer for protect() delegation.
                                 // NekoBox uses mixed/gvisor but has the protect_server.
                                 // We use system to rely on dialer's protect.
-                                // Also force auto_route=false to avoid permission issues on strict ROMs (Samsung OneUI)
+                                // Allow auto_route setting from UI (default false)
                                 inbound.copy(
-                                    stack = "system",
-                                    autoRoute = false
+                                    autoRoute = currentSettings?.autoRoute ?: false
                                 )
                             } else {
                                 inbound
