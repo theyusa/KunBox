@@ -106,7 +106,7 @@ fun SingBoxApp() {
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { isGranted ->
-            Log.d("SingBoxActivity", "POST_NOTIFICATIONS permission result: $isGranted")
+            Log.d("KunBoxActivity", "POST_NOTIFICATIONS permission result: $isGranted")
         }
     )
 
@@ -118,10 +118,10 @@ fun SingBoxApp() {
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val permission = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
-            Log.d("SingBoxActivity", "POST_NOTIFICATIONS permission status: $permission (Granted: ${permission == PackageManager.PERMISSION_GRANTED})")
+            Log.d("KunBoxActivity", "POST_NOTIFICATIONS permission status: $permission (Granted: ${permission == PackageManager.PERMISSION_GRANTED})")
             
             if (permission != PackageManager.PERMISSION_GRANTED) {
-                Log.d("SingBoxActivity", "Requesting POST_NOTIFICATIONS permission")
+                Log.d("KunBoxActivity", "Requesting POST_NOTIFICATIONS permission")
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }

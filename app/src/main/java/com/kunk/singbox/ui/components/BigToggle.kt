@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
@@ -33,6 +34,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,6 +44,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.kunk.singbox.ui.theme.OLEDBlack
 import androidx.compose.ui.viewinterop.AndroidView
 import android.widget.ImageView
@@ -76,57 +81,81 @@ fun BigToggle(
     ) { running ->
         if (running) 0.dp else 20.dp
     }
+    
+    // 控制晃动动画的 key，每次 isRunning 变为 true 时重置
+    // 使用 mutableStateOf 并显式类型，避免 MutableIntState 委托的兼容性问题
+    var shakeKey by remember { androidx.compose.runtime.mutableStateOf(0) }
+    LaunchedEffect(isRunning) {
+        if (isRunning) {
+            shakeKey = shakeKey + 1
+        }
+    }
+    
+    // 晃动动画 - 使用 Animatable 手动控制
+    val rotation = remember { Animatable(0f) }
+    
+    // 弹跳动画 - 开启时先弹起再落下
+    val bounceOffset = remember { Animatable(0f) }
+    
+    LaunchedEffect(shakeKey) {
+        if (isRunning) {
+            // 并行执行弹跳和抖动动画
+            bounceOffset.snapTo(0f)
+            rotation.snapTo(0f)
+            
+            // 同时启动弹跳和抖动
+            val bounceJob = launch {
+                // 慢速弹起到 -100dp (负值表示向上)
+                bounceOffset.animateTo(
+                    targetValue = -100f,
+                    animationSpec = tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                )
+                // 落回到 0dp，使用更慢的弹簧效果
+                bounceOffset.animateTo(
+                    targetValue = 0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessLow
+                    )
+                )
+            }
+            
+            val shakeJob = launch {
+                // 晃动动画 - 仅在弹起阶段进行 (约300ms)
+                // 快速晃动几下
+                if (isRunning) {
+                    rotation.animateTo(
+                        targetValue = 8f,
+                        animationSpec = tween(75, easing = LinearEasing)
+                    )
+                    rotation.animateTo(
+                        targetValue = -8f,
+                        animationSpec = tween(150, easing = LinearEasing)
+                    )
+                    rotation.animateTo(
+                        targetValue = 0f,
+                        animationSpec = tween(75, easing = LinearEasing)
+                    )
+                }
+                // 确保最后回到 0
+                rotation.snapTo(0f)
+            }
+            
+            // 等待两个动画都完成
+            bounceJob.join()
+            shakeJob.join()
+        } else {
+            rotation.snapTo(0f)
+            bounceOffset.snapTo(0f)
+        }
+    }
 
     // Color animations
-    val backgroundColor by transition.animateColor(
-        transitionSpec = { tween(durationMillis = 300, easing = androidx.compose.animation.core.FastOutSlowInEasing) },
-        label = "BackgroundColor"
-    ) { running ->
-        if (running) Color(0xFF4CAF50) else MaterialTheme.colorScheme.surface
-    }
+    // 移除绿色背景，改为透明或极淡的颜色
+    val backgroundColor = Color.Transparent
     
-    val iconColor by transition.animateColor(
-        transitionSpec = { tween(durationMillis = 300, easing = androidx.compose.animation.core.FastOutSlowInEasing) },
-        label = "IconColor"
-    ) { running ->
-        if (running) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-    }
-    
-    val borderColor by transition.animateColor(
-        transitionSpec = { tween(durationMillis = 300, easing = androidx.compose.animation.core.FastOutSlowInEasing) },
-        label = "BorderColor"
-    ) { running ->
-        if (running) Color(0xFF4CAF50) else MaterialTheme.colorScheme.outline
-    }
-
-    // Ripple/Breathing animation when running
-    val infiniteTransition = rememberInfiniteTransition(label = "BreathingTransition")
-    val rippleScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = if (isRunning) 1.2f else 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "RippleScale"
-    )
-    
-    val rippleAlpha by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = if (isRunning) 0.1f else 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "RippleAlpha"
-    )
-    
-    // Smooth visibility transition for ripple (prevents instant disappear)
-    val rippleVisibility by animateFloatAsState(
-        targetValue = if (isRunning) 1f else 0f,
-        animationSpec = tween(durationMillis = 300, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-        label = "RippleVisibility"
-    )
+    // 移除边框颜色动画
+    val borderColor = Color.Transparent
 
     // 使用 Box 保持居中，移除硬编码的 padding
     Box(
@@ -138,40 +167,39 @@ fun BigToggle(
             contentAlignment = Alignment.Center,
             modifier = Modifier.offset(y = verticalOffset)
         ) {
-            // Ripple Effect Layer
-            Box(
-                modifier = Modifier
-                    .size(200.dp)
-                    .scale(if (rippleVisibility > 0f) rippleScale else 1f)
-                    .clip(CircleShape)
-                    .background(OLEDBlack.copy(alpha = rippleAlpha * rippleVisibility))
-            )
-
             // Main Button
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .size(200.dp)
                     .scale(scale)
-                    .clip(CircleShape)
-                    .background(backgroundColor)
-                    .clickable(
-                        interactionSource = interactionSource,
-                        indication = null,
-                        onClick = onClick
-                    )
-                    .graphicsLayer {
-                        shadowElevation = if (isRunning) 10.dp.toPx() else 2.dp.toPx()
-                        shape = CircleShape
-                        clip = true
-                    }
-                    .background(backgroundColor)
+                    .offset(y = bounceOffset.value.dp) // 应用弹跳偏移
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.PowerSettingsNew,
-                    contentDescription = if (isRunning) "Stop" else "Start",
-                    tint = iconColor,
-                    modifier = Modifier.size(100.dp)
+                // 点击区域和背景 (保持圆形)
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clip(CircleShape)
+                        .background(backgroundColor)
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            onClick = onClick
+                        )
+                )
+
+                // 动态表情逻辑
+                val emoji = if (isRunning) "😳" else "😴"
+
+                // 表情层 (允许超出圆形边界)
+                Text(
+                    text = emoji,
+                    fontSize = 130.sp,
+                    modifier = Modifier
+                        .offset(x = (-4).dp, y = 8.dp)
+                        .graphicsLayer {
+                            rotationZ = rotation.value
+                        }
                 )
             }
         }

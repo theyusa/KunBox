@@ -123,7 +123,7 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
         return try {
             val request = Request.Builder()
                 .url(url)
-                .header("User-Agent", "KunK-SingBox-App")
+                .header("User-Agent", "KunK-KunBox-App")
                 .build()
 
             client.newCall(request).execute().use { response ->

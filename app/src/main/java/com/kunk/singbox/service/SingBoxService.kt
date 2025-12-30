@@ -644,7 +644,7 @@ private val platformInterface = object : PlatformInterface {
 
                 val settings = currentSettings
                 val builder = Builder()
-                    .setSession("SingBox VPN")
+                    .setSession("KunBox VPN")
                     .setMtu(if (options.mtu > 0) options.mtu else (settings?.tunMtu ?: 1500))
 
                 // 添加地址
@@ -1823,7 +1823,7 @@ private val platformInterface = object : PlatformInterface {
                 isRunning = true
                 stopForeignVpnMonitor()
                 setLastError(null)
-                Log.i(TAG, "SingBox VPN started successfully")
+                Log.i(TAG, "KunBox VPN started successfully")
                 VpnTileService.persistVpnState(applicationContext, true)
                 VpnStateStore.setMode(applicationContext, VpnStateStore.CoreMode.VPN)
                 VpnTileService.persistVpnPending(applicationContext, "")
@@ -2254,7 +2254,7 @@ private val platformInterface = object : PlatformInterface {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
         }.apply {
-            setContentTitle("SingBox VPN")
+            setContentTitle("KunBox VPN")
             setContentText("当前节点: $activeNodeName")
             setSmallIcon(android.R.drawable.ic_lock_lock)
             setContentIntent(pendingIntent)

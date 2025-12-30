@@ -130,9 +130,11 @@ fun SplashScreen(
             
             // App name
             Text(
-                text = "SingBox",
+                text = "KunBox",
                 fontSize = 32.sp,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.ExtraBold,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
                 color = PureWhite,
                 modifier = Modifier.alpha(textAlpha.value)
             )

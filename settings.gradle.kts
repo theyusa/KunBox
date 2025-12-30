@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "SingBoxAndroid"
+rootProject.name = "KunBoxAndroid"
 include(":app")

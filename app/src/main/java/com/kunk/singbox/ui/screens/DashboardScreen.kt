@@ -19,6 +19,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import kotlin.math.cos
+import kotlin.math.sin
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.BugReport
@@ -42,8 +47,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.navigation.NavController
 import com.kunk.singbox.model.ConnectionState
 import com.kunk.singbox.model.RoutingMode
@@ -283,30 +291,57 @@ fun DashboardScreen(
         label = "PulseAlpha"
     )
 
+    val defaultBaseColor = MaterialTheme.colorScheme.onSurface
+
     Box(modifier = Modifier.fillMaxSize()) {
-        // Background Decoration
+        // Background Decoration - 3D Box Cage (Back Face & Connections)
         androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
             val center = center
-            val baseRadius = size.minDimension / 1.5f
-            
-            // Inner Circle
-            drawCircle(
-                color = if (isRunning) Color(0xFF4CAF50).copy(alpha = pulseAlpha * 0.3f) else Color(0xFF2C2C2C),
-                radius = baseRadius * pulseScale,
-                center = center,
-                style = androidx.compose.ui.graphics.drawscope.Stroke(
-                    width = if (isRunning) 4.dp.toPx() else 2.dp.toPx()
-                )
-            )
-            
-            // Outer Circle
-            drawCircle(
-                color = if (isRunning) Color(0xFF4CAF50).copy(alpha = pulseAlpha * 0.15f) else Color(0xFF1E1E1E),
-                radius = (baseRadius * 1.2f) * (pulseScale * 1.02f), // Slightly different scale for depth
-                center = center,
-                style = androidx.compose.ui.graphics.drawscope.Stroke(
-                    width = if (isRunning) 2.dp.toPx() else 1.dp.toPx()
-                )
+            val baseSize = size.minDimension * 0.55f * pulseScale
+
+            val baseAlpha = if (isRunning) pulseAlpha * 0.5f else 0.15f
+            val color = defaultBaseColor.copy(alpha = baseAlpha)
+            val strokeWidth = if (isRunning) 2.dp.toPx() else 1.dp.toPx()
+
+            val rotationX = Math.toRadians(15.0).toFloat()
+            val rotationY = Math.toRadians(35.0).toFloat()
+
+            fun project(x: Float, y: Float, z: Float): Offset {
+                val y1 = y * cos(rotationX) - z * sin(rotationX)
+                val z1 = y * sin(rotationX) + z * cos(rotationX)
+                val x2 = x * cos(rotationY) + z1 * sin(rotationY)
+                return Offset(center.x + x2, center.y + y1)
+            }
+
+            val s = baseSize / 1.5f
+
+            val p1 = project(-s, -s, -s)
+            val p2 = project(s, -s, -s)
+            val p3 = project(s, s, -s)
+            val p4 = project(-s, s, -s)
+            val p5 = project(-s, -s, s)
+            val p6 = project(s, -s, s)
+            val p7 = project(s, s, s)
+            val p8 = project(-s, s, s)
+
+            val path = Path()
+            // Back Face (p5-p8)
+            path.moveTo(p5.x, p5.y)
+            path.lineTo(p6.x, p6.y)
+            path.lineTo(p7.x, p7.y)
+            path.lineTo(p8.x, p8.y)
+            path.close()
+
+            // Connections
+            path.moveTo(p1.x, p1.y); path.lineTo(p5.x, p5.y)
+            path.moveTo(p2.x, p2.y); path.lineTo(p6.x, p6.y)
+            path.moveTo(p3.x, p3.y); path.lineTo(p7.x, p7.y)
+            path.moveTo(p4.x, p4.y); path.lineTo(p8.x, p8.y)
+
+            drawPath(
+                path = path,
+                color = color,
+                style = Stroke(width = strokeWidth)
             )
         }
 
@@ -326,7 +361,7 @@ fun DashboardScreen(
                 // App Logo & Title
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    modifier = Modifier.padding(bottom = 12.dp)
                 ) {
                     // Use AndroidView to render adaptive icon correctly
                     AndroidView(
@@ -336,12 +371,15 @@ fun DashboardScreen(
                             }
                         },
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(40.dp)
                             .padding(end = 12.dp)
                     )
                     Text(
-                        text = "SingBox",
-                        style = MaterialTheme.typography.headlineLarge,
+                        text = "KunBox",
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        ),
                         color = MaterialTheme.colorScheme.onBackground
                     )
                 }
@@ -382,7 +420,7 @@ fun DashboardScreen(
                         label = activeProfileName ?: "未选择配置",
                         onClick = {
                             if (profiles.isNotEmpty()) {
-                                showProfileDialog = true
+                                 showProfileDialog = true
                             } else {
                                 Toast.makeText(context, "暂无可用配置", Toast.LENGTH_SHORT).show()
                             }
@@ -463,6 +501,49 @@ fun DashboardScreen(
                     QuickActionButton(Icons.Rounded.BugReport, "网络诊断") { navController.navigate(Screen.Diagnostics.route) }
                 }
             }
+        }
+
+        // Foreground Decoration - 3D Box Cage (Front Face)
+        // Drawn on top of Column to create "Trapped" effect
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+            val center = center
+            val baseSize = size.minDimension * 0.55f * pulseScale
+
+            val baseAlpha = if (isRunning) pulseAlpha * 0.5f else 0.15f
+            val color = defaultBaseColor.copy(alpha = baseAlpha)
+            val strokeWidth = if (isRunning) 2.dp.toPx() else 1.dp.toPx()
+
+            val rotationX = Math.toRadians(15.0).toFloat()
+            val rotationY = Math.toRadians(35.0).toFloat()
+
+            fun project(x: Float, y: Float, z: Float): Offset {
+                val y1 = y * cos(rotationX) - z * sin(rotationX)
+                val z1 = y * sin(rotationX) + z * cos(rotationX)
+                val x2 = x * cos(rotationY) + z1 * sin(rotationY)
+                return Offset(center.x + x2, center.y + y1)
+            }
+
+            val s = baseSize / 1.5f
+
+            // Only need p1-p4 for front face
+            val p1 = project(-s, -s, -s)
+            val p2 = project(s, -s, -s)
+            val p3 = project(s, s, -s)
+            val p4 = project(-s, s, -s)
+
+            val path = Path()
+            // Front Face
+            path.moveTo(p1.x, p1.y)
+            path.lineTo(p2.x, p2.y)
+            path.lineTo(p3.x, p3.y)
+            path.lineTo(p4.x, p4.y)
+            path.close()
+
+            drawPath(
+                path = path,
+                color = color,
+                style = Stroke(width = strokeWidth)
+            )
         }
     }
 }

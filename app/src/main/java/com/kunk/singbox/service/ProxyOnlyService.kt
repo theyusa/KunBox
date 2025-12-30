@@ -580,7 +580,7 @@ class ProxyOnlyService : Service() {
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("SingBox")
+                .setContentTitle("KunBox")
                 .setContentText("Proxy-only running")
                 .setSmallIcon(android.R.drawable.stat_sys_upload)
                 .setContentIntent(pendingIntent)
@@ -589,7 +589,7 @@ class ProxyOnlyService : Service() {
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("SingBox")
+                .setContentTitle("KunBox")
                 .setContentText("Proxy-only running")
                 .setSmallIcon(android.R.drawable.stat_sys_upload)
                 .setContentIntent(pendingIntent)

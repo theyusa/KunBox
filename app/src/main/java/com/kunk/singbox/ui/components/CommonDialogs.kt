@@ -898,7 +898,7 @@ fun AboutDialog(onDismiss: () -> Unit) {
     val linkColor = MaterialTheme.colorScheme.primary
 
     val annotatedString = buildAnnotatedString {
-        append("SingBox for Android\n\n地址: ")
+        append("KunBox for Android\n\n地址: ")
         pushStringAnnotation(tag = "URL", annotation = githubUrl)
         withStyle(
             style = SpanStyle(
@@ -906,7 +906,7 @@ fun AboutDialog(onDismiss: () -> Unit) {
                 textDecoration = TextDecoration.Underline
             )
         ) {
-            append("SingBoxForAndroid")
+            append("KunBoxForAndroid")
         }
         pop()
         append("\n\n基于 Sing-box 内核构建。\n\nDesigned by KunK.")
@@ -920,7 +920,7 @@ fun AboutDialog(onDismiss: () -> Unit) {
                 .padding(24.dp)
         ) {
             Text(
-                text = "关于 SingBox",
+                text = "关于 KunBox",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface

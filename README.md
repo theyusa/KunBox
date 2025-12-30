@@ -1,6 +1,6 @@
-<div align="center">
+h<div align="center">
 
-# SingBox for Android
+# KunBox for Android
 
 [![Kotlin](https://img.shields.io/badge/Kotlin-1.9.0-purple.svg?style=flat&logo=kotlin)](https://kotlinlang.org)
 [![Compose](https://img.shields.io/badge/Jetpack%20Compose-Material3-4285F4.svg?style=flat&logo=android)](https://developer.android.com/jetpack/compose)
@@ -84,7 +84,7 @@
 本项目遵循现代 Android 架构的最佳实践，采用 MVVM 模式与 Clean Architecture 设计理念。
 
 ```
-SingBox-Android/
+KunBox-Android/
 ├── app/
 │   ├── src/main/java/com/kunk/singbox/
 │   │   ├── model/           # 数据模型 (Config, Profile, RuleSet)

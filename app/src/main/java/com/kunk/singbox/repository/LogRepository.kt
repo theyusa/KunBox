@@ -129,7 +129,7 @@ class LogRepository private constructor() {
     fun getLogsAsText(): String {
         val exportDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         val header = buildString {
-            appendLine("=== SingBox 运行日志 ===")
+            appendLine("=== KunBox 运行日志 ===")
             appendLine("导出时间: ${exportDateFormat.format(Date())}")
             appendLine("设备型号: ${Build.MANUFACTURER} ${Build.MODEL}")
             appendLine("Android 版本: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")

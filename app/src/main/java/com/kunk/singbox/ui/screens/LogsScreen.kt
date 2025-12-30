@@ -51,7 +51,7 @@ fun LogsScreen(navController: NavController, viewModel: LogViewModel = viewModel
                         val logsText = viewModel.getLogsForExport()
                         val shareIntent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "SingBox 运行日志")
+                            putExtra(Intent.EXTRA_SUBJECT, "KunBox 运行日志")
                             putExtra(Intent.EXTRA_TEXT, logsText)
                         }
                         context.startActivity(Intent.createChooser(shareIntent, "导出日志"))
