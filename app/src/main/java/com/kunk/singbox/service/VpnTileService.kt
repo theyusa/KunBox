@@ -135,7 +135,7 @@ class VpnTileService : TileService() {
                 .getString(KEY_VPN_PENDING, "")
         }.getOrNull().orEmpty()
 
-        if (!serviceBound || remoteService == null) {
+        if (!serviceBound || remoteService == null || pending.isNotEmpty()) {
             lastServiceState = when (pending) {
                 "starting" -> SingBoxService.ServiceState.STARTING
                 "stopping" -> SingBoxService.ServiceState.STOPPING

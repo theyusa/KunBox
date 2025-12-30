@@ -116,11 +116,15 @@ fun ProfilesScreen(
                 Toast.makeText(context, "导入失败: ${state.message}", Toast.LENGTH_LONG).show()
                 viewModel.resetImportState()
             }
-            is com.kunk.singbox.viewmodel.ProfilesViewModel.ImportState.Loading -> {
-                Toast.makeText(context, state.message, Toast.LENGTH_SHORT).show()
-            }
+            // Loading state is now handled by ImportLoadingDialog
             else -> {}
         }
+    }
+
+    if (importState is com.kunk.singbox.viewmodel.ProfilesViewModel.ImportState.Loading) {
+        ImportLoadingDialog(
+            message = (importState as com.kunk.singbox.viewmodel.ProfilesViewModel.ImportState.Loading).message
+        )
     }
 
     if (showImportSelection) {
@@ -337,6 +341,52 @@ private fun ImportSelectionDialog(
                 title = "扫描二维码",
                 subtitle = "使用相机扫描",
                 onClick = { onTypeSelected(ProfileImportType.QRCode) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ImportLoadingDialog(message: String) {
+    // 尝试解析进度信息 (例如 "正在提取节点 (50/1000)...")
+    val progress = remember(message) {
+        val regex = Regex("\\((\\d+)/(\\d+)\\)")
+        val match = regex.find(message)
+        if (match != null) {
+            val (current, total) = match.destructured
+            current.toFloat() / total.toFloat()
+        } else {
+            null
+        }
+    }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = {}) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(SurfaceCard, RoundedCornerShape(24.dp))
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            if (progress != null) {
+                androidx.compose.material3.LinearProgressIndicator(
+                    progress = progress,
+                    modifier = Modifier.fillMaxWidth().height(8.dp),
+                    color = PureWhite,
+                    trackColor = Neutral500.copy(alpha = 0.3f),
+                    strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
+                )
+            } else {
+                androidx.compose.material3.CircularProgressIndicator(
+                    color = PureWhite
+                )
+            }
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = TextPrimary
             )
         }
     }

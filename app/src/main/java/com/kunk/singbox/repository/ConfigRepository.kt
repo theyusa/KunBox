@@ -507,12 +507,18 @@ class ConfigRepository(private val context: Context) {
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         Log.w(TAG, "Request failed with UA '$userAgent': HTTP ${response.code}")
+                        if (index == USER_AGENTS.lastIndex) {
+                            throw Exception("HTTP ${response.code}: ${response.message}")
+                        }
                         return@use
                     }
 
                     val responseBody = response.body?.string()
                     if (responseBody.isNullOrBlank()) {
                         Log.w(TAG, "Empty response with UA '$userAgent'")
+                        if (index == USER_AGENTS.lastIndex) {
+                            throw Exception("服务器返回空内容")
+                        }
                         return@use
                     }
 
@@ -534,6 +540,11 @@ class ConfigRepository(private val context: Context) {
                         parsedConfig = config
                     } else {
                         Log.w(TAG, "Failed to parse response with UA '$userAgent'")
+                        if (index == USER_AGENTS.lastIndex) {
+                            // 如果是最后一次尝试，且内容不为空但无法解析，则可能是格式问题
+                            // 但也有可能是网络截断等问题，这里我们记录为解析失败
+                            // 让外层决定是否抛出异常（外层通过返回值 null 判断）
+                        }
                     }
                 }
 
@@ -544,10 +555,14 @@ class ConfigRepository(private val context: Context) {
             } catch (e: Exception) {
                 Log.w(TAG, "Error with UA '$userAgent': ${e.message}")
                 lastError = e
+                // 如果是最后一次尝试，重新抛出异常以便上层捕获详细信息
+                if (index == USER_AGENTS.lastIndex) {
+                    throw e
+                }
             }
         }
         
-        // 所有 UA 都失败了，记录最后的错误
+        // 理论上不会执行到这里，因为最后一次尝试会抛出异常
         lastError?.let { Log.e(TAG, "All User-Agents failed", it) }
         return null
     }
@@ -930,8 +945,17 @@ class ConfigRepository(private val context: Context) {
             onProgress("正在获取订阅...")
             
             // 使用智能 User-Agent 切换策略获取订阅
-            val fetchResult = fetchAndParseSubscription(url, onProgress)
-                ?: return@withContext Result.failure(Exception("无法解析配置格式，已尝试所有 User-Agent"))
+            val fetchResult = try {
+                fetchAndParseSubscription(url, onProgress)
+            } catch (e: Exception) {
+                // 捕获 fetchAndParseSubscription 抛出的具体网络异常
+                Log.e(TAG, "Subscription fetch failed", e)
+                return@withContext Result.failure(e)
+            }
+
+            if (fetchResult == null) {
+                return@withContext Result.failure(Exception("无法解析配置格式，请检查订阅链接是否正确"))
+            }
             
             val config = fetchResult.config
             val userInfo = fetchResult.userInfo
@@ -939,7 +963,7 @@ class ConfigRepository(private val context: Context) {
             onProgress("正在提取节点...")
             
             val profileId = UUID.randomUUID().toString()
-            val nodes = extractNodesFromConfig(config, profileId)
+            val nodes = extractNodesFromConfig(config, profileId, onProgress)
             
             if (nodes.isEmpty()) {
                 return@withContext Result.failure(Exception("未找到有效节点"))
@@ -980,18 +1004,16 @@ class ConfigRepository(private val context: Context) {
             onProgress("导入成功，共 ${nodes.size} 个节点")
             
             Result.success(profile)
-        } catch (e: java.net.SocketTimeoutException) {
-            Log.e(TAG, "Subscription fetch timeout", e)
-            Result.failure(Exception("订阅获取超时，请检查网络连接"))
-        } catch (e: java.net.UnknownHostException) {
-            Log.e(TAG, "DNS resolution failed", e)
-            Result.failure(Exception("域名解析失败，请检查网络或订阅地址"))
-        } catch (e: javax.net.ssl.SSLHandshakeException) {
-            Log.e(TAG, "SSL handshake failed", e)
-            Result.failure(Exception("SSL证书验证失败，请检查订阅地址"))
         } catch (e: Exception) {
             Log.e(TAG, "Subscription import failed", e)
-            Result.failure(Exception("导入失败: ${e.message ?: "未知错误"}"))
+            // 确保抛出的异常信息对用户友好
+            val msg = when(e) {
+                is java.net.SocketTimeoutException -> "连接超时，请检查网络"
+                is java.net.UnknownHostException -> "无法解析域名，请检查链接"
+                is javax.net.ssl.SSLHandshakeException -> "SSL证书验证失败"
+                else -> e.message ?: "导入失败"
+            }
+            Result.failure(Exception(msg))
         }
     }
 
@@ -1011,7 +1033,7 @@ class ConfigRepository(private val context: Context) {
             onProgress("正在提取节点...")
 
             val profileId = UUID.randomUUID().toString()
-            val nodes = extractNodesFromConfig(config, profileId)
+            val nodes = extractNodesFromConfig(config, profileId, onProgress)
 
             if (nodes.isEmpty()) {
                 return@withContext Result.failure(Exception("未找到有效节点"))
@@ -1779,7 +1801,11 @@ class ConfigRepository(private val context: Context) {
     /**
      * 从配置中提取节点
      */
-    private fun extractNodesFromConfig(config: SingBoxConfig, profileId: String): List<NodeUi> {
+    private fun extractNodesFromConfig(
+        config: SingBoxConfig,
+        profileId: String,
+        onProgress: ((String) -> Unit)? = null
+    ): List<NodeUi> {
         val nodes = mutableListOf<NodeUi>()
         val outbounds = config.outbounds ?: return nodes
         val trafficRepo = TrafficRepository.getInstance(context)
@@ -1808,8 +1834,17 @@ class ConfigRepository(private val context: Context) {
             "hysteria", "hysteria2", "tuic", "wireguard",
             "shadowtls", "ssh", "anytls"
         )
+
+        var processedCount = 0
+        val totalCount = outbounds.size
         
         for (outbound in outbounds) {
+            processedCount++
+            // 每处理50个节点回调一次进度
+            if (processedCount % 50 == 0) {
+                onProgress?.invoke("正在提取节点 ($processedCount/$totalCount)...")
+            }
+
             if (outbound.type in proxyTypes) {
                 var group = nodeToGroup[outbound.tag] ?: "未分组"
                 
