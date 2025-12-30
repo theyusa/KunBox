@@ -505,6 +505,7 @@ class SingBoxService : VpnService() {
 
     private var commandServer: io.nekohasekai.libbox.CommandServer? = null
     private var commandClient: io.nekohasekai.libbox.CommandClient? = null
+    private var commandClientLogs: io.nekohasekai.libbox.CommandClient? = null
     private var commandClientConnections: io.nekohasekai.libbox.CommandClient? = null
     @Volatile private var activeConnectionNode: String? = null
     @Volatile private var activeConnectionLabel: String? = null
@@ -2006,6 +2007,8 @@ class SingBoxService : VpnService() {
         try {
             commandClient?.disconnect()
             commandClient = null
+            commandClientLogs?.disconnect()
+            commandClientLogs = null
             commandClientConnections?.disconnect()
             commandClientConnections = null
             commandServer?.close()
@@ -2473,8 +2476,24 @@ class SingBoxService : VpnService() {
                 Log.w(TAG, "CommandClient disconnected: $message")
             }
 
-            override fun clearLogs() {}
-            override fun writeLogs(messageList: StringIterator?) {}
+            override fun clearLogs() {
+                runCatching {
+                    com.kunk.singbox.repository.LogRepository.getInstance().clearLogs()
+                }
+            }
+
+            override fun writeLogs(messageList: StringIterator?) {
+                if (messageList == null) return
+                val repo = com.kunk.singbox.repository.LogRepository.getInstance()
+                runCatching {
+                    while (messageList.hasNext()) {
+                        val msg = messageList.next()
+                        if (!msg.isNullOrBlank()) {
+                            repo.addLog(msg)
+                        }
+                    }
+                }
+            }
             override fun writeStatus(message: StatusMessage?) {
                 message ?: return
                 // 获取全局流量
@@ -2684,6 +2703,14 @@ class SingBoxService : VpnService() {
         commandClient = Libbox.newCommandClient(clientHandler, options)
         commandClient?.connect()
         Log.i(TAG, "CommandClient connected")
+
+        // 2. Create and connect CommandClient for Logs (running logs)
+        val optionsLog = CommandClientOptions()
+        optionsLog.command = Libbox.CommandLog
+        optionsLog.statusInterval = 1500L * 1000L * 1000L // 1.5s (unit: ns)
+        commandClientLogs = Libbox.newCommandClient(clientHandler, optionsLog)
+        commandClientLogs?.connect()
+        Log.i(TAG, "CommandClient (Logs) connected")
 
         // 3. Create and connect CommandClient for Connections (to show real-time routing)
         val optionsConn = CommandClientOptions()

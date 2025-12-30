@@ -334,6 +334,21 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }
 
+            // Force restart to apply latest generated config.
+            // ACTION_START on running service is ignored, so we must STOP first.
+            runCatching {
+                context.startService(Intent(context, SingBoxService::class.java).apply {
+                    action = SingBoxService.ACTION_STOP
+                })
+            }
+            runCatching {
+                context.startService(Intent(context, ProxyOnlyService::class.java).apply {
+                    action = ProxyOnlyService.ACTION_STOP
+                })
+            }
+
+            delay(800)
+
             startCore()
         }
     }

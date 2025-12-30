@@ -395,9 +395,11 @@ class SettingsRepository(private val context: Context) {
     }
     
     // 路由设置
-    suspend fun setRoutingMode(value: RoutingMode) {
+    suspend fun setRoutingMode(value: RoutingMode, notifyRestartRequired: Boolean = true) {
         context.dataStore.edit { it[PreferencesKeys.ROUTING_MODE] = value.displayName }
-        notifyRestartRequired()
+        if (notifyRestartRequired) {
+            notifyRestartRequired()
+        }
     }
     
     suspend fun setDefaultRule(value: DefaultRule) {

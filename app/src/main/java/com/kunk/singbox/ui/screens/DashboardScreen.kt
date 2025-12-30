@@ -35,10 +35,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -46,8 +46,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.kunk.singbox.model.ConnectionState
+import com.kunk.singbox.model.RoutingMode
 import com.kunk.singbox.ui.navigation.Screen
 import com.kunk.singbox.viewmodel.DashboardViewModel
+import com.kunk.singbox.viewmodel.SettingsViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kunk.singbox.ui.components.BigToggle
 import com.kunk.singbox.ui.components.ConfirmDialog
@@ -75,7 +77,8 @@ import androidx.compose.animation.core.tween
 @Composable
 fun DashboardScreen(
     navController: NavController,
-    viewModel: DashboardViewModel = viewModel()
+    viewModel: DashboardViewModel = viewModel(),
+    settingsViewModel: SettingsViewModel = viewModel()
 ) {
     val context = LocalContext.current
     
@@ -88,13 +91,14 @@ fun DashboardScreen(
     val currentNodePing by viewModel.currentNodePing.collectAsState()
     val isPingTesting by viewModel.isPingTesting.collectAsState()
     val nodes by viewModel.nodes.collectAsState()
+    val settings by settingsViewModel.settings.collectAsState()
     
     // 获取活跃配置和节点的名称
     val activeProfileName = profiles.find { it.id == activeProfileId }?.name
     val activeNodeName = viewModel.getActiveNodeName()
     
     var showModeDialog by remember { mutableStateOf(false) }
-    var currentMode by remember { mutableStateOf("规则模式") }
+    val currentMode = settings.routingMode.displayName
     var showUpdateDialog by remember { mutableStateOf(false) }
     var showTestDialog by remember { mutableStateOf(false) }
     var showProfileDialog by remember { mutableStateOf(false) }
@@ -166,13 +170,19 @@ fun DashboardScreen(
     }
 
     if (showModeDialog) {
-        val options = listOf("规则模式", "全局代理", "全局直连")
+        val options = RoutingMode.entries.map { it.displayName }
         SingleSelectDialog(
             title = "路由模式",
             options = options,
-            selectedIndex = options.indexOf(currentMode).coerceAtLeast(0),
+            selectedIndex = RoutingMode.entries.indexOf(settings.routingMode).coerceAtLeast(0),
             onSelect = { index ->
-                currentMode = options[index]
+                settingsViewModel.setRoutingMode(
+                    RoutingMode.entries[index],
+                    notifyRestartRequired = false
+                )
+                if (connectionState == ConnectionState.Connected || connectionState == ConnectionState.Connecting) {
+                    viewModel.restartVpn()
+                }
                 showModeDialog = false
             },
             onDismiss = { showModeDialog = false }

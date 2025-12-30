@@ -137,8 +137,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
     
     // 路由设置
-    fun setRoutingMode(value: RoutingMode) {
-        viewModelScope.launch { repository.setRoutingMode(value) }
+    fun setRoutingMode(value: RoutingMode, notifyRestartRequired: Boolean = true) {
+        viewModelScope.launch { repository.setRoutingMode(value, notifyRestartRequired) }
     }
     
     fun setDefaultRule(value: DefaultRule) {

@@ -368,7 +368,7 @@ fun NodesScreen(
             ) {
                 itemsIndexed(
                     items = filteredNodes,
-                    key = { _, node -> node.id },
+                    key = { index, node -> "${node.id}_$index" },
                     contentType = { _, _ -> "node" }
                 ) { index, node ->
                     val isSelected = activeNodeId == node.id
@@ -389,45 +389,63 @@ fun NodesScreen(
                     val onLatency = remember(node.id) { { viewModel.testLatency(node.id) } }
                     val onDelete = remember(node.id) { { viewModel.deleteNode(node.id) } }
 
-                    var visible by remember { mutableStateOf(false) }
-                    LaunchedEffect(Unit) {
-                        if (index < 15) {
+                    // Optimization: Only animate first 15 items to reduce load
+                    if (index < 15) {
+                        var visible by remember { mutableStateOf(false) }
+                        LaunchedEffect(Unit) {
                             delay(index * 30L)
+                            visible = true
                         }
-                        visible = true
+
+                        val alpha by animateFloatAsState(
+                            targetValue = if (visible) 1f else 0f,
+                            animationSpec = tween(durationMillis = 300),
+                            label = "alpha"
+                        )
+                        val translateY by animateFloatAsState(
+                            targetValue = if (visible) 0f else 40f,
+                            animationSpec = tween(durationMillis = 300),
+                            label = "translateY"
+                        )
+
+                        NodeCard(
+                            name = node.displayName,
+                            type = node.protocol,
+                            latency = node.latencyMs,
+                            isSelected = isSelected,
+                            isTesting = isTestingNode,
+                            regionFlag = node.regionFlag,
+                            trafficUsed = node.trafficUsed,
+                            onClick = onNodeClick,
+                            onEdit = onEdit,
+                            onExport = onExport,
+                            onLatency = onLatency,
+                            onDelete = onDelete,
+                            modifier = Modifier
+                                .animateItemPlacement()
+                                .graphicsLayer(
+                                    alpha = alpha,
+                                    translationY = translateY
+                                )
+                        )
+                    } else {
+                        // For items beyond the first 15, render directly without animation overhead
+                        NodeCard(
+                            name = node.displayName,
+                            type = node.protocol,
+                            latency = node.latencyMs,
+                            isSelected = isSelected,
+                            isTesting = isTestingNode,
+                            regionFlag = node.regionFlag,
+                            trafficUsed = node.trafficUsed,
+                            onClick = onNodeClick,
+                            onEdit = onEdit,
+                            onExport = onExport,
+                            onLatency = onLatency,
+                            onDelete = onDelete,
+                            modifier = Modifier.animateItemPlacement()
+                        )
                     }
-
-                    val alpha by animateFloatAsState(
-                        targetValue = if (visible) 1f else 0f,
-                        animationSpec = tween(durationMillis = 300),
-                        label = "alpha"
-                    )
-                    val translateY by animateFloatAsState(
-                        targetValue = if (visible) 0f else 40f,
-                        animationSpec = tween(durationMillis = 300),
-                        label = "translateY"
-                    )
-
-                    NodeCard(
-                        name = node.displayName,
-                        type = node.protocol,
-                        latency = node.latencyMs,
-                        isSelected = isSelected,
-                        isTesting = isTestingNode,
-                        regionFlag = node.regionFlag,
-                        trafficUsed = node.trafficUsed,
-                        onClick = onNodeClick,
-                        onEdit = onEdit,
-                        onExport = onExport,
-                        onLatency = onLatency,
-                        onDelete = onDelete,
-                        modifier = Modifier
-                            .animateItemPlacement()
-                            .graphicsLayer(
-                                alpha = alpha,
-                                translationY = translateY
-                            )
-                    )
                 }
             }
         }
