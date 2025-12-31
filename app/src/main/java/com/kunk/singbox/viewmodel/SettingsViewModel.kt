@@ -161,6 +161,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setBlockQuic(value: Boolean) {
         viewModelScope.launch { repository.setBlockQuic(value) }
     }
+
+    fun setDebugLoggingEnabled(value: Boolean) {
+        viewModelScope.launch { repository.setDebugLoggingEnabled(value) }
+    }
     
     fun setLatencyTestMethod(value: LatencyTestMethod) {
         viewModelScope.launch { repository.setLatencyTestMethod(value) }

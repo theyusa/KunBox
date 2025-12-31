@@ -62,6 +62,14 @@ class LogRepository private constructor() {
 
     fun addLog(message: String) {
         val timestamp = synchronized(dateFormat) { dateFormat.format(Date()) }
+        // 过滤掉过于频繁的无用日志
+        if (message.contains("DEBUG") &&
+            (message.contains("selector: selected outbound") ||
+             message.contains("dns: exchange") ||
+             message.contains("internet v4 address"))) {
+            return
+        }
+
         val formattedLog = "[$timestamp] $message"
         val finalLog = if (formattedLog.length > maxLogLineLength) {
             formattedLog.substring(0, maxLogLineLength)

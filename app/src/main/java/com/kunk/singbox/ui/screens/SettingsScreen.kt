@@ -195,6 +195,13 @@ fun SettingsScreen(
                     }
                 }
             )
+            com.kunk.singbox.ui.components.SettingSwitchItem(
+                title = "调试模式",
+                subtitle = "开启后记录详细日志（需重启服务）",
+                icon = Icons.Rounded.BugReport,
+                checked = settings.debugLoggingEnabled,
+                onCheckedChange = { viewModel.setDebugLoggingEnabled(it) }
+            )
             SettingItem(
                 title = "运行日志",
                 icon = Icons.Rounded.History,

@@ -95,6 +95,7 @@ class SettingsRepository(private val context: Context) {
         val LATENCY_TEST_URL = stringPreferencesKey("latency_test_url")
         val BYPASS_LAN = booleanPreferencesKey("bypass_lan")
         val GH_PROXY_MIRROR = stringPreferencesKey("gh_proxy_mirror")
+        val DEBUG_LOGGING_ENABLED = booleanPreferencesKey("debug_logging_enabled")
         
         // 代理设置
         val PROXY_PORT = intPreferencesKey("proxy_port")
@@ -264,6 +265,7 @@ class SettingsRepository(private val context: Context) {
             defaultRule = DefaultRule.fromDisplayName(preferences[PreferencesKeys.DEFAULT_RULE] ?: "代理"),
             blockAds = preferences[PreferencesKeys.BLOCK_ADS] ?: true,
             blockQuic = preferences[PreferencesKeys.BLOCK_QUIC] ?: true,
+            debugLoggingEnabled = preferences[PreferencesKeys.DEBUG_LOGGING_ENABLED] ?: false,
             latencyTestMethod = LatencyTestMethod.valueOf(preferences[PreferencesKeys.LATENCY_TEST_METHOD] ?: LatencyTestMethod.REAL_RTT.name),
             latencyTestUrl = preferences[PreferencesKeys.LATENCY_TEST_URL] ?: "https://cp.cloudflare.com/generate_204",
             bypassLan = preferences[PreferencesKeys.BYPASS_LAN] ?: true,
@@ -428,6 +430,11 @@ class SettingsRepository(private val context: Context) {
     
     suspend fun setBlockQuic(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.BLOCK_QUIC] = value }
+        notifyRestartRequired()
+    }
+
+    suspend fun setDebugLoggingEnabled(value: Boolean) {
+        context.dataStore.edit { it[PreferencesKeys.DEBUG_LOGGING_ENABLED] = value }
         notifyRestartRequired()
     }
     

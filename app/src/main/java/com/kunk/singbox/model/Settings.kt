@@ -48,6 +48,7 @@ data class AppSettings(
     @SerializedName("blockAds") val blockAds: Boolean = true,
     @SerializedName("bypassLan") val bypassLan: Boolean = true,
     @SerializedName("blockQuic") val blockQuic: Boolean = true,
+    @SerializedName("debugLoggingEnabled") val debugLoggingEnabled: Boolean = false,
     
     // 延迟测试设置
     @SerializedName("latencyTestMethod") val latencyTestMethod: LatencyTestMethod = LatencyTestMethod.REAL_RTT,

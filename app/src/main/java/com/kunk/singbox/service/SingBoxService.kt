@@ -1864,6 +1864,9 @@ private val platformInterface = object : PlatformInterface {
                 currentSettings = SettingsRepository.getInstance(this@SingBoxService).settings.first()
                 Log.v(TAG, "Settings loaded: tunEnabled=${currentSettings?.tunEnabled}")
 
+                // 配置日志级别
+                val logLevel = if (currentSettings?.debugLoggingEnabled == true) "debug" else "info"
+
                 // 读取配置文件
                 val configFile = File(configPath)
                 if (!configFile.exists()) {
@@ -1877,8 +1880,19 @@ private val platformInterface = object : PlatformInterface {
                 // Force "system" stack on Android to avoid gVisor bind permission issues
                 try {
                     val configObj = gson.fromJson(configContent, SingBoxConfig::class.java)
-                    if (configObj.inbounds != null) {
-                        val newInbounds = configObj.inbounds.map { inbound ->
+                    
+                    // Patch log config
+                    val logConfig = configObj.log?.copy(level = logLevel) ?: com.kunk.singbox.model.LogConfig(
+                        level = logLevel,
+                        timestamp = true,
+                        output = "box.log"
+                    )
+
+                    var newConfig = configObj.copy(log = logConfig)
+
+                    if (newConfig.inbounds != null) {
+                        // Using 'orEmpty()' to ensure non-null list for mapping, although check above handles null
+                        val newInbounds = newConfig.inbounds.orEmpty().map { inbound ->
                             if (inbound.type == "tun") {
                                 // Force stack to system or mixed? System is safer for protect() delegation.
                                 // NekoBox uses mixed/gvisor but has the protect_server.
@@ -1891,12 +1905,13 @@ private val platformInterface = object : PlatformInterface {
                                 inbound
                             }
                         }
-                        val newConfig = configObj.copy(inbounds = newInbounds)
-                        configContent = gson.toJson(newConfig)
-                        Log.i(TAG, "Patched config to force stack=system & auto_route=false")
+                        newConfig = newConfig.copy(inbounds = newInbounds)
                     }
+                    configContent = gson.toJson(newConfig)
+                    Log.i(TAG, "Patched config: stack=system, auto_route=${currentSettings?.autoRoute}, log_level=$logLevel")
+
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to patch config stack: ${e.message}")
+                    Log.w(TAG, "Failed to patch config: ${e.message}")
                 }
 
                 Log.v(TAG, "Config loaded, length: ${configContent.length}")

@@ -35,7 +35,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -266,17 +268,29 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     _connectionState.value = ConnectionState.Connected
                     _connectedAtElapsedMs.value = SystemClock.elapsedRealtime()
                     startTrafficMonitor()
-                    // VPN 启动后自动对当前节点进行测速
-                    startPingTest()
                 } else if (!SingBoxRemote.isStarting.value) {
                     _connectionState.value = ConnectionState.Idle
                     _connectedAtElapsedMs.value = null
                     stopTrafficMonitor()
                     stopPingTest()
                     _statsBase.value = ConnectionStats(0, 0, 0, 0, 0)
+                    // Disconnect resets ping state to "not tested"
                     _currentNodePing.value = null
                 }
             }
+        }
+
+        // 专门处理自动测速逻辑：仅在 VPN 状态从停止变为运行时（真正的新连接）触发测速
+        // 使用 drop(1) 跳过初始状态，防止每次进入 Dashboard 只要 VPN 开着就重测
+        viewModelScope.launch {
+            SingBoxRemote.isRunning
+                .drop(1) // 忽略初始值，避免进入页面时重复触发
+                .distinctUntilChanged() // 确保状态发生变化
+                .filter { it } // 只关注变为 running 的情况
+                .collect {
+                    // VPN 启动后自动对当前节点进行测速
+                    startPingTest()
+                }
         }
 
         // Surface service-level startup errors on UI
@@ -567,9 +581,22 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
      * 使用5秒超时限制，测不出来就终止并显示超时状态
      */
     private fun startPingTest() {
+        // Prevent redundant testing if we already have a valid ping result
+        // This stops the test from re-running every time the dashboard is opened/recomposed
+        // UNLESS the ping is currently null (not tested) or being manually refreshed
+        if (_connectionState.value == ConnectionState.Connected &&
+            _currentNodePing.value != null &&
+            _currentNodePing.value != -1L &&
+            !_isPingTesting.value) {
+            return
+        }
+
         stopPingTest()
 
         _isPingTesting.value = true
+        // Only clear current ping if we are manually retesting or it was failed/null.
+        // If it was valid, keep showing old value until new one arrives?
+        // No, UI usually shows spinner. Let's clear to indicate "refreshing".
         _currentNodePing.value = null
         
         pingTestJob = viewModelScope.launch {
@@ -646,6 +673,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     fun retestCurrentNodePing() {
         if (_connectionState.value != ConnectionState.Connected) return
         if (_isPingTesting.value) return
+        // Force test by clearing previous value to bypass the check in startPingTest
+        _currentNodePing.value = null
         startPingTest()
     }
     
