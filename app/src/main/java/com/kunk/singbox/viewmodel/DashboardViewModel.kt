@@ -466,11 +466,16 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     Intent(context, SingBoxService::class.java).apply {
                         action = SingBoxService.ACTION_START
                         putExtra(SingBoxService.EXTRA_CONFIG_PATH, configResult.path)
+                        // 从停止状态启动时，强制清理缓存，确保使用配置文件中选中的节点
+                        // 修复 bug: App 更新后 cache.db 保留了旧的选中节点，导致 UI 上选中的新节点无效
+                        putExtra(SingBoxService.EXTRA_CLEAN_CACHE, true)
                     }
                 } else {
                     Intent(context, ProxyOnlyService::class.java).apply {
                         action = ProxyOnlyService.ACTION_START
                         putExtra(ProxyOnlyService.EXTRA_CONFIG_PATH, configResult.path)
+                        // 同理，Proxy 模式也需要清理缓存
+                        putExtra(SingBoxService.EXTRA_CLEAN_CACHE, true)
                     }
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

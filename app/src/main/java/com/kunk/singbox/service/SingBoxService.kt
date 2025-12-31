@@ -1570,16 +1570,17 @@ private val platformInterface = object : PlatformInterface {
                 if (configPath != null) {
                     updateServiceState(ServiceState.STARTING)
                     synchronized(this) {
+                        // FIX: Ensure pendingCleanCache is set from intent even for cold start
+                        if (cleanCache) pendingCleanCache = true
+
                         if (isStarting) {
                             pendingStartConfigPath = configPath
-                            if (cleanCache) pendingCleanCache = true
                             stopSelfRequested = false
                             lastConfigPath = configPath
                             return START_NOT_STICKY
                         }
                         if (isStopping) {
                             pendingStartConfigPath = configPath
-                            if (cleanCache) pendingCleanCache = true
                             stopSelfRequested = false
                             lastConfigPath = configPath
                             return START_NOT_STICKY
@@ -1587,7 +1588,6 @@ private val platformInterface = object : PlatformInterface {
                         // If already running, do a clean restart to avoid half-broken tunnel state
                         if (isRunning) {
                             pendingStartConfigPath = configPath
-                            if (cleanCache) pendingCleanCache = true
                             stopSelfRequested = false
                             lastConfigPath = configPath
                         }
