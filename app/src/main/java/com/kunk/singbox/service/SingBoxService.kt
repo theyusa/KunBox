@@ -468,7 +468,27 @@ class SingBoxService : VpnService() {
                 closeRecentConnectionsBestEffort(reason = "hotSwitch")
             }
 
-            // 4. 重置网络栈 & 清理 DNS
+            // 4. 强制触发系统级网络重置
+            // 这是解决“切换后旧 TCP 连接不立即断开”问题的关键
+            // setUnderlyingNetworks(null) -> setUnderlyingNetworks(net) 会触发 ConnectivityManager 的网络变更事件
+            // 让应用（如 TG）感知到网络中断，从而放弃旧的 TCP 连接并重新建立连接
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                try {
+                    val currentNetwork = lastKnownNetwork
+                    if (currentNetwork != null) {
+                        Log.i(TAG, "Triggering system-level network reset for hot switch...")
+                        setUnderlyingNetworks(null)
+                        // 短暂延迟，确保系统传播“无网络”状态
+                        delay(150)
+                        setUnderlyingNetworks(arrayOf(currentNetwork))
+                        Log.i(TAG, "System-level network reset triggered (net=$currentNetwork)")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to trigger system network reset", e)
+                }
+            }
+
+            // 5. 重置网络栈 & 清理 DNS
             try {
                 requestCoreNetworkReset(reason = "hotSwitch", force = true)
                 Log.i(TAG, "Network stack reset")
