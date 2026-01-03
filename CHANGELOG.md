@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.1.4](https://github.com/roseforljh/KunBox/compare/v2.1.3...v2.1.4) (2026-01-03)
+
+
+### Bug Fixes
+
+* Add English;随便修了一些bug ([24d58a3](https://github.com/roseforljh/KunBox/commit/24d58a3542b62281edc2398c9937f8c1ffbd554d))
+* 优化网络稳定 ([5dbe537](https://github.com/roseforljh/KunBox/commit/5dbe53795435cf29e1488c0ee883fa014e0c2fd1))
+* 关于应用里加上app本体及singbox的版本号 ([520f158](https://github.com/roseforljh/KunBox/commit/520f1583d301f30cb82b184d2e1f737f8ca774fc))
+* 实现配置管理，加号按钮里面本地文件和扫描二维码 ([24e41ee](https://github.com/roseforljh/KunBox/commit/24e41ee59a6fe44793f4695f1936ce5267d695b6))
+* 性能优化 ([0f271df](https://github.com/roseforljh/KunBox/commit/0f271dfe88f0052ec0ef7b02253417f1a54f7f25))
+* 更新镜像、添加导入导出数据功能 ([1c2c39d](https://github.com/roseforljh/KunBox/commit/1c2c39de187f4cb5788f82fe3c8281999c977ebe))
+* 移除节点名称自动添加协议后缀 ([797ec2b](https://github.com/roseforljh/KunBox/commit/797ec2b327dcb9df70e5825864a7e7b887f08704))
+* 规则集定时自动更新 ([e5da3c9](https://github.com/roseforljh/KunBox/commit/e5da3c9bd6b03f4efa7f0659f32251ff88de3672))
+* 订阅定时更新 ([4312b63](https://github.com/roseforljh/KunBox/commit/4312b6348ec03f16ecff473005e8a051aa1f51b3))
+* 长按图标出现的操作选项 ([a7c1e1c](https://github.com/roseforljh/KunBox/commit/a7c1e1c106e9797cddf693c189e88eab7dfeaceb))
+
 ## [2.1.3](https://github.com/roseforljh/KunBox/compare/v2.1.2...v2.1.3) (2025-12-31)
 
 
