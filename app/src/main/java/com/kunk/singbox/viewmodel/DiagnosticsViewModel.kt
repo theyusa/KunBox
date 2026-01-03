@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import com.kunk.singbox.utils.NetworkClient
 import java.io.File
 import java.net.InetAddress
 import java.text.SimpleDateFormat
@@ -27,10 +28,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
 
     private val gson = Gson()
     private val configRepository = ConfigRepository.getInstance(application)
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .build()
+    private val client = NetworkClient.client
 
     private val _resultTitle = MutableStateFlow("")
     val resultTitle = _resultTitle.asStateFlow()

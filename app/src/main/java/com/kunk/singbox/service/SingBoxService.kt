@@ -1825,19 +1825,18 @@ private val platformInterface = object : PlatformInterface {
 
                 startForeignVpnMonitor()
 
-                // 0. 预先注册网络回调，确保 lastKnownNetwork 就绪
-                // 这一步必须在 Libbox 启动前完成，避免 openTun() 时没有有效的底层网络
-                ensureNetworkCallbackReadyWithTimeout()
-
-                val physicalNetwork = waitForUsablePhysicalNetwork(timeoutMs = 4500L)
+                // 恢复串行启动，确保网络环境稳定
+                // 任务 1: 确保网络回调和物理网络就绪 (超时缩短至 3s，平衡速度与稳定性)
+                ensureNetworkCallbackReadyWithTimeout(timeoutMs = 1500L)
+                val physicalNetwork = waitForUsablePhysicalNetwork(timeoutMs = 3000L)
                 if (physicalNetwork == null) {
                     throw IllegalStateException("No usable physical network (NOT_VPN+INTERNET) before VPN start")
                 } else {
                     lastKnownNetwork = physicalNetwork
                     networkCallbackReady = true
                 }
-                
-                // 1. 确保规则集就绪（预下载）
+
+                // 任务 2: 确保规则集就绪
                 // 如果本地缓存不存在，允许网络下载；如果下载失败也继续启动
                 try {
                     val ruleSetRepo = RuleSetRepository.getInstance(this@SingBoxService)
@@ -1953,10 +1952,8 @@ private val platformInterface = object : PlatformInterface {
                 // [Optimized] Execute asynchronously to avoid blocking startup time
                 serviceScope.launch {
                     try {
-                        // Give a breathing room for TUN interface to settle and routing tables to propagate
-                        // Previous 1000ms blocking delay was causing slow startup.
-                        // Now using 400ms async delay which is sufficient for most devices while keeping UI responsive.
-                        delay(400)
+                        // 恢复较长的等待时间，确保 TUN 接口完全就绪且路由表已传播
+                        delay(1000)
                         boxService?.resetNetwork()
                         Log.i(TAG, "Initial boxService.resetNetwork() called (async)")
                     } catch (e: Exception) {

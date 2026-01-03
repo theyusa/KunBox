@@ -27,6 +27,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import com.kunk.singbox.utils.NetworkClient
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.error.YAMLException
 
@@ -60,13 +61,7 @@ class ConfigRepository(private val context: Context) {
     private val gson = Gson()
     private val singBoxCore = SingBoxCore.getInstance(context)
     private val settingsRepository = SettingsRepository.getInstance(context)
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .followSslRedirects(true)
-        .build()
+    private val client = NetworkClient.client
     
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     

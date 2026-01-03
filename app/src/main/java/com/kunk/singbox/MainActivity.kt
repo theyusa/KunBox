@@ -158,6 +158,13 @@ fun SingBoxApp() {
     val isStarting by SingBoxRemote.isStarting.collectAsState()
     val manuallyStopped by SingBoxRemote.manuallyStopped.collectAsState()
 
+    // 监听 VPN 状态变化，清理网络连接池，避免复用失效的 Socket
+    LaunchedEffect(isRunning, isStarting) {
+        // 当 VPN 状态发生重大变化（启动、停止、重启）时，底层的网络接口可能已变更
+        // 此时必须清理连接池，防止 OkHttp 复用绑定在旧网络接口上的连接导致 "use of closed network connection"
+        com.kunk.singbox.utils.NetworkClient.clearConnectionPool()
+    }
+
     // 自动连接逻辑
     LaunchedEffect(settings?.autoConnect, connectionState) {
         if (settings?.autoConnect == true && 

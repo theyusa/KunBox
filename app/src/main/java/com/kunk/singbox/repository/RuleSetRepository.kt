@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import com.kunk.singbox.utils.NetworkClient
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -34,13 +35,7 @@ class RuleSetRepository(private val context: Context) {
         }
     }
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .followSslRedirects(true)
-        .build()
+    private val client = NetworkClient.client
 
     private val ruleSetDir: File
         get() = File(context.filesDir, "rulesets").also { it.mkdirs() }
