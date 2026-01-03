@@ -1,3 +1,9 @@
 <resources>
     <string name="app_name">KunBox</string>
+
+    <!-- App Shortcuts -->
+    <string name="shortcut_toggle">切换</string>
+    <string name="shortcut_toggle_short">切换</string>
+    <string name="shortcut_scan">扫描二维码</string>
+    <string name="shortcut_scan_short">扫描</string>
 </resources>

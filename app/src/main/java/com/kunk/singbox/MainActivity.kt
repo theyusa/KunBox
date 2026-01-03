@@ -78,6 +78,8 @@ import androidx.work.WorkManager
 import com.kunk.singbox.worker.RuleSetUpdateWorker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import android.app.Activity
+import com.kunk.singbox.ui.scanner.QrScannerActivity
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -130,6 +132,27 @@ fun SingBoxApp() {
     val settingsRepository = remember { SettingsRepository.getInstance(context) }
     val settings by settingsRepository.settings.collectAsState(initial = null)
     val dashboardViewModel: DashboardViewModel = viewModel()
+
+    // Handle App Shortcuts
+    LaunchedEffect(Unit) {
+        val activity = context as? Activity
+        activity?.intent?.let { intent ->
+            when (intent.action) {
+                "com.kunk.singbox.action.TOGGLE" -> {
+                    // 等待服务绑定和 ViewModel 初始化
+                    delay(500)
+                    dashboardViewModel.toggleConnection()
+                    // 清除 Action 防止重组时重复执行
+                    intent.action = null
+                }
+                "com.kunk.singbox.action.SCAN" -> {
+                    val scanIntent = android.content.Intent(context, QrScannerActivity::class.java)
+                    context.startActivity(scanIntent)
+                    intent.action = null
+                }
+            }
+        }
+    }
     val connectionState by dashboardViewModel.connectionState.collectAsState()
     val isRunning by SingBoxRemote.isRunning.collectAsState()
     val isStarting by SingBoxRemote.isStarting.collectAsState()

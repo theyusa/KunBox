@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="scan"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_scan"
+        android:shortcutShortLabel="@string/shortcut_scan_short"
+        android:shortcutLongLabel="@string/shortcut_scan">
+        <intent
+            android:action="com.kunk.singbox.action.SCAN"
+            android:targetPackage="com.kunk.singbox"
+            android:targetClass="com.kunk.singbox.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="toggle"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_toggle"
+        android:shortcutShortLabel="@string/shortcut_toggle_short"
+        android:shortcutLongLabel="@string/shortcut_toggle">
+        <intent
+            android:action="com.kunk.singbox.action.TOGGLE"
+            android:targetPackage="com.kunk.singbox"
+            android:targetClass="com.kunk.singbox.MainActivity" />
+    </shortcut>
+</shortcuts>
