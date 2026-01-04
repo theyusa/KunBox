@@ -90,7 +90,14 @@ data class Inbound(
     @SerializedName("sniff_override_destination") val sniffOverrideDestination: Boolean? = null,
     @SerializedName("sniff_timeout") val sniffTimeout: String? = null,
     @SerializedName("tcp_fast_open") val tcpFastOpen: Boolean? = null,
-    @SerializedName("endpoint_independent_nat") val endpointIndependentNat: Boolean? = null
+    @SerializedName("endpoint_independent_nat") val endpointIndependentNat: Boolean? = null,
+    @SerializedName("users") val users: List<InboundUser>? = null
+)
+
+@Keep
+data class InboundUser(
+    @SerializedName("username") val username: String? = null,
+    @SerializedName("password") val password: String? = null
 )
 
 @Keep
@@ -291,6 +298,7 @@ data class RouteRule(
     @SerializedName("package_name") val packageName: List<String>? = null,
     @SerializedName("process_name") val processName: List<String>? = null,
     @SerializedName("user_id") val userId: List<Int>? = null,
+    @SerializedName("user") val user: List<String>? = null,
     @SerializedName("outbound") val outbound: String? = null
 ) {
     val protocol: List<String>?

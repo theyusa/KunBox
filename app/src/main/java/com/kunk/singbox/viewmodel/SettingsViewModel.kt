@@ -223,6 +223,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setBypassLan(value: Boolean) {
         viewModelScope.launch { repository.setBypassLan(value) }
     }
+    
+    fun updateLatencyTestConcurrency(value: Int) {
+        viewModelScope.launch { repository.setLatencyTestConcurrency(value) }
+    }
+    
+    fun updateLatencyTestTimeout(value: Int) {
+        viewModelScope.launch { repository.setLatencyTestTimeout(value) }
+    }
 
     fun setGhProxyMirror(value: GhProxyMirror) {
         viewModelScope.launch { repository.setGhProxyMirror(value) }

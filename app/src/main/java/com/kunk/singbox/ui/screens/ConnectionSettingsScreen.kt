@@ -113,6 +113,27 @@ fun ConnectionSettingsScreen(
                 )
             }
             
+            Spacer(modifier = Modifier.height(16.dp))
+
+            StandardCard {
+                EditableTextItem(
+                    title = "测速并发数",
+                    subtitle = "批量测试延迟时的并发连接数 (默认: 10)",
+                    value = settings.latencyTestConcurrency.toString(),
+                    onValueChange = {
+                        it.toIntOrNull()?.let { count -> settingsViewModel.updateLatencyTestConcurrency(count) }
+                    }
+                )
+                EditableTextItem(
+                    title = "测速超时时间 (ms)",
+                    subtitle = "单次延迟测试的超时时间 (默认: 2000ms)",
+                    value = settings.latencyTestTimeout.toString(),
+                    onValueChange = {
+                        it.toIntOrNull()?.let { ms -> settingsViewModel.updateLatencyTestTimeout(ms) }
+                    }
+                )
+            }
+            
             Spacer(modifier = Modifier.height(32.dp))
         }
     }

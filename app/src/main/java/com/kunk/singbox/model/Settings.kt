@@ -57,7 +57,8 @@ data class AppSettings(
     // 延迟测试设置
     @SerializedName("latencyTestMethod") val latencyTestMethod: LatencyTestMethod = LatencyTestMethod.REAL_RTT,
     @SerializedName("latencyTestUrl") val latencyTestUrl: String = "https://cp.cloudflare.com/generate_204",
-    @SerializedName("latencyTestTimeout") val latencyTestTimeout: Int = 3000, // 默认 3000ms
+    @SerializedName("latencyTestTimeout") val latencyTestTimeout: Int = 2000, // 默认 2000ms
+    @SerializedName("latencyTestConcurrency") val latencyTestConcurrency: Int = 10, // 批量测试并发数/每批大小
     
     // 镜像设置
     @SerializedName("ghProxyMirror") val ghProxyMirror: GhProxyMirror = GhProxyMirror.SAGERNET_ORIGIN,

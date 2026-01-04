@@ -376,19 +376,210 @@ class SingBoxCore private constructor(private val context: Context) {
         method: LatencyTestMethod,
         onResult: (tag: String, latency: Long) -> Unit
     ) = withContext(Dispatchers.IO) {
-        // 提高离线测试并发数以加快批量测速
-        val semaphore = Semaphore(permits = 6)
-        coroutineScope {
-            val jobs = outbounds.map { outbound ->
-                async {
-                    semaphore.withPermit {
-                        val latency = testWithLocalHttpProxy(outbound, targetUrl, fallbackUrl, timeoutMs)
-                        onResult(outbound.tag, latency)
+        // 使用批量测试优化
+        // 为了避免单次启动配置过大，我们按 50 个节点一批进行处理
+        // 这样既能享受批量优势，又能避免内存或配置过大问题
+        val batchSize = 50
+        
+        // 获取设置中的并发数
+        val settings = SettingsRepository.getInstance(context).settings.first()
+        val concurrency = settings.latencyTestConcurrency
+        
+        outbounds.chunked(batchSize).forEach { batch ->
+            // 对每一批节点启动一次服务
+            testOutboundsLatencyBatchInternal(batch, targetUrl, fallbackUrl, timeoutMs, concurrency, onResult)
+        }
+    }
+
+    private suspend fun testOutboundsLatencyBatchInternal(
+        batchOutbounds: List<Outbound>,
+        targetUrl: String,
+        fallbackUrl: String?,
+        timeoutMs: Int,
+        concurrency: Int,
+        onResult: (tag: String, latency: Long) -> Unit
+    ) {
+        // 使用 Mutex 确保同一时间只有一个测试服务在运行
+        libboxMutex.withLock {
+            // 1. 分配端口池
+            // 我们为批次中的每个节点分配一个独立的本地端口
+            // 这样就可以通过连接不同的端口来区分不同的节点，完全避开鉴权问题
+            val ports = try {
+                allocateMultipleLocalPorts(batchOutbounds.size)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to allocate ports for batch test", e)
+                batchOutbounds.forEach { onResult(it.tag, -1L) }
+                return
+            }
+            
+            // 2. 构建 Inbounds 和 Rules
+            val inbounds = ArrayList<com.kunk.singbox.model.Inbound>()
+            val rules = ArrayList<com.kunk.singbox.model.RouteRule>()
+            
+            // 建立 端口 -> 原始Tag 的映射，方便后续测试
+            val portToTagMap = mutableMapOf<Int, String>()
+            
+            batchOutbounds.forEachIndexed { index, outbound ->
+                val port = ports[index]
+                val inboundTag = "test-in-$index"
+                portToTagMap[port] = outbound.tag
+                
+                // 每个节点对应一个监听端口
+                inbounds.add(com.kunk.singbox.model.Inbound(
+                    type = "mixed",
+                    tag = inboundTag,
+                    listen = "127.0.0.1",
+                    listenPort = port
+                ))
+                
+                // 该端口的流量强制转发到对应节点
+                rules.add(com.kunk.singbox.model.RouteRule(
+                    inbound = listOf(inboundTag),
+                    outbound = outbound.tag
+                ))
+            }
+
+            val settings = SettingsRepository.getInstance(context).settings.first()
+            val dnsConfig = com.kunk.singbox.model.DnsConfig(
+                servers = listOf(
+                    com.kunk.singbox.model.DnsServer(tag = "dns-bootstrap", address = "223.5.5.5", detour = "direct", strategy = "ipv4_only"),
+                    com.kunk.singbox.model.DnsServer(tag = "local", address = settings.localDns.ifBlank { "https://dns.alidns.com/dns-query" }, detour = "direct", addressResolver = "dns-bootstrap"),
+                    com.kunk.singbox.model.DnsServer(tag = "remote", address = settings.remoteDns.ifBlank { "https://dns.google/dns-query" }, detour = "direct", addressResolver = "dns-bootstrap")
+                )
+            )
+
+            // 确保有 direct 和 block
+            val safeOutbounds = ArrayList(batchOutbounds)
+            if (safeOutbounds.none { it.tag == "direct" }) safeOutbounds.add(com.kunk.singbox.model.Outbound(type = "direct", tag = "direct"))
+            if (safeOutbounds.none { it.tag == "block" }) safeOutbounds.add(com.kunk.singbox.model.Outbound(type = "block", tag = "block"))
+            if (safeOutbounds.none { it.tag == "dns-out" }) safeOutbounds.add(com.kunk.singbox.model.Outbound(type = "dns", tag = "dns-out"))
+
+            val config = SingBoxConfig(
+                log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true),
+                dns = dnsConfig,
+                inbounds = inbounds,
+                outbounds = safeOutbounds,
+                route = com.kunk.singbox.model.RouteConfig(
+                    rules = listOf(
+                        com.kunk.singbox.model.RouteRule(protocolRaw = listOf("dns"), outbound = "direct")
+                    ) + rules,
+                    finalOutbound = "direct",
+                    autoDetectInterface = true
+                ),
+                experimental = null
+            )
+
+            // 3. 启动服务
+            val configJson = gson.toJson(config)
+            var service: BoxService? = null
+            
+            try {
+                ensureLibboxSetup(context)
+                val platformInterface = TestPlatformInterface(context)
+                service = Libbox.newService(configJson, platformInterface)
+                service.start()
+
+                // 等待第一个端口就绪 (通常这就代表服务启动了)
+                val firstPort = ports.first()
+                val deadline = System.currentTimeMillis() + 2000L
+                while (System.currentTimeMillis() < deadline) {
+                    try {
+                        Socket().use { s ->
+                            s.soTimeout = 100
+                            s.connect(InetSocketAddress("127.0.0.1", firstPort), 100)
+                        }
+                        break
+                    } catch (_: Exception) {
+                        delay(50)
                     }
                 }
+                delay(200) // 额外缓冲，确保所有端口都就绪
+
+                // 4. 并发测试
+                val semaphore = Semaphore(concurrency)
+                
+                // 基础 Client，不含 Proxy，因为每个请求的 Proxy 不同
+                val baseClient = OkHttpClient.Builder()
+                    .connectTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                    .readTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                    .writeTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                    .build()
+
+                coroutineScope {
+                    val jobs = portToTagMap.map { (port, originalTag) ->
+                        async {
+                            semaphore.withPermit {
+                                val client = baseClient.newBuilder()
+                                    .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port)))
+                                    .build()
+                                
+                                val latency = try {
+                                    val t0 = System.nanoTime()
+                                    val req = Request.Builder().url(targetUrl).get().build()
+                                    
+                                    client.newCall(req).execute().use { resp ->
+                                        // 严格检查状态码：任何 >= 400 的响应都视为测速失败
+                                        // 这可以过滤掉代理服务器返回的错误 (400/403/407/502/503/504)
+                                        // 也可以过滤掉目标服务器的错误 (404/500)，确保只有真正有效连通的节点才显示延迟
+                                        if (resp.code >= 400) {
+                                            throw java.io.IOException("Request failed with code ${resp.code}")
+                                        }
+                                        resp.body?.close()
+                                    }
+                                    (System.nanoTime() - t0) / 1_000_000
+                                } catch (e: Exception) {
+                                    // 尝试 fallback
+                                    if (fallbackUrl != null && fallbackUrl != targetUrl) {
+                                        try {
+                                            val t0 = System.nanoTime()
+                                            val req = Request.Builder().url(fallbackUrl).get().build()
+                                            client.newCall(req).execute().use { resp ->
+                                                resp.body?.close()
+                                            }
+                                            (System.nanoTime() - t0) / 1_000_000
+                                        } catch (_: Exception) {
+                                            -1L
+                                        }
+                                    } else {
+                                        -1L
+                                    }
+                                }
+                                
+                                onResult(originalTag, latency)
+                            }
+                        }
+                    }
+                    jobs.awaitAll()
+                }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Batch test failed", e)
+                batchOutbounds.forEach { onResult(it.tag, -1L) }
+            } finally {
+                try { service?.close() } catch (_: Exception) {}
             }
-            jobs.awaitAll()
         }
+    }
+
+    private fun allocateMultipleLocalPorts(count: Int): List<Int> {
+        val ports = mutableListOf<Int>()
+        val sockets = mutableListOf<ServerSocket>()
+        try {
+            for (i in 0 until count) {
+                val socket = ServerSocket(0)
+                socket.reuseAddress = true
+                ports.add(socket.localPort)
+                sockets.add(socket)
+            }
+        } catch (e: Exception) {
+            // 失败时释放已分配的
+            sockets.forEach { try { it.close() } catch (_: Exception) {} }
+            throw e
+        }
+        // 全部关闭以释放端口给 sing-box 使用
+        // 注意：这里存在微小的竞态条件，但在本地回环上通常安全
+        sockets.forEach { try { it.close() } catch (_: Exception) {} }
+        return ports
     }
 
     /**
@@ -438,8 +629,12 @@ class SingBoxCore private constructor(private val context: Context) {
     ) = withContext(Dispatchers.IO) {
         val settings = SettingsRepository.getInstance(context).settings.first()
 
-        // Native-only batch test: libbox URLTest first.
-        if (libboxAvailable && VpnStateStore.getActive(context)) {
+        // Check if native URLTest is supported (currently hardcoded to -1/false in testWithLibboxStaticUrlTest)
+        // If VPN is running AND native URLTest is supported, use it.
+        // Otherwise (VPN off OR native URLTest unsupported), use our efficient batch test.
+        val isNativeUrlTestSupported = false // Currently false for official libbox
+        
+        if (libboxAvailable && VpnStateStore.getActive(context) && isNativeUrlTestSupported) {
             // 先做一次轻量预热，避免批量首个请求落在 link 验证/路由冷启动窗口
             try {
                 val warmupOutbound = outbounds.firstOrNull()
@@ -464,7 +659,8 @@ class SingBoxCore private constructor(private val context: Context) {
             return@withContext
         }
 
-        // VPN is not running: create one temporary registered core and test outbounds on it.
+        // Use efficient batch test (Multi-port routing)
+        // This works whether VPN is running or not, as it uses separate ports and protects sockets.
         val url = adjustUrlForMode(settings.latencyTestUrl, settings.latencyTestMethod)
         val timeoutMs = settings.latencyTestTimeout
         val fallbackUrl = try {

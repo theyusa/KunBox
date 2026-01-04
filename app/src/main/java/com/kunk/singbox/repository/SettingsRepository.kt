@@ -89,6 +89,7 @@ class SettingsRepository(private val context: Context) {
         val LATENCY_TEST_METHOD = stringPreferencesKey("latency_test_method")
         val LATENCY_TEST_URL = stringPreferencesKey("latency_test_url")
         val LATENCY_TEST_TIMEOUT = intPreferencesKey("latency_test_timeout")
+        val LATENCY_TEST_CONCURRENCY = intPreferencesKey("latency_test_concurrency")
         val BYPASS_LAN = booleanPreferencesKey("bypass_lan")
         val GH_PROXY_MIRROR = stringPreferencesKey("gh_proxy_mirror")
         val DEBUG_LOGGING_ENABLED = booleanPreferencesKey("debug_logging_enabled")
@@ -304,7 +305,8 @@ class SettingsRepository(private val context: Context) {
             debugLoggingEnabled = preferences[PreferencesKeys.DEBUG_LOGGING_ENABLED] ?: false,
             latencyTestMethod = LatencyTestMethod.valueOf(preferences[PreferencesKeys.LATENCY_TEST_METHOD] ?: LatencyTestMethod.REAL_RTT.name),
             latencyTestUrl = preferences[PreferencesKeys.LATENCY_TEST_URL] ?: "https://cp.cloudflare.com/generate_204",
-            latencyTestTimeout = preferences[PreferencesKeys.LATENCY_TEST_TIMEOUT] ?: 3000,
+            latencyTestTimeout = preferences[PreferencesKeys.LATENCY_TEST_TIMEOUT] ?: 2000,
+            latencyTestConcurrency = preferences[PreferencesKeys.LATENCY_TEST_CONCURRENCY] ?: 10,
             bypassLan = preferences[PreferencesKeys.BYPASS_LAN] ?: true,
             
             // 镜像设置
@@ -500,6 +502,10 @@ class SettingsRepository(private val context: Context) {
     
     suspend fun setLatencyTestTimeout(value: Int) {
         context.dataStore.edit { it[PreferencesKeys.LATENCY_TEST_TIMEOUT] = value }
+    }
+    
+    suspend fun setLatencyTestConcurrency(value: Int) {
+        context.dataStore.edit { it[PreferencesKeys.LATENCY_TEST_CONCURRENCY] = value }
     }
     
     suspend fun setBypassLan(value: Boolean) {
