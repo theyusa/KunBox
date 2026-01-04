@@ -5,6 +5,10 @@
     <!-- App Shortcuts -->
     <string name="shortcut_toggle">切换</string>
     <string name="shortcut_toggle_short">切换</string>
+    <string name="shortcut_toggle_vpn">开启/关闭 VPN</string>
+    <string name="shortcut_toggle_vpn_short">开关</string>
+    <string name="shortcut_switch_node">切换节点</string>
+    <string name="shortcut_switch_node_short">节点</string>
     <string name="shortcut_scan">扫描二维码</string>
     <string name="shortcut_scan_short">扫描</string>
 

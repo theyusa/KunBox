@@ -5,6 +5,10 @@
     <!-- App Shortcuts -->
     <string name="shortcut_toggle">Toggle</string>
     <string name="shortcut_toggle_short">Toggle</string>
+    <string name="shortcut_toggle_vpn">Toggle VPN On/Off</string>
+    <string name="shortcut_toggle_vpn_short">On/Off</string>
+    <string name="shortcut_switch_node">Switch Node</string>
+    <string name="shortcut_switch_node_short">Node</string>
     <string name="shortcut_scan">Scan QR Code</string>
     <string name="shortcut_scan_short">Scan</string>
 

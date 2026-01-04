@@ -1,24 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
     <shortcut
-        android:shortcutId="scan"
+        android:shortcutId="toggle_vpn"
         android:enabled="true"
-        android:icon="@drawable/ic_shortcut_scan"
-        android:shortcutShortLabel="@string/shortcut_scan_short"
-        android:shortcutLongLabel="@string/shortcut_scan">
+        android:icon="@drawable/ic_shortcut_toggle"
+        android:shortcutShortLabel="@string/shortcut_toggle_vpn_short"
+        android:shortcutLongLabel="@string/shortcut_toggle_vpn">
         <intent
-            android:action="com.kunk.singbox.action.SCAN"
+            android:action="com.kunk.singbox.action.TOGGLE"
             android:targetPackage="com.kunk.singbox"
             android:targetClass="com.kunk.singbox.MainActivity" />
     </shortcut>
     <shortcut
-        android:shortcutId="toggle"
+        android:shortcutId="switch_node"
         android:enabled="true"
-        android:icon="@drawable/ic_shortcut_toggle"
-        android:shortcutShortLabel="@string/shortcut_toggle_short"
-        android:shortcutLongLabel="@string/shortcut_toggle">
+        android:icon="@drawable/ic_shortcut_scan"
+        android:shortcutShortLabel="@string/shortcut_switch_node_short"
+        android:shortcutLongLabel="@string/shortcut_switch_node">
         <intent
-            android:action="com.kunk.singbox.action.TOGGLE"
+            android:action="com.kunk.singbox.action.SWITCH_NODE"
             android:targetPackage="com.kunk.singbox"
             android:targetClass="com.kunk.singbox.MainActivity" />
     </shortcut>

@@ -163,7 +163,9 @@ fun SingBoxApp() {
         }
     }
 
-    // Handle App Shortcuts
+    // Handle App Shortcuts - need navController reference
+    var pendingNavigation by remember { mutableStateOf<String?>(null) }
+    
     LaunchedEffect(Unit) {
         val activity = context as? Activity
         activity?.intent?.let { intent ->
@@ -178,6 +180,11 @@ fun SingBoxApp() {
                 "com.kunk.singbox.action.SCAN" -> {
                     val scanIntent = android.content.Intent(context, QrScannerActivity::class.java)
                     context.startActivity(scanIntent)
+                    intent.action = null
+                }
+                "com.kunk.singbox.action.SWITCH_NODE" -> {
+                    // 设置待导航目标，等待 navController 初始化后执行
+                    pendingNavigation = "nodes"
                     intent.action = null
                 }
             }
@@ -242,6 +249,21 @@ fun SingBoxApp() {
         val navController = rememberNavController()
         var isNavigating by remember { mutableStateOf(false) }
         var navigationStartTime by remember { mutableStateOf(0L) }
+        
+        // Handle pending navigation from App Shortcuts
+        LaunchedEffect(pendingNavigation) {
+            pendingNavigation?.let { route ->
+                delay(100) // 确保 navController 已初始化
+                navController.navigate(route) {
+                    popUpTo(navController.graph.startDestinationId) {
+                        saveState = true
+                    }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+                pendingNavigation = null
+            }
+        }
         
         // Get current destination
         val navBackStackEntry = navController.currentBackStackEntryAsState()
