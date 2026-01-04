@@ -5,6 +5,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kunk.singbox.ipc.SingBoxRemote
+import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.model.NodeUi
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.SettingsRepository
@@ -211,14 +212,18 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
             val node = configRepository.getNodeById(nodeId)
             val success = configRepository.setActiveNode(nodeId)
 
-            val nodeName = node?.displayName ?: getApplication<Application>().getString(R.string.nodes_unknown_node)
-            val msg = if (success) {
-                getApplication<Application>().getString(R.string.profiles_updated) + ": $nodeName" // TODO: better string
-            } else {
-                "Failed to switch to $nodeName" // TODO: add to strings.xml
+            // Only show toast when VPN is running
+            val isVpnRunning = VpnStateStore.getActive(getApplication())
+            if (isVpnRunning) {
+                val nodeName = node?.displayName ?: getApplication<Application>().getString(R.string.nodes_unknown_node)
+                val msg = if (success) {
+                    getApplication<Application>().getString(R.string.profiles_updated) + ": $nodeName"
+                } else {
+                    "Failed to switch to $nodeName"
+                }
+                _switchResult.value = msg
+                emitToast(msg)
             }
-            _switchResult.value = msg
-            emitToast(msg)
         }
     }
 

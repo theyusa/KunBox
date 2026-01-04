@@ -185,17 +185,15 @@ fun ProfileCard(
                 
                 // 显示最后更新时间（替换原来的 Type 显示）
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Rounded.AccessTime,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(14.dp)
+                    Text(
+                        text = stringResource(R.string.profile_card_updated_at) + " ",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
                     val disabledSuffix = if (!isEnabled) " (" + stringResource(R.string.common_disabled) + ")" else ""
                     Text(
                         text = formatLastUpdated(lastUpdated) + disabledSuffix,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

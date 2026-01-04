@@ -290,16 +290,19 @@ class SingBoxCore private constructor(private val context: Context) {
                     .writeTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
                     .build()
 
-                fun runOnce(url: String): Long {
-                    val req = Request.Builder().url(url).get().build()
-                    val t0 = System.nanoTime()
-                    client.newCall(req).execute().use { resp ->
-                        if (resp.code >= 400) {
-                            throw java.io.IOException("HTTP proxy test failed with code=${resp.code}")
+                suspend fun runOnce(url: String): Long {
+                    // Use Dispatchers.IO to prevent NetworkOnMainThreadException even if called from Main
+                    return withContext(Dispatchers.IO) {
+                        val req = Request.Builder().url(url).get().build()
+                        val t0 = System.nanoTime()
+                        client.newCall(req).execute().use { resp ->
+                            if (resp.code >= 400) {
+                                throw java.io.IOException("HTTP proxy test failed with code=${resp.code}")
+                            }
+                            resp.body?.close()
                         }
-                        resp.body?.close()
+                        (System.nanoTime() - t0) / 1_000_000
                     }
-                    return (System.nanoTime() - t0) / 1_000_000
                 }
 
                 try {

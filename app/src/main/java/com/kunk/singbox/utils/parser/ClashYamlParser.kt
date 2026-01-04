@@ -42,11 +42,25 @@ class ClashYamlParser : SubscriptionParser {
         val proxiesRaw = rootMap["proxies"] as? List<*> ?: return null
 
         val outbounds = mutableListOf<Outbound>()
+        val typeCounts = mutableMapOf<String, Int>()
+        
         for (p in proxiesRaw) {
             val m = p as? Map<*, *> ?: continue
+            
+            // 调试日志：打印所有节点的名称和类型
+            val name = asString(m["name"]) ?: "unknown"
+            val type = asString(m["type"])?.lowercase() ?: "unknown"
+            typeCounts[type] = (typeCounts[type] ?: 0) + 1
+            
             val ob = parseProxy(m)
-            if (ob != null) outbounds.add(ob)
+            if (ob != null) {
+                outbounds.add(ob)
+            } else {
+                android.util.Log.w("ClashYamlParser", "Skipped proxy: '$name' (type=$type)")
+            }
         }
+        
+        android.util.Log.i("ClashYamlParser", "Parsed proxy types distribution: $typeCounts")
         
         // 解析 proxy-groups
         val proxyGroupsRaw = rootMap["proxy-groups"] as? List<*>
@@ -108,28 +122,43 @@ class ClashYamlParser : SubscriptionParser {
     }
 
     private fun parseProxy(proxyMap: Map<*, *>): Outbound? {
-        val name = asString(proxyMap["name"]) ?: return null
-        val type = asString(proxyMap["type"])?.lowercase() ?: return null
+        val name = asString(proxyMap["name"]) ?: run {
+            android.util.Log.w("ClashYamlParser", "Proxy missing name field: ${proxyMap.keys}")
+            return null
+        }
+        val type = asString(proxyMap["type"])?.lowercase() ?: run {
+            android.util.Log.w("ClashYamlParser", "Proxy '$name' missing type field")
+            return null
+        }
 
         val server = asString(proxyMap["server"])
         val port = asInt(proxyMap["port"])
 
-        return when (type) {
+        val outbound = when (type) {
             "vless" -> parseVLess(proxyMap, name, server, port)
             "vmess" -> parseVMess(proxyMap, name, server, port)
             "ss", "shadowsocks" -> parseShadowsocks(proxyMap, name, server, port)
             "trojan" -> parseTrojan(proxyMap, name, server, port)
             "hysteria2", "hy2" -> parseHysteria2(proxyMap, name, server, port)
             "hysteria" -> parseHysteria(proxyMap, name, server, port)
-            "tuic" -> parseTuic(proxyMap, name, server, port)
+            "tuic", "tuic-v5" -> parseTuic(proxyMap, name, server, port)
             "anytls" -> parseAnyTLS(proxyMap, name, server, port)
             "ssh" -> parseSSH(proxyMap, name, server, port)
             "wireguard" -> parseWireGuard(proxyMap, name, server, port)
             "http" -> parseHttp(proxyMap, name, server, port)
             "socks5" -> parseSocks(proxyMap, name, server, port)
             "shadowtls" -> parseShadowTLS(proxyMap, name, server, port)
-            else -> null
+            else -> {
+                android.util.Log.d("ClashYamlParser", "Unknown/Unsupported proxy type: '$type' for node '$name'")
+                null
+            }
         }
+        
+        if (outbound == null && (type.contains("tuic") || type.contains("anytls"))) {
+            android.util.Log.w("ClashYamlParser", "Failed to parse $type node '$name'. Server: $server, Port: $port, Map: $proxyMap")
+        }
+        
+        return outbound
     }
 
     private fun parseVLess(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
@@ -418,14 +447,17 @@ class ClashYamlParser : SubscriptionParser {
     private fun parseTuic(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
         if (server == null || port == null) return null
         val uuid = asString(map["uuid"]) ?: return null
-        val password = asString(map["password"]) ?: return null
-        val sni = asString(map["sni"]) ?: server
-        val insecure = asBool(map["skip-cert-verify"]) == true
+        
+        // 密码可能是 password 或 token，如果都为空则使用 uuid
+        val password = asString(map["password"]) ?: asString(map["token"]) ?: uuid
+        
+        val sni = asString(map["sni"]) ?: asString(map["servername"]) ?: server
+        val insecure = asBool(map["skip-cert-verify"]) == true || asBool(map["allow-insecure"]) == true || asBool(map["insecure"]) == true
         val alpn = asStringList(map["alpn"])
-        val fingerprint = asString(map["client-fingerprint"])
-        val congestion = asString(map["congestion-controller"]) ?: "bbr"
+        val fingerprint = asString(map["client-fingerprint"]) ?: asString(map["fingerprint"])
+        val congestion = asString(map["congestion-controller"]) ?: asString(map["congestion"]) ?: "bbr"
         val udpRelayMode = asString(map["udp-relay-mode"]) ?: "native"
-        val zeroRtt = asBool(map["reduce-rtt"]) == true
+        val zeroRtt = asBool(map["reduce-rtt"]) == true || asBool(map["zero-rtt-handshake"]) == true
 
         return Outbound(
             type = "tuic",
@@ -491,11 +523,17 @@ class ClashYamlParser : SubscriptionParser {
 
     private fun parseAnyTLS(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
         if (server == null || port == null) return null
-        val password = asString(map["password"]) ?: return null
-        val sni = asString(map["sni"]) ?: server
-        val insecure = asBool(map["skip-cert-verify"]) == true
+        
+        // 尝试从 password, uuid, token 读取密码
+        val password = asString(map["password"])
+            ?: asString(map["uuid"])
+            ?: asString(map["token"])
+            ?: return null
+        
+        val sni = asString(map["sni"]) ?: asString(map["servername"]) ?: server
+        val insecure = asBool(map["skip-cert-verify"]) == true || asBool(map["allow-insecure"]) == true || asBool(map["insecure"]) == true
         val alpn = asStringList(map["alpn"])
-        val fingerprint = asString(map["client-fingerprint"])
+        val fingerprint = asString(map["client-fingerprint"]) ?: asString(map["fingerprint"])
         
         val idleSessionCheckInterval = asString(map["idle-session-check-interval"])
         val idleSessionTimeout = asString(map["idle-session-timeout"])

@@ -43,11 +43,12 @@ class ConfigRepository(private val context: Context) {
         
         // User-Agent 列表，按优先级排序
         private val USER_AGENTS = listOf(
-            "ClashMeta/1.16.0",             // ClashMeta - 返回 YAML
-            "sing-box/1.8.0",               // Sing-box - 返回原生 JSON
-            "Clash/1.16.0",                 // Clash - 返回 YAML
-            "SFA/1.8.0",                    // Sing-box for Android
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" // Browser
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", // Browser - 优先尝试获取通用 Base64 订阅，以绕过服务端的客户端过滤
+            "ClashMeta/1.18.0",             // ClashMeta - 次选
+            "sing-box/1.10.0",              // Sing-box
+            "Clash.Meta/1.18.0",
+            "Clash/1.18.0",
+            "SFA/1.10.0"
         )
         
         @Volatile
@@ -1393,14 +1394,18 @@ class ConfigRepository(private val context: Context) {
             uri.query?.split("&")?.forEach { param ->
                 val parts = param.split("=", limit = 2)
                 if (parts.size == 2) {
-                    params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
+                    try {
+                        params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
+                    } catch (e: Exception) {
+                        params[parts[0]] = parts[1]
+                    }
                 }
             }
             
             val sni = params["sni"] ?: server
             val insecure = params["insecure"] == "1" || params["allowInsecure"] == "1"
             val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
-            val fingerprint = params["fp"]
+            val fingerprint = params["fp"]?.takeIf { it.isNotBlank() }
             
             return Outbound(
                 type = "anytls",
@@ -1440,20 +1445,29 @@ class ConfigRepository(private val context: Context) {
             val userInfo = uri.userInfo ?: ""
             val colonIndex = userInfo.indexOf(':')
             val uuid = if (colonIndex > 0) userInfo.substring(0, colonIndex) else userInfo
-            val password = if (colonIndex > 0) userInfo.substring(colonIndex + 1) else ""
+            var password = if (colonIndex > 0) userInfo.substring(colonIndex + 1) else ""
             
             val params = mutableMapOf<String, String>()
             uri.query?.split("&")?.forEach { param ->
                 val parts = param.split("=", limit = 2)
                 if (parts.size == 2) {
-                    params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
+                    try {
+                        params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
+                    } catch (e: Exception) {
+                        params[parts[0]] = parts[1]
+                    }
                 }
+            }
+            
+            // 如果 password 为空，尝试从 query 参数中获取，或使用 UUID 作为密码
+            if (password.isBlank()) {
+                password = params["password"] ?: params["token"] ?: uuid
             }
             
             val sni = params["sni"] ?: server
             val insecure = params["allow_insecure"] == "1" || params["allowInsecure"] == "1" || params["insecure"] == "1"
             val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
-            val fingerprint = params["fp"]
+            val fingerprint = params["fp"]?.takeIf { it.isNotBlank() }
             
             return Outbound(
                 type = "tuic",

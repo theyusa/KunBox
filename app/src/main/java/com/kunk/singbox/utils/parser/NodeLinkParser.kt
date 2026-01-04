@@ -480,13 +480,45 @@ class NodeLinkParser(private val gson: Gson) {
             val server = uri.host
             val port = if (uri.port > 0) uri.port else 443
             
+            // 解析 query 参数
+            val params = mutableMapOf<String, String>()
+            uri.query?.split("&")?.forEach { param ->
+                val parts = param.split("=", limit = 2)
+                if (parts.size == 2) {
+                    try {
+                        params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
+                    } catch (e: Exception) {
+                        params[parts[0]] = parts[1]
+                    }
+                }
+            }
+            
+            val sni = params["sni"] ?: server
+            val insecure = params["insecure"] == "1" || params["allowInsecure"] == "1"
+            val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
+            val fingerprint = params["fp"]?.takeIf { it.isNotBlank() }
+            
+            // AnyTLS 特有参数
+            val idleSessionCheckInterval = params["idle_session_check_interval"]
+            val idleSessionTimeout = params["idle_session_timeout"]
+            val minIdleSession = params["min_idle_session"]?.toIntOrNull()
+            
             return Outbound(
                 type = "anytls",
                 tag = name,
                 server = server,
                 serverPort = port,
                 password = password,
-                tls = TlsConfig(enabled = true, serverName = server)
+                idleSessionCheckInterval = idleSessionCheckInterval,
+                idleSessionTimeout = idleSessionTimeout,
+                minIdleSession = minIdleSession,
+                tls = TlsConfig(
+                    enabled = true,
+                    serverName = sni,
+                    insecure = insecure,
+                    alpn = alpnList,
+                    utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
+                )
             )
         } catch (e: Exception) {
             Log.e("NodeLinkParser", "Failed to parse AnyTLS link", e)
@@ -500,17 +532,58 @@ class NodeLinkParser(private val gson: Gson) {
             val name = java.net.URLDecoder.decode(uri.fragment ?: "TUIC Node", "UTF-8")
             val server = uri.host
             val port = if (uri.port > 0) uri.port else 443
+            
+            // 解析 userInfo: 可能是 uuid:password 或只有 uuid
             val userInfo = uri.userInfo ?: ""
-            val parts = userInfo.split(":")
+            val colonIndex = userInfo.indexOf(':')
+            val uuid = if (colonIndex > 0) userInfo.substring(0, colonIndex) else userInfo
+            var password = if (colonIndex > 0) userInfo.substring(colonIndex + 1) else ""
+            
+            // 解析 query 参数
+            val params = mutableMapOf<String, String>()
+            uri.query?.split("&")?.forEach { param ->
+                val parts = param.split("=", limit = 2)
+                if (parts.size == 2) {
+                    try {
+                        params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
+                    } catch (e: Exception) {
+                        params[parts[0]] = parts[1]
+                    }
+                }
+            }
+            
+            // 如果 password 为空，尝试从 query 参数中获取，或使用 UUID 作为密码
+            if (password.isBlank()) {
+                password = params["password"] ?: params["token"] ?: uuid
+            }
+            
+            val sni = params["sni"] ?: server
+            val insecure = params["insecure"] == "1" || params["allow_insecure"] == "1" || params["allowInsecure"] == "1"
+            val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
+            val fingerprint = params["fp"]?.takeIf { it.isNotBlank() }
+            
+            // TUIC 特有参数
+            val congestionControl = params["congestion_control"] ?: params["congestion"] ?: "bbr"
+            val udpRelayMode = params["udp_relay_mode"] ?: "native"
+            val zeroRtt = params["reduce_rtt"] == "1" || params["zero_rtt"] == "1"
             
             return Outbound(
                 type = "tuic",
                 tag = name,
                 server = server,
                 serverPort = port,
-                uuid = parts.getOrNull(0),
-                password = parts.getOrNull(1),
-                tls = TlsConfig(enabled = true, serverName = server)
+                uuid = uuid,
+                password = password,
+                congestionControl = congestionControl,
+                udpRelayMode = udpRelayMode,
+                zeroRttHandshake = zeroRtt,
+                tls = TlsConfig(
+                    enabled = true,
+                    serverName = sni,
+                    insecure = insecure,
+                    alpn = alpnList,
+                    utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
+                )
             )
         } catch (e: Exception) {
             Log.e("NodeLinkParser", "Failed to parse TUIC link", e)

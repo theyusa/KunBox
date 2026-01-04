@@ -494,9 +494,12 @@ private fun ImportLoadingDialog(message: String) {
         val match = regex.find(message)
         if (match != null) {
             val (current, total) = match.destructured
-            // Extracting nodes msg is also in strings.xml
-            // We could try to replace the message with localized one if it matches
-            current.toFloat() / total.toFloat()
+            val totalFloat = total.toFloat()
+            if (totalFloat > 0) {
+                current.toFloat() / totalFloat
+            } else {
+                null
+            }
         } else {
             null
         }

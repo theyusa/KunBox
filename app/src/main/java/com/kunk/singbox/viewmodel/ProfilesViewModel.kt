@@ -4,6 +4,7 @@ import com.kunk.singbox.R
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.model.ProfileUi
 import com.kunk.singbox.model.ProfileType
 import com.kunk.singbox.model.SubscriptionUpdateResult
@@ -55,9 +56,13 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
     fun setActiveProfile(profileId: String) {
         configRepository.setActiveProfile(profileId)
 
-        val name = profiles.value.find { it.id == profileId }?.name
-        if (!name.isNullOrBlank()) {
-            emitToast(getApplication<Application>().getString(R.string.profiles_updated) + ": $name") // TODO: check string
+        // Only show toast when VPN is running
+        val isVpnRunning = VpnStateStore.getActive(getApplication())
+        if (isVpnRunning) {
+            val name = profiles.value.find { it.id == profileId }?.name
+            if (!name.isNullOrBlank()) {
+                emitToast(getApplication<Application>().getString(R.string.profiles_updated) + ": $name")
+            }
         }
     }
 
