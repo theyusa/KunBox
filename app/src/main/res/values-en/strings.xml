@@ -474,6 +474,11 @@
     <!-- Service Notifications -->
     <string name="notification_switch_node">Switch Node</string>
     <string name="notification_disconnect">Disconnect</string>
+    <string name="notification_speed_format">↑ %s  ↓ %s</string>
+
+    <!-- Connection Settings -->
+    <string name="connection_settings_show_notification_speed">Show Speed in Notification</string>
+    <string name="connection_settings_show_notification_speed_subtitle">Display real-time upload and download speed in notification</string>
 
     <!-- About Dialog -->
     <string name="about_version">App Version: %1$s (%2$d)</string>

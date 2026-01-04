@@ -54,6 +54,7 @@ class SettingsRepository(private val context: Context) {
         val EXCLUDE_FROM_RECENT = booleanPreferencesKey("exclude_from_recent")
         val APP_THEME = stringPreferencesKey("app_theme")
         val APP_LANGUAGE = stringPreferencesKey("app_language")
+        val SHOW_NOTIFICATION_SPEED = booleanPreferencesKey("show_notification_speed")
         
         // TUN/VPN 设置
         val TUN_ENABLED = booleanPreferencesKey("tun_enabled")
@@ -265,6 +266,7 @@ class SettingsRepository(private val context: Context) {
             excludeFromRecent = preferences[PreferencesKeys.EXCLUDE_FROM_RECENT] ?: false,
             appTheme = runCatching { AppThemeMode.valueOf(preferences[PreferencesKeys.APP_THEME] ?: "") }.getOrDefault(AppThemeMode.SYSTEM),
             appLanguage = runCatching { AppLanguage.valueOf(preferences[PreferencesKeys.APP_LANGUAGE] ?: "") }.getOrDefault(AppLanguage.SYSTEM),
+            showNotificationSpeed = preferences[PreferencesKeys.SHOW_NOTIFICATION_SPEED] ?: true,
             
             // TUN/VPN 设置
             tunEnabled = preferences[PreferencesKeys.TUN_ENABLED] ?: true,
@@ -341,6 +343,10 @@ class SettingsRepository(private val context: Context) {
     
     suspend fun setAppLanguage(value: AppLanguage) {
         context.dataStore.edit { it[PreferencesKeys.APP_LANGUAGE] = value.name }
+    }
+    
+    suspend fun setShowNotificationSpeed(value: Boolean) {
+        context.dataStore.edit { it[PreferencesKeys.SHOW_NOTIFICATION_SPEED] = value }
     }
     
     // TUN/VPN 设置

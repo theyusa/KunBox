@@ -14,6 +14,7 @@ data class AppSettings(
     @SerializedName("excludeFromRecent") val excludeFromRecent: Boolean = false,
     @SerializedName("appTheme") val appTheme: AppThemeMode = AppThemeMode.SYSTEM,
     @SerializedName("appLanguage") val appLanguage: AppLanguage = AppLanguage.SYSTEM,
+    @SerializedName("showNotificationSpeed") val showNotificationSpeed: Boolean = true,
     
     // TUN/VPN 设置
     @SerializedName("tunEnabled") val tunEnabled: Boolean = true,

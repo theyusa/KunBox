@@ -80,6 +80,26 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setAppLanguage(value: AppLanguage) {
         viewModelScope.launch { repository.setAppLanguage(value) }
     }
+    
+    fun setShowNotificationSpeed(value: Boolean) {
+        viewModelScope.launch {
+            repository.setShowNotificationSpeed(value)
+            
+            // 跨进程通知 Service 立即更新设置 (因为 Service 运行在独立进程，无法实时监听 DataStore)
+            if (com.kunk.singbox.ipc.SingBoxRemote.isRunning.value) {
+                try {
+                    val intent = android.content.Intent(getApplication(), com.kunk.singbox.service.SingBoxService::class.java).apply {
+                        action = com.kunk.singbox.service.SingBoxService.ACTION_UPDATE_SETTING
+                        putExtra(com.kunk.singbox.service.SingBoxService.EXTRA_SETTING_KEY, "show_notification_speed")
+                        putExtra(com.kunk.singbox.service.SingBoxService.EXTRA_SETTING_VALUE_BOOL, value)
+                    }
+                    getApplication<Application>().startService(intent)
+                } catch (e: Exception) {
+                    android.util.Log.e("SettingsViewModel", "Failed to update service setting", e)
+                }
+            }
+        }
+    }
 
     // TUN/VPN 设置
     fun setTunEnabled(value: Boolean) {

@@ -11,6 +11,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.ProxyInfo
+import android.net.TrafficStats
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -91,8 +92,11 @@ class SingBoxService : VpnService() {
         const val ACTION_STOP = "com.kunk.singbox.STOP"
         const val ACTION_SWITCH_NODE = "com.kunk.singbox.SWITCH_NODE"
         const val ACTION_SERVICE = "com.kunk.singbox.SERVICE"
+        const val ACTION_UPDATE_SETTING = "com.kunk.singbox.UPDATE_SETTING"
         const val EXTRA_CONFIG_PATH = "config_path"
         const val EXTRA_CLEAN_CACHE = "clean_cache"
+        const val EXTRA_SETTING_KEY = "setting_key"
+        const val EXTRA_SETTING_VALUE_BOOL = "setting_value_bool"
         
         @Volatile
         var instance: SingBoxService? = null
@@ -544,6 +548,20 @@ class SingBoxService : VpnService() {
     
     private var lastUplinkTotal: Long = 0
     private var lastDownlinkTotal: Long = 0
+    
+    // 速度计算相关 - 使用 TrafficStats API
+    private var lastSpeedUpdateTime: Long = 0L
+    private var currentUploadSpeed: Long = 0L
+    private var currentDownloadSpeed: Long = 0L
+    @Volatile private var showNotificationSpeed: Boolean = true
+    
+    // TrafficStats 相关变量
+    private var trafficStatsBaseTx: Long = 0L
+    private var trafficStatsBaseRx: Long = 0L
+    private var trafficStatsLastTx: Long = 0L
+    private var trafficStatsLastRx: Long = 0L
+    private var trafficStatsLastSampleTime: Long = 0L
+    @Volatile private var trafficStatsMonitorJob: Job? = null
 
     private val coreResetDebounceMs: Long = 2500L
     private val lastCoreNetworkResetAtMs = AtomicLong(0L)
@@ -1561,6 +1579,20 @@ private val platformInterface = object : PlatformInterface {
                 }
             }
         }
+        
+        // 监听通知栏速度显示设置变化
+        serviceScope.launch {
+            SettingsRepository.getInstance(this@SingBoxService)
+                .settings
+                .map { it.showNotificationSpeed }
+                .distinctUntilChanged()
+                .collect { enabled ->
+                    showNotificationSpeed = enabled
+                    if (isRunning) {
+                        requestNotificationUpdate(force = true)
+                    }
+                }
+        }
     }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -1649,6 +1681,17 @@ private val platformInterface = object : PlatformInterface {
                     performHotSwitch(targetNodeId, outboundTag)
                 } else {
                     switchNextNode()
+                }
+            }
+            ACTION_UPDATE_SETTING -> {
+                val key = intent.getStringExtra(EXTRA_SETTING_KEY)
+                if (key == "show_notification_speed") {
+                    val value = intent.getBooleanExtra(EXTRA_SETTING_VALUE_BOOL, true)
+                    Log.i(TAG, "Received setting update: $key = $value")
+                    showNotificationSpeed = value
+                    if (isRunning) {
+                        requestNotificationUpdate(force = true)
+                    }
                 }
             }
         }
@@ -1997,8 +2040,12 @@ private val platformInterface = object : PlatformInterface {
                 stopForeignVpnMonitor()
                 setLastError(null)
                 Log.i(TAG, "KunBox VPN started successfully")
+                
                 VpnTileService.persistVpnState(applicationContext, true)
                 VpnStateStore.setMode(applicationContext, VpnStateStore.CoreMode.VPN)
+                
+                // 启动 TrafficStats 速度监控 (在状态持久化之后)
+                startTrafficStatsMonitor()
                 VpnTileService.persistVpnPending(applicationContext, "")
                 updateServiceState(ServiceState.RUNNING)
                 updateTileState()
@@ -2378,14 +2425,23 @@ private val platformInterface = object : PlatformInterface {
             ?: configRepository.nodes.value.find { it.id == activeNodeId }?.name
             ?: getString(R.string.connection_connected)
 
+        // 构建通知内容文本
+        val contentText = if (showNotificationSpeed) {
+            val uploadSpeedStr = formatSpeed(currentUploadSpeed)
+            val downloadSpeedStr = formatSpeed(currentDownloadSpeed)
+            getString(R.string.notification_speed_format, uploadSpeedStr, downloadSpeedStr)
+        } else {
+            getString(R.string.connection_connected)
+        }
+
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
         }.apply {
-            setContentTitle("KunBox VPN")
-            setContentText("Node: $activeNodeName")
+            setContentTitle("KunBox VPN - $activeNodeName")
+            setContentText(contentText)
             setSmallIcon(android.R.drawable.ic_lock_lock)
             setContentIntent(pendingIntent)
             setOngoing(true)
@@ -2408,6 +2464,15 @@ private val platformInterface = object : PlatformInterface {
                 ).build()
             )
         }.build()
+    }
+    
+    /**
+     * 格式化速度显示
+     * @param bytesPerSecond 每秒字节数
+     * @return 格式化后的速度字符串，如 "1.5 MB/s"
+     */
+    private fun formatSpeed(bytesPerSecond: Long): String {
+        return android.text.format.Formatter.formatFileSize(this, bytesPerSecond) + "/s"
     }
     
     override fun onDestroy() {
@@ -2688,29 +2753,49 @@ private val platformInterface = object : PlatformInterface {
                 }
             }
             override fun writeStatus(message: StatusMessage?) {
+                // 速度计算已改为使用 TrafficStats API（在 startTrafficStatsMonitor 中实现）
+                // writeStatus 仍然保留用于其他状态信息，但不再用于速度计算
+                // 因为 libbox 的 uplinkTotal/downlinkTotal 在某些配置下可能返回0
                 message ?: return
-                // 获取全局流量
+                
+                // 仅用于 libbox 内部流量统计（如 Clash API 等），但我们主要依赖 TrafficStats
                 val currentUp = message.uplinkTotal
                 val currentDown = message.downlinkTotal
+                val currentTime = System.currentTimeMillis()
                 
-                // 计算增量
-                if (lastUplinkTotal > 0 || lastDownlinkTotal > 0) {
-                    val diffUp = if (currentUp >= lastUplinkTotal) currentUp - lastUplinkTotal else 0
-                    val diffDown = if (currentDown >= lastDownlinkTotal) currentDown - lastDownlinkTotal else 0
+                // 首次回调或时间倒流时重置
+                if (lastSpeedUpdateTime == 0L || currentTime < lastSpeedUpdateTime) {
+                    lastSpeedUpdateTime = currentTime
+                    lastUplinkTotal = currentUp
+                    lastDownlinkTotal = currentDown
+                    return
+                }
+
+                // 如果 libbox 重启导致计数归零，重置上次计数
+                if (currentUp < lastUplinkTotal || currentDown < lastDownlinkTotal) {
+                    lastUplinkTotal = currentUp
+                    lastDownlinkTotal = currentDown
+                    lastSpeedUpdateTime = currentTime
+                    return
+                }
+                
+                // 计算增量用于流量归属统计（不用于速度显示）
+                val diffUp = currentUp - lastUplinkTotal
+                val diffDown = currentDown - lastDownlinkTotal
+                
+                if (diffUp > 0 || diffDown > 0) {
+                    // 归属到当前活跃节点（用于节点流量统计功能）
+                    val repo = ConfigRepository.getInstance(this@SingBoxService)
+                    val activeNodeId = repo.activeNodeId.value
                     
-                    if (diffUp > 0 || diffDown > 0) {
-                        // 归属到当前活跃节点
-                        val repo = ConfigRepository.getInstance(this@SingBoxService)
-                        val activeNodeId = repo.activeNodeId.value
-                        
-                        if (activeNodeId != null) {
-                            TrafficRepository.getInstance(this@SingBoxService).addTraffic(activeNodeId, diffUp, diffDown)
-                        }
+                    if (activeNodeId != null) {
+                        TrafficRepository.getInstance(this@SingBoxService).addTraffic(activeNodeId, diffUp, diffDown)
                     }
                 }
                 
                 lastUplinkTotal = currentUp
                 lastDownlinkTotal = currentDown
+                lastSpeedUpdateTime = currentTime
             }
 
             override fun writeGroups(groups: OutboundGroupIterator?) {
@@ -2959,5 +3044,71 @@ private val platformInterface = object : PlatformInterface {
             }
             Log.w(TAG, "Post-TUN rebind failed after retries ($reason)")
         }
+    }
+
+    private fun startTrafficStatsMonitor() {
+        stopTrafficStatsMonitor()
+        
+        // 重置平滑缓存
+        currentUploadSpeed = 0
+        currentDownloadSpeed = 0
+        lastSpeedUpdateTime = 0
+        
+        // 获取当前 TrafficStats 基准值
+        val uid = Process.myUid()
+        val tx0 = TrafficStats.getUidTxBytes(uid).let { if (it > 0) it else 0L }
+        val rx0 = TrafficStats.getUidRxBytes(uid).let { if (it > 0) it else 0L }
+        
+        trafficStatsBaseTx = tx0
+        trafficStatsBaseRx = rx0
+        trafficStatsLastTx = tx0
+        trafficStatsLastRx = rx0
+        trafficStatsLastSampleTime = SystemClock.elapsedRealtime()
+        
+        // 启动定时采样任务
+        trafficStatsMonitorJob = serviceScope.launch(Dispatchers.Default) {
+            while (isActive) {
+                delay(1000)
+                
+                val nowElapsed = SystemClock.elapsedRealtime()
+                val tx = TrafficStats.getUidTxBytes(uid).let { if (it > 0) it else 0L }
+                val rx = TrafficStats.getUidRxBytes(uid).let { if (it > 0) it else 0L }
+                
+                val dtMs = (nowElapsed - trafficStatsLastSampleTime).coerceAtLeast(1L)
+                val dTx = (tx - trafficStatsLastTx).coerceAtLeast(0L)
+                val dRx = (rx - trafficStatsLastRx).coerceAtLeast(0L)
+                
+                val up = (dTx * 1000L) / dtMs
+                val down = (dRx * 1000L) / dtMs
+                
+                // 平滑处理 (指数移动平均)，与首页 DashboardViewModel 保持一致
+                // 使用 synchronized 确保线程安全
+                synchronized(this@SingBoxService) {
+                    val smoothFactor = 0.3
+                    currentUploadSpeed = if (currentUploadSpeed == 0L) up else (currentUploadSpeed * (1 - smoothFactor) + up * smoothFactor).toLong()
+                    currentDownloadSpeed = if (currentDownloadSpeed == 0L) down else (currentDownloadSpeed * (1 - smoothFactor) + down * smoothFactor).toLong()
+                }
+                
+                if (showNotificationSpeed) {
+                    requestNotificationUpdate(force = false)
+                }
+                
+                trafficStatsLastTx = tx
+                trafficStatsLastRx = rx
+                trafficStatsLastSampleTime = nowElapsed
+            }
+        }
+    }
+    
+    private fun stopTrafficStatsMonitor() {
+        trafficStatsMonitorJob?.cancel()
+        trafficStatsMonitorJob = null
+        currentUploadSpeed = 0
+        currentDownloadSpeed = 0
+        trafficStatsBaseTx = 0
+        trafficStatsBaseRx = 0
+        trafficStatsLastTx = 0
+        trafficStatsLastRx = 0
+        trafficStatsLastSampleTime = 0
     }
 }

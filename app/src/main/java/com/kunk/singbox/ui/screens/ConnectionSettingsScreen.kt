@@ -80,6 +80,12 @@ fun ConnectionSettingsScreen(
                 checked = settings.excludeFromRecent,
                 onCheckedChange = { settingsViewModel.setExcludeFromRecent(it) }
             )
+            SettingSwitchItem(
+                title = stringResource(R.string.connection_settings_show_notification_speed),
+                subtitle = stringResource(R.string.connection_settings_show_notification_speed_subtitle),
+                checked = settings.showNotificationSpeed,
+                onCheckedChange = { settingsViewModel.setShowNotificationSpeed(it) }
+            )
         }
             
             Spacer(modifier = Modifier.height(16.dp))
