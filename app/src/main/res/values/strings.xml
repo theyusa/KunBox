@@ -144,6 +144,8 @@
     <string name="routing_settings_default_rule">默认规则</string>
     <string name="routing_settings_latency_test_method">延迟测试方式</string>
     <string name="routing_settings_latency_test_url">延迟测试地址</string>
+    <string name="routing_settings_latency_test_timeout">测试超时时间</string>
+    <string name="routing_settings_latency_test_timeout_s">%d 秒</string>
     <string name="routing_settings_github_mirror">GitHub 镜像加速</string>
     <string name="routing_settings_block_ads">拦截广告</string>
     <string name="routing_settings_block_ads_subtitle">拦截常见广告域名</string>

@@ -152,10 +152,11 @@ class SingBoxCore private constructor(private val context: Context) {
         
         val finalSettings = settings ?: SettingsRepository.getInstance(context).settings.first()
         val url = adjustUrlForMode(finalSettings.latencyTestUrl, finalSettings.latencyTestMethod)
+        val timeoutMs = finalSettings.latencyTestTimeout
         
         // 尝试使用 NekoBox 原生 urlTest
         // Remove mutex to allow concurrent testing
-        val nativeRtt = testWithLibboxStaticUrlTest(outbound, url, 5000, finalSettings.latencyTestMethod)
+        val nativeRtt = testWithLibboxStaticUrlTest(outbound, url, timeoutMs, finalSettings.latencyTestMethod)
         
         if (nativeRtt >= 0) {
             return@withContext nativeRtt
@@ -170,7 +171,7 @@ class SingBoxCore private constructor(private val context: Context) {
                     adjustUrlForMode("https://www.gstatic.com/generate_204", finalSettings.latencyTestMethod)
                 }
             } catch (_: Exception) { url }
-            testWithLocalHttpProxy(outbound, url, fallbackUrl, 5000)
+            testWithLocalHttpProxy(outbound, url, fallbackUrl, timeoutMs)
         } catch (e: Exception) {
             Log.w(TAG, "Native HTTP proxy test failed: ${e.message}")
             -1L
@@ -266,20 +267,21 @@ class SingBoxCore private constructor(private val context: Context) {
                 service = Libbox.newService(configJson, platformInterface)
                 service.start()
 
-                val deadline = System.currentTimeMillis() + 1000L
+                // 减少服务启动等待时间以提高测速效率
+                val deadline = System.currentTimeMillis() + 500L
                 while (System.currentTimeMillis() < deadline) {
                     try {
                         Socket().use { s ->
-                            s.soTimeout = 200
-                            s.connect(InetSocketAddress("127.0.0.1", port), 200)
+                            s.soTimeout = 100
+                            s.connect(InetSocketAddress("127.0.0.1", port), 100)
                         }
                         break
                     } catch (_: Exception) {
-                        delay(30)
+                        delay(20)
                     }
                 }
 
-                delay(220)
+                delay(80)
 
                 val client = OkHttpClient.Builder()
                     .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port)))
@@ -305,7 +307,7 @@ class SingBoxCore private constructor(private val context: Context) {
                         runOnce(targetUrl)
                     } catch (e: Exception) {
                         if ((e.message ?: "").contains("Connection reset", ignoreCase = true)) {
-                            delay(120)
+                            delay(50)
                             runOnce(targetUrl)
                         } else {
                             throw e
@@ -371,8 +373,8 @@ class SingBoxCore private constructor(private val context: Context) {
         method: LatencyTestMethod,
         onResult: (tag: String, latency: Long) -> Unit
     ) = withContext(Dispatchers.IO) {
-        // Limit concurrency for heavy offline tests (starting multiple services)
-        val semaphore = Semaphore(permits = 4)
+        // 提高离线测试并发数以加快批量测速
+        val semaphore = Semaphore(permits = 6)
         coroutineScope {
             val jobs = outbounds.map { outbound ->
                 async {
@@ -393,6 +395,7 @@ class SingBoxCore private constructor(private val context: Context) {
      */
     suspend fun testOutboundLatency(outbound: Outbound): Long = withContext(Dispatchers.IO) {
         val settings = SettingsRepository.getInstance(context).settings.first()
+        val timeoutMs = settings.latencyTestTimeout
 
         // When VPN is running, prefer running-instance URLTest.
         // When VPN is stopped, try Libbox static URLTest first, then local HTTP proxy fallback.
@@ -410,13 +413,13 @@ class SingBoxCore private constructor(private val context: Context) {
             }
         } catch (_: Exception) { url }
 
-        val rtt = testWithTemporaryServiceUrlTestOnRunning(outbound, url, fallbackUrl, 5000, settings.latencyTestMethod)
+        val rtt = testWithTemporaryServiceUrlTestOnRunning(outbound, url, fallbackUrl, timeoutMs, settings.latencyTestMethod)
         if (rtt >= 0) {
             Log.i(TAG, "Offline URLTest RTT: ${outbound.tag} -> ${rtt} ms")
             return@withContext rtt
         }
 
-        val fallback = testWithLocalHttpProxy(outbound, url, fallbackUrl, 5000)
+        val fallback = testWithLocalHttpProxy(outbound, url, fallbackUrl, timeoutMs)
         Log.i(TAG, "Offline HTTP fallback: ${outbound.tag} -> ${fallback} ms")
         return@withContext fallback
     }
@@ -442,7 +445,8 @@ class SingBoxCore private constructor(private val context: Context) {
                     maybeWarmupNative(url)
                 }
             } catch (_: Exception) { }
-            val semaphore = Semaphore(permits = 6)
+            // 提高并发数以加快批量测速
+            val semaphore = Semaphore(permits = 10)
             coroutineScope {
                 val jobs = outbounds.map { outbound ->
                     async {
@@ -459,6 +463,7 @@ class SingBoxCore private constructor(private val context: Context) {
 
         // VPN is not running: create one temporary registered core and test outbounds on it.
         val url = adjustUrlForMode(settings.latencyTestUrl, settings.latencyTestMethod)
+        val timeoutMs = settings.latencyTestTimeout
         val fallbackUrl = try {
             if (settings.latencyTestMethod == com.kunk.singbox.model.LatencyTestMethod.TCP) {
                 adjustUrlForMode("http://www.gstatic.com/generate_204", settings.latencyTestMethod)
@@ -466,7 +471,7 @@ class SingBoxCore private constructor(private val context: Context) {
                 adjustUrlForMode("https://www.gstatic.com/generate_204", settings.latencyTestMethod)
             }
         } catch (_: Exception) { url }
-        testOutboundsLatencyOfflineWithTemporaryService(outbounds, url, fallbackUrl, 5000, settings.latencyTestMethod, onResult)
+        testOutboundsLatencyOfflineWithTemporaryService(outbounds, url, fallbackUrl, timeoutMs, settings.latencyTestMethod, onResult)
     }
 
     private fun allocateLocalPort(): Int {

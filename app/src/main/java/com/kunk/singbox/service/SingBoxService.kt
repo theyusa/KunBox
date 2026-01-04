@@ -657,8 +657,17 @@ private val platformInterface = object : PlatformInterface {
 
     override fun autoDetectInterfaceControl(fd: Int) {
         val result = protect(fd)
-        if (!result) {
+        if (result) {
+            if (Log.isLoggable(TAG, Log.DEBUG)) {
+                Log.d(TAG, "autoDetectInterfaceControl: protect($fd) success")
+            }
+        } else {
             Log.e(TAG, "autoDetectInterfaceControl: protect($fd) failed")
+            // 记录到用户日志，方便反馈
+            runCatching {
+                com.kunk.singbox.repository.LogRepository.getInstance()
+                    .addLog("ERROR: protect($fd) failed")
+            }
         }
     }
     
@@ -1876,7 +1885,7 @@ private val platformInterface = object : PlatformInterface {
                 }
                 var configContent = configFile.readText()
                 
-                // Force "system" stack on Android to avoid gVisor bind permission issues
+                // Patch config runtime options
                 try {
                     val configObj = gson.fromJson(configContent, SingBoxConfig::class.java)
                     
@@ -1893,10 +1902,7 @@ private val platformInterface = object : PlatformInterface {
                         // Using 'orEmpty()' to ensure non-null list for mapping, although check above handles null
                         val newInbounds = newConfig.inbounds.orEmpty().map { inbound ->
                             if (inbound.type == "tun") {
-                                // Force stack to system or mixed? System is safer for protect() delegation.
-                                // NekoBox uses mixed/gvisor but has the protect_server.
-                                // We use system to rely on dialer's protect.
-                                // Allow auto_route setting from UI (default false)
+                                // Apply runtime settings to tun inbound
                                 inbound.copy(
                                     autoRoute = currentSettings?.autoRoute ?: false
                                 )
@@ -1907,7 +1913,7 @@ private val platformInterface = object : PlatformInterface {
                         newConfig = newConfig.copy(inbounds = newInbounds)
                     }
                     configContent = gson.toJson(newConfig)
-                    Log.i(TAG, "Patched config: stack=system, auto_route=${currentSettings?.autoRoute}, log_level=$logLevel")
+                    Log.i(TAG, "Patched config: auto_route=${currentSettings?.autoRoute}, log_level=$logLevel")
 
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to patch config: ${e.message}")

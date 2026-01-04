@@ -65,6 +65,7 @@ fun RoutingSettingsScreen(
     var showMirrorDialog by remember { mutableStateOf(false) }
     var showLatencyMethodDialog by remember { mutableStateOf(false) }
     var showLatencyUrlDialog by remember { mutableStateOf(false) }
+    var showLatencyTimeoutDialog by remember { mutableStateOf(false) }
 
     if (showLatencyMethodDialog) {
         val options = LatencyTestMethod.entries.map { stringResource(it.displayNameRes) }
@@ -90,6 +91,25 @@ fun RoutingSettingsScreen(
                 showLatencyUrlDialog = false
             },
             onDismiss = { showLatencyUrlDialog = false }
+        )
+    }
+
+    if (showLatencyTimeoutDialog) {
+        // 将毫秒转换为秒显示
+        val currentTimeoutSeconds = (settings.latencyTestTimeout / 1000).toString()
+        InputDialog(
+            title = stringResource(R.string.routing_settings_latency_test_timeout),
+            initialValue = currentTimeoutSeconds,
+            placeholder = "e.g. 3",
+            onConfirm = { input ->
+                val seconds = input.trim().toIntOrNull()
+                if (seconds != null && seconds > 0) {
+                    // 将秒转换为毫秒保存
+                    settingsViewModel.setLatencyTestTimeout(seconds * 1000)
+                }
+                showLatencyTimeoutDialog = false
+            },
+            onDismiss = { showLatencyTimeoutDialog = false }
         )
     }
 
@@ -160,6 +180,11 @@ fun RoutingSettingsScreen(
             SettingItem(title = stringResource(R.string.routing_settings_mode), value = stringResource(settings.routingMode.displayNameRes), onClick = { showModeDialog = true })
             SettingItem(title = stringResource(R.string.routing_settings_default_rule), value = stringResource(settings.defaultRule.displayNameRes), onClick = { showDefaultRuleDialog = true })
             SettingItem(title = stringResource(R.string.routing_settings_latency_test_method), value = stringResource(settings.latencyTestMethod.displayNameRes), onClick = { showLatencyMethodDialog = true })
+            SettingItem(
+                title = stringResource(R.string.routing_settings_latency_test_timeout),
+                value = stringResource(R.string.routing_settings_latency_test_timeout_s, settings.latencyTestTimeout / 1000),
+                onClick = { showLatencyTimeoutDialog = true }
+            )
             SettingItem(
                 title = stringResource(R.string.routing_settings_latency_test_url),
                     onClick = { showLatencyUrlDialog = true },

@@ -144,6 +144,8 @@
     <string name="routing_settings_default_rule">Default Rule</string>
     <string name="routing_settings_latency_test_method">Latency Test Method</string>
     <string name="routing_settings_latency_test_url">Latency Test URL</string>
+    <string name="routing_settings_latency_test_timeout">Test Timeout</string>
+    <string name="routing_settings_latency_test_timeout_s">%d seconds</string>
     <string name="routing_settings_github_mirror">GitHub Mirror</string>
     <string name="routing_settings_block_ads">Block Ads</string>
     <string name="routing_settings_block_ads_subtitle">Block common ad domains</string>

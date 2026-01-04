@@ -196,6 +196,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { repository.setLatencyTestUrl(value) }
     }
     
+    fun setLatencyTestTimeout(value: Int) {
+        viewModelScope.launch { repository.setLatencyTestTimeout(value) }
+    }
+    
     fun setBypassLan(value: Boolean) {
         viewModelScope.launch { repository.setBypassLan(value) }
     }
