@@ -66,6 +66,7 @@ fun RoutingSettingsScreen(
     var showLatencyMethodDialog by remember { mutableStateOf(false) }
     var showLatencyUrlDialog by remember { mutableStateOf(false) }
     var showLatencyTimeoutDialog by remember { mutableStateOf(false) }
+    var showSubscriptionTimeoutDialog by remember { mutableStateOf(false) }
 
     if (showLatencyMethodDialog) {
         val options = LatencyTestMethod.entries.map { stringResource(it.displayNameRes) }
@@ -110,6 +111,22 @@ fun RoutingSettingsScreen(
                 showLatencyTimeoutDialog = false
             },
             onDismiss = { showLatencyTimeoutDialog = false }
+        )
+    }
+
+    if (showSubscriptionTimeoutDialog) {
+        InputDialog(
+            title = stringResource(R.string.routing_settings_subscription_timeout),
+            initialValue = settings.subscriptionUpdateTimeout.toString(),
+            placeholder = "e.g. 30",
+            onConfirm = { input ->
+                val seconds = input.trim().toIntOrNull()
+                if (seconds != null && seconds >= 10) {
+                    settingsViewModel.setSubscriptionUpdateTimeout(seconds)
+                }
+                showSubscriptionTimeoutDialog = false
+            },
+            onDismiss = { showSubscriptionTimeoutDialog = false }
         )
     }
 
@@ -208,6 +225,11 @@ fun RoutingSettingsScreen(
                     }
                 )
                 SettingItem(title = stringResource(R.string.routing_settings_github_mirror), value = stringResource(settings.ghProxyMirror.displayNameRes), onClick = { showMirrorDialog = true })
+                SettingItem(
+                    title = stringResource(R.string.routing_settings_subscription_timeout),
+                    value = stringResource(R.string.routing_settings_latency_test_timeout_s, settings.subscriptionUpdateTimeout),
+                    onClick = { showSubscriptionTimeoutDialog = true }
+                )
             }
             
             Spacer(modifier = Modifier.height(16.dp))

@@ -150,6 +150,8 @@
     <string name="routing_settings_latency_test_url">Latency Test URL</string>
     <string name="routing_settings_latency_test_timeout">Test Timeout</string>
     <string name="routing_settings_latency_test_timeout_s">%d seconds</string>
+    <string name="routing_settings_subscription_timeout">Subscription Update Timeout</string>
+    <string name="routing_settings_subscription_timeout_subtitle">Will stop updating and show failure after timeout</string>
     <string name="routing_settings_github_mirror">GitHub Mirror</string>
     <string name="routing_settings_block_ads">Block Ads</string>
     <string name="routing_settings_block_ads_subtitle">Block common ad domains</string>
@@ -470,6 +472,7 @@
 
     <!-- Profile Card -->
     <string name="profile_card_no_expiry">No Expiry</string>
+    <string name="profile_card_never_updated">Never Updated</string>
 
     <!-- Service Notifications -->
     <string name="notification_switch_node">Switch Node</string>

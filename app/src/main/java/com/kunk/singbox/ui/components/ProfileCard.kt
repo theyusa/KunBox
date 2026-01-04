@@ -19,10 +19,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Error
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.DateRange
 import androidx.compose.material.icons.rounded.ImportExport
 import androidx.compose.material.icons.rounded.MoreVert
+import com.kunk.singbox.model.UpdateStatus
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -56,9 +60,11 @@ fun ProfileCard(
     isSelected: Boolean,
     isEnabled: Boolean,
     isUpdating: Boolean,
+    updateStatus: UpdateStatus = UpdateStatus.Idle,
     expireDate: Long = 0,
     totalTraffic: Long = 0,
     usedTraffic: Long = 0,
+    lastUpdated: Long = 0,
     onClick: () -> Unit,
     onUpdate: () -> Unit,
     onEdit: () -> Unit,
@@ -77,14 +83,25 @@ fun ProfileCard(
             value /= 1024
             unitIndex++
         }
-        return String.format(Locale.US, "%.2f %s", value, units[unitIndex])
+        val formatted = String.format(Locale.US, "%.2f", value)
+        // 去除末尾的 0 和 . (例如: 100.00 -> 100, 25.50 -> 25.5)
+        val stripped = formatted.dropLastWhile { it == '0' }.dropLastWhile { it == '.' }
+        return "$stripped ${units[unitIndex]}"
     }
 
     val noExpiryMsg = stringResource(R.string.profile_card_no_expiry)
+    val neverUpdatedMsg = stringResource(R.string.profile_card_never_updated)
+    
     fun formatDate(timestamp: Long): String {
         if (timestamp <= 0) return noExpiryMsg
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         return sdf.format(Date(timestamp * 1000)) // Subscription usually returns unix timestamp in seconds
+    }
+    
+    fun formatLastUpdated(timestamp: Long): String {
+        if (timestamp <= 0) return neverUpdatedMsg
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+        return sdf.format(Date(timestamp)) // lastUpdated is in milliseconds
     }
 
     Row(
@@ -134,59 +151,97 @@ fun ProfileCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (isUpdating) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            strokeWidth = 2.dp
-                        )
+                    when {
+                        isUpdating -> {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                strokeWidth = 2.dp
+                            )
+                        }
+                        updateStatus == UpdateStatus.Success -> {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(
+                                imageVector = Icons.Rounded.CheckCircle,
+                                contentDescription = "Update Success",
+                                tint = Color(0xFF4CAF50), // Green
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        updateStatus == UpdateStatus.Failed -> {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(
+                                imageVector = Icons.Rounded.Error,
+                                contentDescription = "Update Failed",
+                                tint = Color(0xFFF44336), // Red
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
-                Spacer(modifier = Modifier.height(4.dp))
-                val disabledSuffix = if (!isEnabled) " (" + stringResource(R.string.common_disabled) + ")" else ""
-                Text(
-                    text = type + disabledSuffix,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
                 
-                if (totalTraffic > 0 || expireDate > 0) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (totalTraffic > 0) {
-                            Icon(
-                                imageVector = Icons.Rounded.ImportExport,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "${formatTraffic(usedTraffic)} / ${formatTraffic(totalTraffic)}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        
-                        if (totalTraffic > 0 && expireDate > 0) {
-                            Spacer(modifier = Modifier.width(12.dp))
-                        }
-                        
-                        if (expireDate > 0) {
-                            Icon(
-                                imageVector = Icons.Rounded.DateRange,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = formatDate(expireDate),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                Spacer(modifier = Modifier.height(4.dp))
+                
+                // 显示最后更新时间（替换原来的 Type 显示）
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Rounded.AccessTime,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    val disabledSuffix = if (!isEnabled) " (" + stringResource(R.string.common_disabled) + ")" else ""
+                    Text(
+                        text = formatLastUpdated(lastUpdated) + disabledSuffix,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(4.dp))
+                
+                // 流量信息块（保持高度一致，即使为空也占位）
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.height(16.dp)
+                ) {
+                    if (totalTraffic > 0) {
+                        Icon(
+                            imageVector = Icons.Rounded.ImportExport,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "${formatTraffic(usedTraffic)} / ${formatTraffic(totalTraffic)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                    }
+                    
+                    if (totalTraffic > 0 && expireDate > 0) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    
+                    if (expireDate > 0) {
+                        Icon(
+                            imageVector = Icons.Rounded.DateRange,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = formatDate(expireDate),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }

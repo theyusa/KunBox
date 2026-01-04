@@ -26,6 +26,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import com.kunk.singbox.utils.NetworkClient
@@ -62,7 +63,11 @@ class ConfigRepository(private val context: Context) {
     private val gson = Gson()
     private val singBoxCore = SingBoxCore.getInstance(context)
     private val settingsRepository = SettingsRepository.getInstance(context)
-    private val client = NetworkClient.client
+    // client 改为动态获取，以支持可配置的超时
+    private fun getClient(): okhttp3.OkHttpClient {
+        val timeout = runBlocking { settingsRepository.settings.first().subscriptionUpdateTimeout.toLong() }
+        return NetworkClient.createClientWithTimeout(timeout, timeout, timeout)
+    }
     
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     
@@ -509,7 +514,7 @@ class ConfigRepository(private val context: Context) {
                 var parsedConfig: SingBoxConfig? = null
                 var userInfo: SubscriptionUserInfo? = null
 
-                client.newCall(request).execute().use { response ->
+                getClient().newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         Log.w(TAG, "Request failed with UA '$userAgent': HTTP ${response.code}")
                         if (index == USER_AGENTS.lastIndex) {

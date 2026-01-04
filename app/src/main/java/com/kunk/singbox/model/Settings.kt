@@ -70,7 +70,10 @@ data class AppSettings(
     
     // 规则集自动更新
     @SerializedName("ruleSetAutoUpdateEnabled") val ruleSetAutoUpdateEnabled: Boolean = false,
-    @SerializedName("ruleSetAutoUpdateInterval") val ruleSetAutoUpdateInterval: Int = 60 // 分钟
+    @SerializedName("ruleSetAutoUpdateInterval") val ruleSetAutoUpdateInterval: Int = 60, // 分钟
+    
+    // 订阅更新超时设置
+    @SerializedName("subscriptionUpdateTimeout") val subscriptionUpdateTimeout: Int = 30 // 秒，默认30秒
 )
 
 enum class LatencyTestMethod(@StringRes val displayNameRes: Int) {

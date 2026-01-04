@@ -109,6 +109,9 @@ class SettingsRepository(private val context: Context) {
         // 规则集自动更新
         val RULE_SET_AUTO_UPDATE_ENABLED = booleanPreferencesKey("rule_set_auto_update_enabled")
         val RULE_SET_AUTO_UPDATE_INTERVAL = intPreferencesKey("rule_set_auto_update_interval")
+        
+        // 订阅更新超时
+        val SUBSCRIPTION_UPDATE_TIMEOUT = intPreferencesKey("subscription_update_timeout")
     }
     
     val settings: Flow<AppSettings> = context.dataStore.data.map { preferences ->
@@ -320,7 +323,10 @@ class SettingsRepository(private val context: Context) {
             
             // 规则集自动更新
             ruleSetAutoUpdateEnabled = preferences[PreferencesKeys.RULE_SET_AUTO_UPDATE_ENABLED] ?: false,
-            ruleSetAutoUpdateInterval = preferences[PreferencesKeys.RULE_SET_AUTO_UPDATE_INTERVAL] ?: 60
+            ruleSetAutoUpdateInterval = preferences[PreferencesKeys.RULE_SET_AUTO_UPDATE_INTERVAL] ?: 60,
+            
+            // 订阅更新超时
+            subscriptionUpdateTimeout = preferences[PreferencesKeys.SUBSCRIPTION_UPDATE_TIMEOUT] ?: 30
         )
     }.flowOn(Dispatchers.Default)
     
@@ -553,6 +559,10 @@ class SettingsRepository(private val context: Context) {
     
     suspend fun setRuleSetAutoUpdateInterval(value: Int) {
         context.dataStore.edit { it[PreferencesKeys.RULE_SET_AUTO_UPDATE_INTERVAL] = value }
+    }
+    
+    suspend fun setSubscriptionUpdateTimeout(value: Int) {
+        context.dataStore.edit { it[PreferencesKeys.SUBSCRIPTION_UPDATE_TIMEOUT] = value }
     }
     
     suspend fun setNodeFilter(value: NodeFilter) {

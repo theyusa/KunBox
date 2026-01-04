@@ -411,9 +411,11 @@ fun ProfilesScreen(
                         isSelected = profile.id == activeProfileId,
                         isEnabled = profile.enabled,
                         isUpdating = profile.updateStatus == UpdateStatus.Updating,
+                        updateStatus = profile.updateStatus,
                         expireDate = profile.expireDate,
                         totalTraffic = profile.totalTraffic,
                         usedTraffic = profile.usedTraffic,
+                        lastUpdated = profile.lastUpdated,
                         onClick = { viewModel.setActiveProfile(profile.id) },
                         onUpdate = {
                             viewModel.updateProfile(profile.id)

@@ -150,6 +150,8 @@
     <string name="routing_settings_latency_test_url">延迟测试地址</string>
     <string name="routing_settings_latency_test_timeout">测试超时时间</string>
     <string name="routing_settings_latency_test_timeout_s">%d 秒</string>
+    <string name="routing_settings_subscription_timeout">订阅更新超时</string>
+    <string name="routing_settings_subscription_timeout_subtitle">超时后将停止更新并显示失败</string>
     <string name="routing_settings_github_mirror">GitHub 镜像加速</string>
     <string name="routing_settings_block_ads">拦截广告</string>
     <string name="routing_settings_block_ads_subtitle">拦截常见广告域名</string>
@@ -470,6 +472,7 @@
 
     <!-- Profile Card -->
     <string name="profile_card_no_expiry">无限期</string>
+    <string name="profile_card_never_updated">从未更新</string>
 
     <!-- Service Notifications -->
     <string name="notification_switch_node">切换节点</string>

@@ -227,6 +227,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setGhProxyMirror(value: GhProxyMirror) {
         viewModelScope.launch { repository.setGhProxyMirror(value) }
     }
+    
+    fun setSubscriptionUpdateTimeout(value: Int) {
+        viewModelScope.launch { repository.setSubscriptionUpdateTimeout(value) }
+    }
 
     // 代理设置
     fun updateProxyPort(value: Int) {
