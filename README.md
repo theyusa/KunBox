@@ -1,4 +1,4 @@
-h<div align="center">
+<div align="center">
 
 # KunBox for Android
 
@@ -190,3 +190,4 @@ Copyright © 2024-2025 KunK.
 <div align="center">
 <sub>本项目仅供学习和研究网络技术使用，请遵守当地法律法规。</sub>
 </div>
+
