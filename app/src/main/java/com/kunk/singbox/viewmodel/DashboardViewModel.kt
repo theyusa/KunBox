@@ -16,6 +16,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kunk.singbox.model.ConnectionState
 import com.kunk.singbox.model.ConnectionStats
+import com.kunk.singbox.model.NodeSortType
 import com.kunk.singbox.model.NodeUi
 import com.kunk.singbox.model.ProfileUi
 import com.kunk.singbox.repository.SettingsRepository
@@ -58,6 +59,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
     
     private val configRepository = ConfigRepository.getInstance(application)
+    private val settingsRepository = SettingsRepository.getInstance(application)
     private val singBoxCore = SingBoxCore.getInstance(application)
     
     // Connection state
@@ -174,12 +176,16 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         )
 
     private val _nodeFilter = MutableStateFlow(NodeFilter())
+    private val _sortType = MutableStateFlow(NodeSortType.DEFAULT)
+    private val _customNodeOrder = MutableStateFlow<List<String>>(emptyList())
 
     val nodes: StateFlow<List<NodeUi>> = combine(
         configRepository.nodes,
         _nodeFilter,
+        _sortType,
+        _customNodeOrder,
         configRepository.activeNodeId
-    ) { nodes, filter, currentActiveNodeId ->
+    ) { nodes, filter, sortType, customOrder, currentActiveNodeId ->
         val filtered = when (filter.filterMode) {
             FilterMode.NONE -> nodes
             FilterMode.INCLUDE -> {
@@ -192,15 +198,33 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
         
-        // 如果当前活跃节点不在过滤后的列表中，自动选择第一个过滤后的节点
-        if (filtered.isNotEmpty() && (currentActiveNodeId == null || filtered.none { it.id == currentActiveNodeId })) {
-            // 直接通过 configRepository 设置活跃节点，避免显示 Toast
-            viewModelScope.launch {
-                configRepository.setActiveNode(filtered.first().id)
+        // 应用排序
+        val sorted = when (sortType) {
+            NodeSortType.DEFAULT -> filtered
+            NodeSortType.LATENCY -> filtered.sortedWith(compareBy<NodeUi> {
+                val l = it.latencyMs
+                // 将未测试(null)和超时/失败(<=0)的节点排到最后
+                if (l == null || l <= 0) Long.MAX_VALUE else l
+            })
+            NodeSortType.NAME -> filtered.sortedBy { it.name }
+            NodeSortType.REGION -> filtered.sortedWith(compareBy<NodeUi> {
+                getRegionWeight(it.regionFlag)
+            }.thenBy { it.name })
+            NodeSortType.CUSTOM -> {
+                val orderMap = customOrder.withIndex().associate { it.value to it.index }
+                filtered.sortedBy { orderMap[it.id] ?: Int.MAX_VALUE }
             }
         }
         
-        filtered
+        // 如果当前活跃节点不在过滤后的列表中，自动选择第一个过滤后的节点
+        if (sorted.isNotEmpty() && (currentActiveNodeId == null || sorted.none { it.id == currentActiveNodeId })) {
+            // 直接通过 configRepository 设置活跃节点，避免显示 Toast
+            viewModelScope.launch {
+                configRepository.setActiveNode(sorted.first().id)
+            }
+        }
+        
+        sorted
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -230,7 +254,17 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     
     init {
         viewModelScope.launch {
-            _nodeFilter.value = SettingsRepository.getInstance(getApplication()).getNodeFilter()
+            _nodeFilter.value = settingsRepository.getNodeFilter()
+        }
+        viewModelScope.launch {
+            settingsRepository.getNodeSortType().collect {
+                _sortType.value = it
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.getCustomNodeOrder().collect {
+                _customNodeOrder.value = it
+            }
         }
         runCatching { SingBoxRemote.ensureBound(getApplication()) }
 
@@ -781,6 +815,39 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         lastTrafficSampleAtElapsedMs = 0
     }
     
+    private fun getRegionWeight(flag: String?): Int {
+        if (flag.isNullOrBlank()) return 9999
+        // Priority order: CN, HK, MO, TW, JP, KR, SG, US, Others
+        return when (flag) {
+            "🇨🇳" -> 0   // China
+            "🇭🇰" -> 1   // Hong Kong
+            "🇲🇴" -> 2   // Macau
+            "🇹🇼" -> 3   // Taiwan
+            "🇯🇵" -> 4   // Japan
+            "🇰🇷" -> 5   // South Korea
+            "🇸🇬" -> 6   // Singapore
+            "🇺🇸" -> 7   // USA
+            "🇻🇳" -> 8   // Vietnam
+            "🇹🇭" -> 9   // Thailand
+            "🇵🇭" -> 10  // Philippines
+            "🇲🇾" -> 11  // Malaysia
+            "🇮🇩" -> 12  // Indonesia
+            "🇮🇳" -> 13  // India
+            "🇷🇺" -> 14  // Russia
+            "🇹🇷" -> 15  // Turkey
+            "🇮🇹" -> 16  // Italy
+            "🇩🇪" -> 17  // Germany
+            "🇫🇷" -> 18  // France
+            "🇳🇱" -> 19  // Netherlands
+            "🇬🇧" -> 20  // UK
+            "🇦🇺" -> 21  // Australia
+            "🇨🇦" -> 22  // Canada
+            "🇧🇷" -> 23  // Brazil
+            "🇦🇷" -> 24  // Argentina
+            else -> 1000 // Others
+        }
+    }
+
     /**
      * 获取活跃配置的名称
      */

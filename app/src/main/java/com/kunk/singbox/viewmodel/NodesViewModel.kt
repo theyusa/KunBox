@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kunk.singbox.ipc.SingBoxRemote
 import com.kunk.singbox.ipc.VpnStateStore
+import com.kunk.singbox.model.NodeSortType
 import com.kunk.singbox.model.NodeUi
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.SettingsRepository
@@ -37,10 +38,6 @@ data class NodeFilter(
 
 class NodesViewModel(application: Application) : AndroidViewModel(application) {
     
-    enum class SortType {
-        DEFAULT, LATENCY, NAME, REGION
-    }
-    
     private val configRepository = ConfigRepository.getInstance(application)
     private val settingsRepository = SettingsRepository.getInstance(application)
 
@@ -53,8 +50,10 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     private val _testingNodeIds = MutableStateFlow<Set<String>>(emptySet())
     val testingNodeIds: StateFlow<Set<String>> = _testingNodeIds.asStateFlow()
     
-    private val _sortType = MutableStateFlow(SortType.DEFAULT)
-    val sortType: StateFlow<SortType> = _sortType.asStateFlow()
+    private val _sortType = MutableStateFlow(NodeSortType.DEFAULT)
+    val sortType: StateFlow<NodeSortType> = _sortType.asStateFlow()
+
+    private val _customNodeOrder = MutableStateFlow<List<String>>(emptyList())
 
     // 节点过滤状态
     private val _nodeFilter = MutableStateFlow(NodeFilter())
@@ -65,13 +64,24 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _nodeFilter.value = settingsRepository.getNodeFilter()
         }
+        viewModelScope.launch {
+            settingsRepository.getNodeSortType().collect { type ->
+                _sortType.value = type
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.getCustomNodeOrder().collect { order ->
+                _customNodeOrder.value = order
+            }
+        }
     }
 
     val nodes: StateFlow<List<NodeUi>> = combine(
         configRepository.nodes,
         _sortType,
-        _nodeFilter
-    ) { nodes, sortType, filter ->
+        _nodeFilter,
+        _customNodeOrder
+    ) { nodes, sortType, filter, customOrder ->
         // 先过滤
         val filtered = when (filter.filterMode) {
             FilterMode.NONE -> nodes
@@ -100,20 +110,59 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
         }
         // 再排序
         when (sortType) {
-            SortType.DEFAULT -> filtered
-            SortType.LATENCY -> filtered.sortedWith(compareBy<NodeUi> {
+            NodeSortType.DEFAULT -> filtered
+            NodeSortType.LATENCY -> filtered.sortedWith(compareBy<NodeUi> {
                 val l = it.latencyMs
                 // 将未测试(null)和超时/失败(<=0)的节点排到最后
                 if (l == null || l <= 0) Long.MAX_VALUE else l
             })
-            SortType.NAME -> filtered.sortedBy { it.name }
-            SortType.REGION -> filtered.sortedBy { it.regionFlag ?: "\uFFFF" } // Put no flag at end
+            NodeSortType.NAME -> filtered.sortedBy { it.name }
+            NodeSortType.REGION -> filtered.sortedWith(compareBy<NodeUi> { 
+                getRegionWeight(it.regionFlag) 
+            }.thenBy { it.name })
+            NodeSortType.CUSTOM -> {
+                val orderMap = customOrder.withIndex().associate { it.value to it.index }
+                filtered.sortedBy { orderMap[it.id] ?: Int.MAX_VALUE }
+            }
         }
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
+
+    private fun getRegionWeight(flag: String?): Int {
+        if (flag.isNullOrBlank()) return 9999
+        // Priority order: CN, HK, MO, TW, JP, KR, SG, US, Others
+        return when (flag) {
+            "🇨🇳" -> 0   // China
+            "🇭🇰" -> 1   // Hong Kong
+            "🇲🇴" -> 2   // Macau
+            "🇹🇼" -> 3   // Taiwan
+            "🇯🇵" -> 4   // Japan
+            "🇰🇷" -> 5   // South Korea
+            "🇸🇬" -> 6   // Singapore
+            "🇺🇸" -> 7   // USA
+            "🇻🇳" -> 8   // Vietnam
+            "🇹🇭" -> 9   // Thailand
+            "🇵🇭" -> 10  // Philippines
+            "🇲🇾" -> 11  // Malaysia
+            "🇮🇩" -> 12  // Indonesia
+            "🇮🇳" -> 13  // India
+            "🇷🇺" -> 14  // Russia
+            "🇹🇷" -> 15  // Turkey
+            "🇮🇹" -> 16  // Italy
+            "🇩🇪" -> 17  // Germany
+            "🇫🇷" -> 18  // France
+            "🇳🇱" -> 19  // Netherlands
+            "🇬🇧" -> 20  // UK
+            "🇦🇺" -> 21  // Australia
+            "🇨🇦" -> 22  // Canada
+            "🇧🇷" -> 23  // Brazil
+            "🇦🇷" -> 24  // Argentina
+            else -> 1000 // Others
+        }
+    }
 
     val filteredAllNodes: StateFlow<List<NodeUi>> = combine(
         configRepository.allNodes,
@@ -146,13 +195,20 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         when (sortType) {
-            SortType.DEFAULT -> filtered
-            SortType.LATENCY -> filtered.sortedWith(compareBy<NodeUi> {
+            NodeSortType.DEFAULT -> filtered
+            NodeSortType.LATENCY -> filtered.sortedWith(compareBy<NodeUi> {
                 val l = it.latencyMs
                 if (l == null || l <= 0) Long.MAX_VALUE else l
             })
-            SortType.NAME -> filtered.sortedBy { it.name }
-            SortType.REGION -> filtered.sortedBy { it.regionFlag ?: "\uFFFF" }
+            NodeSortType.NAME -> filtered.sortedBy { it.name }
+            NodeSortType.REGION -> filtered.sortedWith(compareBy<NodeUi> { 
+                getRegionWeight(it.regionFlag) 
+            }.thenBy { it.name })
+            NodeSortType.CUSTOM -> {
+                // filteredAllNodes 不使用 customOrder，或者我们可以简单地回退到 DEFAULT
+                // 既然 filteredAllNodes 目前主要用于后台逻辑，这里暂时使用 DEFAULT
+                filtered
+            }
         }
     }.stateIn(
         scope = viewModelScope,
@@ -269,9 +325,11 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
         
         testingJob = viewModelScope.launch {
             _isTesting.value = true
-            // 测速期间暂停排序，防止列表跳动 (暂时切回默认排序，或者保持当前排序但锁定更新?)
-            // 这里为了简单且符合用户"最后一次性排好序"的要求，我们暂时将排序设为 DEFAULT
-            _sortType.value = SortType.DEFAULT
+            
+            // 测速期间冻结当前顺序，防止列表跳动
+            val currentOrder = nodes.value.map { it.id }
+            setCustomNodeOrder(currentOrder)
+            setSortType(NodeSortType.CUSTOM)
             
             // 只测试当前列表显示的节点（已过滤）
             val currentNodes = nodes.value
@@ -284,7 +342,7 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
                     _testingNodeIds.value = _testingNodeIds.value - finishedNodeId
                 }
                 // 测速完成后自动切换到延迟排序
-                setSortType(SortType.LATENCY)
+                setSortType(NodeSortType.LATENCY)
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
@@ -307,8 +365,11 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
         return configRepository.exportNode(nodeId)
     }
     
-    fun setSortType(type: SortType) {
+    fun setSortType(type: NodeSortType) {
         _sortType.value = type
+        viewModelScope.launch {
+            settingsRepository.setNodeSortType(type)
+        }
     }
     
     // 设置节点过滤条件
@@ -332,8 +393,20 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     
     fun clearLatency() {
         viewModelScope.launch {
+            // 清空前冻结当前顺序，防止列表跳动
+            val currentOrder = nodes.value.map { it.id }
+            setCustomNodeOrder(currentOrder)
+            setSortType(NodeSortType.CUSTOM)
+            
             configRepository.clearAllNodesLatency()
             emitToast(getApplication<Application>().getString(R.string.nodes_latency_cleared))
+        }
+    }
+
+    private fun setCustomNodeOrder(order: List<String>) {
+        _customNodeOrder.value = order
+        viewModelScope.launch {
+            settingsRepository.setCustomNodeOrder(order)
         }
     }
 

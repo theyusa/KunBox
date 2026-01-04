@@ -562,7 +562,8 @@ fun SingleSelectDialog(
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var tempSelectedIndex by remember { mutableStateOf(selectedIndex) }
+    // Use selectedIndex as the initial value, but update it when selectedIndex changes
+    var tempSelectedIndex by remember(selectedIndex) { mutableStateOf(selectedIndex) }
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -597,9 +598,7 @@ fun SingleSelectDialog(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
                             .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
-                            .clickable(
-                                onClick = { tempSelectedIndex = index }
-                            )
+                            .clickable { tempSelectedIndex = index }
                             .padding(vertical = 12.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {

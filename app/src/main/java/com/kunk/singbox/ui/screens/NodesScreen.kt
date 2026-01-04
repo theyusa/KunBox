@@ -70,6 +70,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.kunk.singbox.viewmodel.FilterMode
+import com.kunk.singbox.model.NodeSortType
 import com.kunk.singbox.viewmodel.NodesViewModel
 import com.kunk.singbox.ui.components.InputDialog
 import com.kunk.singbox.ui.components.NodeFilterDialog
@@ -93,6 +94,7 @@ fun NodesScreen(
     val groups by viewModel.nodeGroups.collectAsState()
     val testingNodeIds by viewModel.testingNodeIds.collectAsState()
     val nodeFilter by viewModel.nodeFilter.collectAsState()
+    val sortType by viewModel.sortType.collectAsState()
 
     var selectedGroupIndex by remember { mutableStateOf(0) }
     val isTesting by viewModel.isTesting.collectAsState()
@@ -130,16 +132,16 @@ fun NodesScreen(
 
     if (showSortDialog) {
         val sortOptions = listOf(
-            stringResource(R.string.nodes_sort_default) to NodesViewModel.SortType.DEFAULT,
-            stringResource(R.string.nodes_sort_latency) to NodesViewModel.SortType.LATENCY,
-            stringResource(R.string.nodes_sort_name) to NodesViewModel.SortType.NAME,
-            stringResource(R.string.nodes_sort_region) to NodesViewModel.SortType.REGION
+            stringResource(R.string.nodes_sort_default) to NodeSortType.DEFAULT,
+            stringResource(R.string.nodes_sort_latency) to NodeSortType.LATENCY,
+            stringResource(R.string.nodes_sort_name) to NodeSortType.NAME,
+            stringResource(R.string.nodes_sort_region) to NodeSortType.REGION
         )
 
         SingleSelectDialog(
             title = stringResource(R.string.nodes_sort),
             options = sortOptions.map { it.first },
-            selectedIndex = -1,
+            selectedIndex = sortOptions.indexOfFirst { it.second == sortType },
             onSelect = { index ->
                 viewModel.setSortType(sortOptions[index].second)
                 showSortDialog = false

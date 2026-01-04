@@ -26,6 +26,7 @@ import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.model.GhProxyMirror
 import com.kunk.singbox.model.AppThemeMode
 import com.kunk.singbox.model.AppLanguage
+import com.kunk.singbox.model.NodeSortType
 import com.kunk.singbox.viewmodel.NodeFilter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -106,6 +107,8 @@ class SettingsRepository(private val context: Context) {
         val APP_GROUPS = stringPreferencesKey("app_groups")
         val DNS_MIGRATED = booleanPreferencesKey("dns_migrated")
         val NODE_FILTER = stringPreferencesKey("node_filter")
+        val NODE_SORT_TYPE = stringPreferencesKey("node_sort_type")
+        val CUSTOM_NODE_ORDER = stringPreferencesKey("custom_node_order")
         
         // 规则集自动更新
         val RULE_SET_AUTO_UPDATE_ENABLED = booleanPreferencesKey("rule_set_auto_update_enabled")
@@ -588,6 +591,40 @@ class SettingsRepository(private val context: Context) {
                 NodeFilter()
             }
         }.first()
+    }
+
+    suspend fun setNodeSortType(sortType: NodeSortType) {
+        context.dataStore.edit { it[PreferencesKeys.NODE_SORT_TYPE] = sortType.name }
+    }
+
+    fun getNodeSortType(): Flow<NodeSortType> {
+        return context.dataStore.data.map { preferences ->
+            val name = preferences[PreferencesKeys.NODE_SORT_TYPE]
+            if (name != null) {
+                runCatching { NodeSortType.valueOf(name) }.getOrDefault(NodeSortType.DEFAULT)
+            } else {
+                NodeSortType.DEFAULT
+            }
+        }
+    }
+
+    suspend fun setCustomNodeOrder(nodeIds: List<String>) {
+        context.dataStore.edit { it[PreferencesKeys.CUSTOM_NODE_ORDER] = gson.toJson(nodeIds) }
+    }
+
+    fun getCustomNodeOrder(): Flow<List<String>> {
+        return context.dataStore.data.map { preferences ->
+            val json = preferences[PreferencesKeys.CUSTOM_NODE_ORDER]
+            if (json != null) {
+                try {
+                    gson.fromJson(json, object : TypeToken<List<String>>() {}.type) ?: emptyList()
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            } else {
+                emptyList()
+            }
+        }
     }
 
     suspend fun checkAndMigrateRuleSets() {

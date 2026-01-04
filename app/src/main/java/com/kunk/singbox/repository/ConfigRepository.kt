@@ -1548,17 +1548,37 @@ class ConfigRepository(private val context: Context) {
                     group = "未分组"
                 }
 
-                val regionFlag = detectRegionFlag(outbound.tag)
+                var regionFlag = detectRegionFlag(outbound.tag)
                 
-                // 如果名称中已经包含该国旗，或者名称中已经包含任意国旗emoji，则不再添加
-                // 1. 如果 tag 包含了检测到的 regionFlag，则 finalRegionFlag = null
-                // 2. 如果 tag 包含了其他国旗 Emoji，是否还要显示 regionFlag？
-                //    这里我们采取保守策略：只要 tag 中包含任何国旗 Emoji，就不再添加自动检测的国旗。
-                //    这可以避免 "🇩🇪 德国" 被显示为 "🇩🇪 🇩🇪 德国"，或者 "🇺🇸 美国" 被显示为 "🇺🇸 🇺🇸 美国"。
-                //    同时也能处理 "🇸🇬 新加坡" 这种已经自带国旗的情况。
+                // 如果从名称无法识别地区，尝试更深层次的信息挖掘
+                if (regionFlag == "🌐" || regionFlag.isBlank()) {
+                    // 1. 尝试 SNI (通常 CDN 节点会使用 SNI 指向真实域名)
+                    val sni = outbound.tls?.serverName
+                    if (!sni.isNullOrBlank()) {
+                        val sniRegion = detectRegionFlag(sni)
+                        if (sniRegion != "🌐" && sniRegion.isNotBlank()) regionFlag = sniRegion
+                    }
+                    
+                    // 2. 尝试 Host (WS/HTTP Host)
+                    if ((regionFlag == "🌐" || regionFlag.isBlank())) {
+                        val host = outbound.transport?.headers?.get("Host")
+                            ?: outbound.transport?.host?.firstOrNull()
+                        if (!host.isNullOrBlank()) {
+                            val hostRegion = detectRegionFlag(host)
+                            if (hostRegion != "🌐" && hostRegion.isNotBlank()) regionFlag = hostRegion
+                        }
+                    }
+
+                    // 3. 最后尝试服务器地址 (可能是 CDN IP，准确度较低，作为兜底)
+                    if ((regionFlag == "🌐" || regionFlag.isBlank()) && !outbound.server.isNullOrBlank()) {
+                        val serverRegion = detectRegionFlag(outbound.server)
+                        if (serverRegion != "🌐" && serverRegion.isNotBlank()) regionFlag = serverRegion
+                    }
+                }
                 
-                val hasFlagEmoji = containsFlagEmoji(outbound.tag)
-                val finalRegionFlag = if (outbound.tag.contains(regionFlag) || hasFlagEmoji) null else regionFlag
+                // 2025-fix: 始终设置 regionFlag 以确保排序功能正常工作
+                // UI 层 (NodeCard) 将负责检查名称中是否已包含该国旗，从而避免重复显示
+                val finalRegionFlag = regionFlag
 
                 // 2025 规范：确保 tag 已经应用了协议后缀（在 SubscriptionManager 中处理过了）
                 // 这里我们只需确保 NodeUi 能够正确显示国旗
