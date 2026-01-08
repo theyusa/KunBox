@@ -38,6 +38,7 @@ import okhttp3.Request
 import java.lang.reflect.Modifier
 import java.lang.reflect.Method
 import java.util.Collections
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -229,6 +230,10 @@ class SingBoxCore private constructor(private val context: Context) {
 
             val settings = SettingsRepository.getInstance(context).settings.first()
 
+            // 为测试服务生成唯一的临时数据库路径,避免与 VPN 服务的数据库冲突
+            // 使用 UUID 确保绝对唯一性,防止高并发时时间戳重复导致路径冲突
+            val testDbPath = File(tempDir, "test_${UUID.randomUUID()}.db").absolutePath
+
             val config = SingBoxConfig(
                 log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true),
                 dns = com.kunk.singbox.model.DnsConfig(
@@ -263,19 +268,20 @@ class SingBoxCore private constructor(private val context: Context) {
                     finalOutbound = "direct",
                     autoDetectInterface = true
                 ),
-                // 使用独立的测试数据库,避免与后台 VPN 服务的 cache.db 冲突
-                // bbolt 不支持多进程并发访问同一数据库文件
+                // 完全禁用测试服务的缓存,避免数据库冲突
+                // 关键: 必须指定唯一的临时路径,防止与 VPN 服务的 cache.db 冲突
+                // bbolt 不支持多进程并发访问同一数据库文件,会触发 "page already freed" panic
                 experimental = com.kunk.singbox.model.ExperimentalConfig(
                     cacheFile = com.kunk.singbox.model.CacheFileConfig(
-                        enabled = true,
-                        path = File(context.filesDir, "singbox_data").also { it.mkdirs() }
-                            .resolve("cache_test.db").absolutePath,
-                        storeFakeip = false // 测试服务不需要 FakeIP
+                        enabled = false, // 禁用缓存
+                        path = testDbPath, // 使用唯一的临时路径
+                        storeFakeip = false
                     )
                 )
             )
 
             val configJson = gson.toJson(config)
+            Log.d(TAG, "Test service: cache disabled to avoid bbolt conflicts")
             var service: BoxService? = null
             try {
                 ensureLibboxSetup(context)
@@ -350,6 +356,12 @@ class SingBoxCore private constructor(private val context: Context) {
                 }
             } finally {
                 try { service?.close() } catch (_: Exception) {}
+                // 清理临时数据库文件,防止泄漏
+                try {
+                    File(testDbPath).delete()
+                    File("$testDbPath-shm").delete() // SQLite WAL 模式的共享内存文件
+                    File("$testDbPath-wal").delete() // SQLite WAL 日志文件
+                } catch (_: Exception) {}
             }
         } catch (e: Exception) {
             Log.e(TAG, "Local HTTP proxy setup failed", e)
@@ -472,6 +484,10 @@ class SingBoxCore private constructor(private val context: Context) {
             if (safeOutbounds.none { it.tag == "block" }) safeOutbounds.add(com.kunk.singbox.model.Outbound(type = "block", tag = "block"))
             if (safeOutbounds.none { it.tag == "dns-out" }) safeOutbounds.add(com.kunk.singbox.model.Outbound(type = "dns", tag = "dns-out"))
 
+            // 为批量测试服务生成唯一的临时数据库路径,避免与 VPN 服务的数据库冲突
+            // 使用 UUID 确保绝对唯一性,防止高并发时时间戳重复导致路径冲突
+            val batchTestDbPath = File(tempDir, "batch_test_${UUID.randomUUID()}.db").absolutePath
+
             val config = SingBoxConfig(
                 log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true),
                 dns = dnsConfig,
@@ -484,20 +500,21 @@ class SingBoxCore private constructor(private val context: Context) {
                     finalOutbound = "direct",
                     autoDetectInterface = true
                 ),
-                // 使用独立的测试数据库,避免与后台 VPN 服务的 cache.db 冲突
-                // bbolt 不支持多进程并发访问同一数据库文件
+                // 完全禁用测试服务的缓存,避免数据库冲突
+                // 关键: 必须指定唯一的临时路径,防止与 VPN 服务的 cache.db 冲突
+                // bbolt 不支持多进程并发访问同一数据库文件,会触发 "page already freed" panic
                 experimental = com.kunk.singbox.model.ExperimentalConfig(
                     cacheFile = com.kunk.singbox.model.CacheFileConfig(
-                        enabled = true,
-                        path = File(context.filesDir, "singbox_data").also { it.mkdirs() }
-                            .resolve("cache_test.db").absolutePath,
-                        storeFakeip = false // 测试服务不需要 FakeIP
+                        enabled = false, // 禁用缓存
+                        path = batchTestDbPath, // 使用唯一的临时路径
+                        storeFakeip = false
                     )
                 )
             )
 
             // 3. 启动服务
             val configJson = gson.toJson(config)
+            Log.d(TAG, "Batch test service: cache disabled to avoid bbolt conflicts")
             var service: BoxService? = null
             
             try {
@@ -588,6 +605,12 @@ class SingBoxCore private constructor(private val context: Context) {
                 batchOutbounds.forEach { onResult(it.tag, -1L) }
             } finally {
                 try { service?.close() } catch (_: Exception) {}
+                // 清理临时数据库文件,防止泄漏
+                try {
+                    File(batchTestDbPath).delete()
+                    File("$batchTestDbPath-shm").delete() // SQLite WAL 模式的共享内存文件
+                    File("$batchTestDbPath-wal").delete() // SQLite WAL 日志文件
+                } catch (_: Exception) {}
             }
         }
     }
