@@ -761,14 +761,10 @@ class SingBoxService : VpnService() {
                     }
 
                     // 检查 3: 尝试调用 boxService 方法验证其响应性
-                    // 使用轻量级操作,避免性能影响
                     withContext(Dispatchers.IO) {
                         try {
-                            // 尝试调用 resetNetwork 作为健康检查
-                            // 注意: resetNetwork 是幂等的,多次调用安全
-                            // 但为了避免频繁重置,只在出现问题时才使用此检查
-                            // 这里我们只检查对象引用是否仍然有效
-                            service.toString() // 轻量级检查
+                            // 轻量级检查:验证对象引用仍然有效
+                            service.toString()
 
                             // 健康检查通过,重置失败计数器
                             if (consecutiveHealthCheckFailures > 0) {

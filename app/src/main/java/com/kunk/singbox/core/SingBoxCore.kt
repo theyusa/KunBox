@@ -263,7 +263,15 @@ class SingBoxCore private constructor(private val context: Context) {
                     finalOutbound = "direct",
                     autoDetectInterface = true
                 ),
-                experimental = null
+                // 使用独立的测试数据库,避免与后台 VPN 服务的 cache.db 冲突
+                // bbolt 不支持多进程并发访问同一数据库文件
+                experimental = com.kunk.singbox.model.ExperimentalConfig(
+                    cacheFile = com.kunk.singbox.model.CacheFileConfig(
+                        enabled = true,
+                        path = File(context.filesDir, "singbox_data/cache_test.db").absolutePath,
+                        storeFakeip = false // 测试服务不需要 FakeIP
+                    )
+                )
             )
 
             val configJson = gson.toJson(config)
@@ -475,7 +483,15 @@ class SingBoxCore private constructor(private val context: Context) {
                     finalOutbound = "direct",
                     autoDetectInterface = true
                 ),
-                experimental = null
+                // 使用独立的测试数据库,避免与后台 VPN 服务的 cache.db 冲突
+                // bbolt 不支持多进程并发访问同一数据库文件
+                experimental = com.kunk.singbox.model.ExperimentalConfig(
+                    cacheFile = com.kunk.singbox.model.CacheFileConfig(
+                        enabled = true,
+                        path = File(context.filesDir, "singbox_data/cache_test.db").absolutePath,
+                        storeFakeip = false // 测试服务不需要 FakeIP
+                    )
+                )
             )
 
             // 3. 启动服务
