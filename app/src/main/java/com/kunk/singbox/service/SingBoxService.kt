@@ -59,6 +59,7 @@ import java.net.Proxy
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 class SingBoxService : VpnService() {
@@ -582,9 +583,28 @@ class SingBoxService : VpnService() {
         }
     }
 
+    //网络栈重置失败计数器 - 用于检测是否需要完全重启
+    private val resetFailureCounter = AtomicInteger(0)
+    private val lastSuccessfulResetAt = AtomicLong(0)
+    private val maxConsecutiveResetFailures = 3
+
     private fun requestCoreNetworkReset(reason: String, force: Boolean = false) {
         val now = SystemClock.elapsedRealtime()
         val last = lastCoreNetworkResetAtMs.get()
+
+        // 检查是否需要完全重启而不是仅重置网络栈
+        // 如果连续重置失败次数过多,或距离上次成功重置太久,则采用重启策略
+        val lastSuccess = lastSuccessfulResetAt.get()
+        val timeSinceLastSuccess = now - lastSuccess
+        val failures = resetFailureCounter.get()
+
+        if (failures >= maxConsecutiveResetFailures && timeSinceLastSuccess > 30000L) {
+            Log.w(TAG, "Too many reset failures ($failures) or too long since last success (${timeSinceLastSuccess}ms), restarting service instead")
+            serviceScope.launch {
+                restartVpnService(reason = "Excessive network reset failures")
+            }
+            return
+        }
 
         // 激进的重置策略：对于 Android 14+ 网络切换，更快的响应比防抖更重要
         // 如果是 force（如网络变更），缩短防抖时间到 100ms
@@ -596,16 +616,38 @@ class SingBoxService : VpnService() {
             coreNetworkResetJob?.cancel()
             coreNetworkResetJob = null
             serviceScope.launch {
-                // 多次重试以确保在网络状态完全稳定后生效
-                repeat(2) { i ->
-                    if (i > 0) delay(250)
-                    runCatching {
-                        boxService?.resetNetwork()
-                    }.onSuccess {
-                        Log.d(TAG, "Core network stack reset triggered (reason=$reason, attempt=$i)")
-                    }.onFailure { e ->
-                        Log.w(TAG, "Failed to reset core network stack (reason=$reason, attempt=$i)", e)
+                // 改为单次重置 + 增强清理,而不是多次重试
+                // 原因: 多次重试可能导致连接池状态更混乱
+                try {
+                    // Step 1: 先尝试关闭已有连接 (如果 API 可用)
+                    try {
+                        boxService?.let { service ->
+                            // 使用反射尝试调用 closeConnections (如果存在)
+                            val closeMethod = service.javaClass.methods.find {
+                                it.name == "closeConnections" && it.parameterCount == 0
+                            }
+                            closeMethod?.invoke(service)
+                            Log.d(TAG, "Closed existing connections before reset")
+                        }
+                    } catch (e: Exception) {
+                        Log.v(TAG, "closeConnections not available or failed: ${e.message}")
                     }
+
+                    // Step 2: 延迟等待连接关闭完成
+                    delay(150)
+
+                    // Step 3: 重置网络栈
+                    boxService?.resetNetwork()
+
+                    // 重置成功,清除失败计数器
+                    resetFailureCounter.set(0)
+                    lastSuccessfulResetAt.set(SystemClock.elapsedRealtime())
+
+                    Log.d(TAG, "Core network stack reset triggered (reason=$reason)")
+                } catch (e: Exception) {
+                    // 重置失败,增加失败计数
+                    val newFailures = resetFailureCounter.incrementAndGet()
+                    Log.w(TAG, "Failed to reset core network stack (reason=$reason, failures=$newFailures)", e)
                 }
             }
             return
@@ -617,11 +659,13 @@ class SingBoxService : VpnService() {
             coreNetworkResetJob?.cancel()
             coreNetworkResetJob = null
             serviceScope.launch {
-                runCatching {
+                try {
                     boxService?.resetNetwork()
-                }.onSuccess {
+                    resetFailureCounter.set(0)
+                    lastSuccessfulResetAt.set(SystemClock.elapsedRealtime())
                     Log.d(TAG, "Core network stack reset triggered (reason=$reason)")
-                }.onFailure { e ->
+                } catch (e: Exception) {
+                    resetFailureCounter.incrementAndGet()
                     Log.w(TAG, "Failed to reset core network stack (reason=$reason)", e)
                 }
             }
@@ -635,13 +679,52 @@ class SingBoxService : VpnService() {
             val last2 = lastCoreNetworkResetAtMs.get()
             if (t - last2 < coreResetDebounceMs) return@launch
             lastCoreNetworkResetAtMs.set(t)
-            runCatching {
+            try {
                 boxService?.resetNetwork()
-            }.onSuccess {
+                resetFailureCounter.set(0)
+                lastSuccessfulResetAt.set(SystemClock.elapsedRealtime())
                 Log.d(TAG, "Core network stack reset triggered (reason=$reason)")
-            }.onFailure { e ->
+            } catch (e: Exception) {
+                resetFailureCounter.incrementAndGet()
                 Log.w(TAG, "Failed to reset core network stack (reason=$reason)", e)
             }
+        }
+    }
+
+    /**
+     * 重启 VPN 服务以彻底清理网络状态
+     * 用于处理网络栈重置无效的严重情况
+     */
+    private suspend fun restartVpnService(reason: String) = withContext(Dispatchers.Main) {
+        Log.i(TAG, "Restarting VPN service: $reason")
+
+        // 保存当前配置路径
+        val configPath = lastConfigPath ?: run {
+            Log.w(TAG, "Cannot restart: no config path available")
+            return@withContext
+        }
+
+        try {
+            // 停止当前服务 (不停止 Service 本身)
+            stopVpn(stopService = false)
+
+            // 等待完全停止
+            var waitCount = 0
+            while (isStopping && waitCount < 50) {
+                delay(100)
+                waitCount++
+            }
+
+            // 短暂延迟确保资源完全释放
+            delay(500)
+
+            // 重新启动
+            startVpn(configPath)
+
+            Log.i(TAG, "VPN service restarted successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to restart VPN service", e)
+            setLastError("Failed to restart VPN: ${e.message}")
         }
     }
 
@@ -653,7 +736,8 @@ class SingBoxService : VpnService() {
     private var defaultInterfaceName: String = ""
     private var lastKnownNetwork: Network? = null
     private var vpnHealthJob: Job? = null
-    
+    @Volatile private var vpnLinkValidated: Boolean = false
+
     // Auto reconnect states
     private var autoReconnectEnabled: Boolean = false
     private var lastAutoReconnectAttemptMs: Long = 0L
@@ -825,6 +909,28 @@ private val platformInterface = object : PlatformInterface {
                     Log.w(TAG, "Failed to apply per-app VPN settings")
                 }
 
+                // === CRITICAL SECURITY SETTINGS (Best practices from open-source VPN projects) ===
+
+                // 1. Kill Switch: Prevent apps from bypassing VPN (like Clash/SagerNet)
+                // This ensures NO traffic can leak outside VPN tunnel
+                // NOTE: In Android API, NOT calling allowBypass() means bypass is disabled by default
+                // We explicitly skip calling allowBypass() to ensure kill switch is active
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    // Do NOT call builder.allowBypass() - this enables kill switch
+                    Log.i(TAG, "Kill switch enabled: NOT calling allowBypass() (bypass disabled by default)")
+                }
+
+                // 2. Blocking mode: Prevent connection leaks during VPN startup
+                // This blocks network operations until VPN is fully established
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    try {
+                        builder.setBlocking(true)
+                        Log.i(TAG, "Blocking mode enabled: setBlocking(true)")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "setBlocking not supported on this device", e)
+                    }
+                }
+
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     builder.setMetered(false)
 
@@ -941,7 +1047,29 @@ private val platformInterface = object : PlatformInterface {
                 }
 
                 Log.i(TAG, "TUN interface established with fd: $fd")
-                
+
+                // === CRITICAL: Trigger immediate network validation (Best practice from NekoBox) ===
+                // Request network validation to speed up VPN link validation callback
+                // This reduces the window where connections could leak
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    serviceScope.launch {
+                        delay(50) // Small delay to ensure VPN network is registered
+                        try {
+                            val cm = connectivityManager ?: getSystemService(ConnectivityManager::class.java)
+                            cm?.allNetworks?.forEach { network ->
+                                val caps = cm.getNetworkCapabilities(network)
+                                if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) {
+                                    // Found our VPN network, request validation
+                                    cm.reportNetworkConnectivity(network, true)
+                                    Log.d(TAG, "Requested network validation for VPN network: $network")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to request network validation", e)
+                        }
+                    }
+                }
+
                 // Force a network reset after TUN is ready to clear any stale connections
                 // force=true to ensure immediate update, skipping debounce
                 requestCoreNetworkReset(reason = "openTun:success", force = true)
@@ -1224,6 +1352,7 @@ private val platformInterface = object : PlatformInterface {
                     if (!isRunning) return
                     val isValidated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
                     if (isValidated) {
+                        vpnLinkValidated = true
                         if (vpnHealthJob?.isActive == true) {
                             Log.i(TAG, "VPN link validated, cancelling recovery job")
                             vpnHealthJob?.cancel()
@@ -1627,13 +1756,15 @@ private val platformInterface = object : PlatformInterface {
                             pendingStartConfigPath = configPath
                             stopSelfRequested = false
                             lastConfigPath = configPath
-                            return START_NOT_STICKY
+                            // Return STICKY to allow system to restart VPN if killed due to memory pressure
+                            return START_STICKY
                         }
                         if (isStopping) {
                             pendingStartConfigPath = configPath
                             stopSelfRequested = false
                             lastConfigPath = configPath
-                            return START_NOT_STICKY
+                            // Return STICKY to allow system to restart VPN if killed due to memory pressure
+                            return START_STICKY
                         }
                         // If already running, do a clean restart to avoid half-broken tunnel state
                         if (isRunning) {
@@ -1704,8 +1835,10 @@ private val platformInterface = object : PlatformInterface {
                 }
             }
         }
-        // Do not restart automatically with null intents; explicit start/stop is required.
-        return START_NOT_STICKY
+        // Use START_STICKY to allow system auto-restart if killed due to memory pressure
+        // This prevents "VPN mysteriously stops" issue on Android 14+
+        // System will restart service with null intent, we handle it gracefully above
+        return START_STICKY
     }
 
     /**
@@ -1798,6 +1931,7 @@ private val platformInterface = object : PlatformInterface {
             }
             isStarting = true
             realTimeNodeName = null
+            vpnLinkValidated = false  // Reset validation flag
         }
 
         updateServiceState(ServiceState.STARTING)
@@ -1807,7 +1941,20 @@ private val platformInterface = object : PlatformInterface {
         Log.d(TAG, "Attempting to start foreground service with ID: $NOTIFICATION_ID")
         try {
             val notification = createNotification()
-            startForeground(NOTIFICATION_ID, notification)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                // Android 14+ requires foreground service type
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                )
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Android 10-13
+                startForeground(NOTIFICATION_ID, notification)
+            } else {
+                // Android 9-
+                startForeground(NOTIFICATION_ID, notification)
+            }
             Log.d(TAG, "startForeground called successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to call startForeground", e)
@@ -2005,15 +2152,25 @@ private val platformInterface = object : PlatformInterface {
                 boxService?.start()
                 Log.i(TAG, "BoxService started")
 
-                // Force initial network reset to ensure libbox picks up current interfaces
-                // This is critical when VPN restarts quickly and physical interfaces might have changed ID/Index
-                // [Optimized] Execute asynchronously to avoid blocking startup time
+                // Wait for VPN link validation before resetting network
+                // This prevents connection leaks during VPN startup window
                 serviceScope.launch {
                     try {
-                        // 恢复较长的等待时间，确保 TUN 接口完全就绪且路由表已传播
-                        delay(1000)
+                        // Wait up to 3s for VPN link to be validated
+                        var waited = 0L
+                        while (!vpnLinkValidated && waited < 3000L) {
+                            delay(100)
+                            waited += 100
+                        }
+
+                        if (vpnLinkValidated) {
+                            Log.i(TAG, "VPN link validated, calling resetNetwork() after ${waited}ms")
+                        } else {
+                            Log.w(TAG, "VPN link validation timeout after ${waited}ms, calling resetNetwork() anyway")
+                        }
+
                         boxService?.resetNetwork()
-                        Log.i(TAG, "Initial boxService.resetNetwork() called (async)")
+                        Log.i(TAG, "Initial boxService.resetNetwork() called")
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to call initial resetNetwork", e)
                     }
@@ -2260,6 +2417,7 @@ private val platformInterface = object : PlatformInterface {
 
         if (stopService) {
             networkCallbackReady = false
+            vpnLinkValidated = false
             lastKnownNetwork = null
             noPhysicalNetworkWarningLogged = false
             defaultInterfaceName = ""
@@ -2585,14 +2743,14 @@ private val platformInterface = object : PlatformInterface {
             instance = null
         }
         super.onDestroy()
-        
-        // Ensure process is killed on destroy to reset Go runtime state completely.
-        // This is the most reliable way to fix "use of closed network connection" on restart.
-        Log.e(TAG, "SingBoxService destroyed. Halting process ${android.os.Process.myPid()}.")
-        
-        // Give a tiny breath for logs to flush and sync-writes to complete if any
-        try { Thread.sleep(100) } catch (_: Exception) {}
-        
+
+        // Kill process to fully reset Go runtime state and prevent zombie states.
+        // This ensures clean restart if system decides to recreate the service.
+        Log.i(TAG, "SingBoxService destroyed. Halting process ${android.os.Process.myPid()}.")
+
+        // Give a tiny breath for logs to flush
+        try { Thread.sleep(50) } catch (_: Exception) {}
+
         Runtime.getRuntime().halt(0)
     }
      

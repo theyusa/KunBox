@@ -31,3 +31,6 @@ NekoBoxForAndroid/.git
 CLAUDE.md
 .claude/
 build_log.txt
+
+# MCP 安装文档（本地配置文档，无需提交）
+docs/mcp-setup/

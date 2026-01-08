@@ -88,6 +88,8 @@ object SingBoxRemote {
         }
     }
 
+    fun isBound(): Boolean = bound
+
     fun unbind(context: Context) {
         if (!bound) return
         val s = service

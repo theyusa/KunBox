@@ -270,34 +270,45 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 _customNodeOrder.value = it
             }
         }
-        runCatching { SingBoxRemote.ensureBound(getApplication()) }
+        // Ensure IPC is bound before subscribing to state flows
+        // This prevents stale state when app returns from background
+        viewModelScope.launch {
+            runCatching { SingBoxRemote.ensureBound(getApplication()) }
 
-        // Best-effort initial sync for UI state after process restart/force-stop.
-        // We rely on system VPN presence + persisted state, and clear stale persisted state.
-        runCatching {
-            val context = getApplication<Application>()
-            val cm = context.getSystemService(ConnectivityManager::class.java)
-            val hasSystemVpn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                cm?.allNetworks?.any { network ->
-                    val caps = cm.getNetworkCapabilities(network) ?: return@any false
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-                } == true
-            } else {
-                false
-            }
-            val persisted = context.getSharedPreferences("vpn_state", Context.MODE_PRIVATE)
-                .getBoolean("vpn_active", false)
-
-            if (!hasSystemVpn && persisted) {
-                VpnTileService.persistVpnState(context, false)
+            // Wait for IPC binding to complete (with timeout)
+            var retries = 0
+            while (!SingBoxRemote.isBound() && retries < 20) {
+                delay(50)
+                retries++
             }
 
-            if (hasSystemVpn && persisted) {
-                // If process restarted while VPN is still up, show as connected until flows catch up.
-                _connectionState.value = ConnectionState.Connected
-                _connectedAtElapsedMs.value = SystemClock.elapsedRealtime()
-            } else if (!SingBoxRemote.isStarting.value) {
-                _connectionState.value = ConnectionState.Idle
+            // Best-effort initial sync for UI state after process restart/force-stop.
+            // We rely on system VPN presence + persisted state, and clear stale persisted state.
+            runCatching {
+                val context = getApplication<Application>()
+                val cm = context.getSystemService(ConnectivityManager::class.java)
+                val hasSystemVpn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    cm?.allNetworks?.any { network ->
+                        val caps = cm.getNetworkCapabilities(network) ?: return@any false
+                        caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                    } == true
+                } else {
+                    false
+                }
+                val persisted = context.getSharedPreferences("vpn_state", Context.MODE_PRIVATE)
+                    .getBoolean("vpn_active", false)
+
+                if (!hasSystemVpn && persisted) {
+                    VpnTileService.persistVpnState(context, false)
+                }
+
+                if (hasSystemVpn && persisted) {
+                    // If process restarted while VPN is still up, show as connected until flows catch up.
+                    _connectionState.value = ConnectionState.Connected
+                    _connectedAtElapsedMs.value = SystemClock.elapsedRealtime()
+                } else if (!SingBoxRemote.isStarting.value) {
+                    _connectionState.value = ConnectionState.Idle
+                }
             }
         }
 
