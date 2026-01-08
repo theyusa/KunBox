@@ -2073,6 +2073,16 @@ private val platformInterface = object : PlatformInterface {
                     wifiLock?.setReferenceCounted(false)
                     wifiLock?.acquire()
                     Log.i(TAG, "WakeLock and WifiLock acquired")
+
+                    // 检查电池优化状态,如果未豁免则记录警告日志
+                    if (!com.kunk.singbox.utils.BatteryOptimizationHelper.isIgnoringBatteryOptimizations(this@SingBoxService)) {
+                        Log.w(TAG, "⚠️ Battery optimization is enabled - VPN may be killed during screen-off!")
+                        LogRepository.getInstance().addLog(
+                            "WARNING: 电池优化未关闭,息屏时 VPN 可能被系统杀死。建议在设置中关闭电池优化。"
+                        )
+                    } else {
+                        Log.i(TAG, "✓ Battery optimization exempted - VPN protected during screen-off")
+                    }
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to acquire locks", e)
                 }
@@ -2311,6 +2321,10 @@ private val platformInterface = object : PlatformInterface {
                 startPeriodicHealthCheck()
                 Log.i(TAG, "Periodic health check started")
 
+                // 调度 WorkManager 保活任务,防止息屏时进程被系统杀死
+                VpnKeepaliveWorker.schedule(applicationContext)
+                Log.i(TAG, "VPN keepalive worker scheduled")
+
                 // TUN 栈智能降级:启动后检查是否触发了降级标记
                 // 如果检测到 "bind forwarder to interface: operation not permitted" 错误，
                 // 自动重启 VPN 使用 gVisor 模式
@@ -2498,6 +2512,10 @@ private val platformInterface = object : PlatformInterface {
         periodicHealthCheckJob = null
         consecutiveHealthCheckFailures = 0
 
+        // 取消 WorkManager 保活任务
+        VpnKeepaliveWorker.cancel(applicationContext)
+        Log.i(TAG, "VPN keepalive worker cancelled")
+
         coreNetworkResetJob?.cancel()
         coreNetworkResetJob = null
 
@@ -2660,13 +2678,17 @@ private val platformInterface = object : PlatformInterface {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "KunBox VPN",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_DEFAULT // 提升优先级,确保前台服务不被系统杀死
             ).apply {
                 description = "VPN Service Notification"
+                setShowBadge(false) // 不显示角标
+                enableVibration(false) // 禁用振动
+                enableLights(false) // 禁用指示灯
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC // 锁屏可见
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
-            Log.d(TAG, "Notification channel created")
+            Log.d(TAG, "Notification channel created with IMPORTANCE_DEFAULT")
         }
     }
     
