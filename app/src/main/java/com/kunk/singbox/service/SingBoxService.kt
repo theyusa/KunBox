@@ -4,7 +4,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
@@ -72,6 +75,9 @@ class SingBoxService : VpnService() {
     private val lastNotificationUpdateAtMs = AtomicLong(0L)
     @Volatile private var notificationUpdateJob: Job? = null
 
+    // 华为设备修复: 追踪是否已经调用过 startForeground(),避免重复调用触发提示音
+    private val hasForegroundStarted = AtomicBoolean(false)
+
     private val remoteStateUpdateDebounceMs: Long = 250L
     private val lastRemoteStateUpdateAtMs = AtomicLong(0L)
     @Volatile private var remoteStateUpdateJob: Job? = null
@@ -89,7 +95,7 @@ class SingBoxService : VpnService() {
     companion object {
         private const val TAG = "SingBoxService"
         private const val NOTIFICATION_ID = 1
-        private const val CHANNEL_ID = "singbox_vpn"
+        private const val CHANNEL_ID = "singbox_vpn_service"
         
         const val ACTION_START = "com.kunk.singbox.START"
         const val ACTION_STOP = "com.kunk.singbox.STOP"
@@ -808,6 +814,178 @@ class SingBoxService : VpnService() {
         }
     }
 
+    /**
+     * 注册屏幕状态监听器
+     * 在屏幕唤醒时主动检查 VPN 连接健康状态，这是修复 Telegram 等应用切换回来后卡在连接中的关键
+     */
+    private fun registerScreenStateReceiver() {
+        try {
+            if (screenStateReceiver != null) {
+                Log.d(TAG, "Screen state receiver already registered")
+                return
+            }
+
+            screenStateReceiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context, intent: Intent) {
+                    when (intent.action) {
+                        Intent.ACTION_SCREEN_ON -> {
+                            val now = SystemClock.elapsedRealtime()
+                            val elapsed = now - lastScreenOnCheckMs
+
+                            if (elapsed < screenOnCheckDebounceMs) {
+                                Log.d(TAG, "Screen ON event debounced (${elapsed}ms < ${screenOnCheckDebounceMs}ms)")
+                                return
+                            }
+
+                            lastScreenOnCheckMs = now
+                            Log.i(TAG, "📱 Screen ON detected, checking VPN connection health...")
+
+                            // 在后台协程中执行健康检查
+                            serviceScope.launch {
+                                delay(800) // 等待系统稳定后再检查
+                                performScreenOnHealthCheck()
+                            }
+                        }
+                        Intent.ACTION_SCREEN_OFF -> {
+                            Log.d(TAG, "📱 Screen OFF detected")
+                            // 屏幕关闭时不做特殊处理，WakeLock 会保持服务运行
+                        }
+                    }
+                }
+            }
+
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_SCREEN_OFF)
+            }
+
+            registerReceiver(screenStateReceiver, filter)
+            Log.i(TAG, "✅ Screen state receiver registered successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register screen state receiver", e)
+        }
+    }
+
+    /**
+     * 注销屏幕状态监听器
+     */
+    private fun unregisterScreenStateReceiver() {
+        try {
+            screenStateReceiver?.let {
+                unregisterReceiver(it)
+                screenStateReceiver = null
+                Log.i(TAG, "Screen state receiver unregistered")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to unregister screen state receiver", e)
+        }
+    }
+
+    /**
+     * 屏幕唤醒时的健康检查
+     * 这是修复 Telegram 等应用切换回来后无法连接的核心逻辑
+     *
+     * 参考实现：
+     * - NekoBox 使用类似的屏幕监听 + Wake() 调用机制
+     * - libbox 提供了专门的 Wake() 和 ResetNetwork() API
+     */
+    private suspend fun performScreenOnHealthCheck() {
+        if (!isRunning) {
+            Log.d(TAG, "VPN not running, skip screen-on health check")
+            return
+        }
+
+        try {
+            Log.i(TAG, "🔍 Performing screen-on health check...")
+
+            // 检查 1: VPN 接口是否有效
+            val vpnInterfaceValid = vpnInterface?.fileDescriptor?.valid() == true
+            if (!vpnInterfaceValid) {
+                Log.e(TAG, "❌ VPN interface invalid after screen on, triggering recovery")
+                handleHealthCheckFailure("VPN interface invalid after screen on")
+                return
+            }
+
+            // 检查 2: boxService 是否响应
+            val service = boxService
+            if (service == null) {
+                Log.e(TAG, "❌ boxService is null after screen on")
+                handleHealthCheckFailure("boxService is null after screen on")
+                return
+            }
+
+            withContext(Dispatchers.IO) {
+                try {
+                    // **关键修复**: 调用 libbox 的 Wake() 方法通知核心设备唤醒
+                    // 这会触发核心内部的连接恢复逻辑，是业界标准做法
+                    service.wake()
+                    Log.i(TAG, "✅ Called boxService.wake() to notify core about device wake")
+
+                    // 等待核心处理完唤醒逻辑
+                    delay(200)
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Failed to call boxService.wake()", e)
+                    handleHealthCheckFailure("Wake call failed: ${e.message}")
+                    return@withContext
+                }
+            }
+
+            // 检查 3: 网络震荡恢复 - 触发系统重新评估网络连接
+            // 这会让 Telegram 等应用收到网络变化通知，重新建立连接
+            val currentNetwork = lastKnownNetwork
+            if (currentNetwork != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                Log.i(TAG, "🔄 Triggering network oscillation to refresh app connections...")
+                withContext(Dispatchers.IO) {
+                    try {
+                        // 短暂断开底层网络，让应用层感知到网络变化
+                        setUnderlyingNetworks(null)
+                        delay(150) // 150ms 足够触发回调
+                        setUnderlyingNetworks(arrayOf(currentNetwork))
+                        Log.i(TAG, "✅ Network oscillation completed successfully")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Network oscillation failed", e)
+                    }
+                }
+            }
+
+            // 检查 4: 主动触发核心网络重置（轻量级）
+            requestCoreNetworkReset(reason = "screen_on_health_check", force = false)
+
+            Log.i(TAG, "✅ Screen-on health check passed, VPN connection should be healthy now")
+            consecutiveHealthCheckFailures = 0
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Screen-on health check failed", e)
+            handleHealthCheckFailure("Screen-on check exception: ${e.message}")
+        }
+    }
+
+    /**
+     * 轻量级健康检查
+     * 用于网络恢复等场景，只做基本验证而不触发完整的重启流程
+     */
+    private suspend fun performLightweightHealthCheck() {
+        if (!isRunning) return
+
+        try {
+            Log.d(TAG, "Performing lightweight health check...")
+
+            // 检查 VPN 接口和 boxService 基本状态
+            val vpnInterfaceValid = vpnInterface?.fileDescriptor?.valid() == true
+            val boxServiceValid = boxService != null
+
+            if (!vpnInterfaceValid || !boxServiceValid) {
+                Log.w(TAG, "Lightweight health check found issues (vpnInterface=$vpnInterfaceValid, boxService=$boxServiceValid)")
+                // 不立即触发重启，只记录，让定期检查来处理
+                return
+            }
+
+            Log.d(TAG, "✓ Lightweight health check passed")
+        } catch (e: Exception) {
+            Log.w(TAG, "Lightweight health check failed", e)
+        }
+    }
+
     // Auto reconnect
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -823,14 +1001,23 @@ class SingBoxService : VpnService() {
     private var lastAutoReconnectAttemptMs: Long = 0L
     private val autoReconnectDebounceMs: Long = 10000L
     private var autoReconnectJob: Job? = null
-    
+
     // 网络就绪标志：确保 Libbox 启动前网络回调已完成初始采样
     @Volatile private var networkCallbackReady: Boolean = false
     @Volatile private var noPhysicalNetworkWarningLogged: Boolean = false
     @Volatile private var postTunRebindJob: Job? = null
+
+    // setUnderlyingNetworks 防抖机制 - 避免频繁调用触发系统提示音
+    private val lastSetUnderlyingNetworksAtMs = AtomicLong(0)
+    private val setUnderlyingNetworksDebounceMs: Long = 2000L // 2秒防抖
     
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+
+    // 屏幕状态监听器 - 用于在屏幕唤醒时检查连接健康
+    private var screenStateReceiver: BroadcastReceiver? = null
+    @Volatile private var lastScreenOnCheckMs: Long = 0L
+    private val screenOnCheckDebounceMs: Long = 3000L // 屏幕开启后 3 秒才检查，避免频繁触发
 
     // Periodic health check states
     private var periodicHealthCheckJob: Job? = null
@@ -1148,25 +1335,11 @@ private val platformInterface = object : PlatformInterface {
                 // 这样可以避免应用在 VPN 未就绪时发起连接
 
                 // === CRITICAL: Trigger immediate network validation (Best practice from NekoBox) ===
-                // Request network validation to speed up VPN link validation callback
-                // This reduces the window where connections could leak
+                // Network reset is handled by requestCoreNetworkReset below
+                // BUG修复: 移除 reportNetworkConnectivity() 调用,避免在华为等设备上触发持续的系统提示音
+                // 参考: Android VPN 最佳实践,成熟 VPN 项目不使用 reportNetworkConnectivity 主动触发网络验证
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    serviceScope.launch {
-                        delay(50) // Small delay to ensure VPN network is registered
-                        try {
-                            val cm = connectivityManager ?: getSystemService(ConnectivityManager::class.java)
-                            cm?.allNetworks?.forEach { network ->
-                                val caps = cm.getNetworkCapabilities(network)
-                                if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) {
-                                    // Found our VPN network, request validation
-                                    cm.reportNetworkConnectivity(network, true)
-                                    Log.d(TAG, "Requested network validation for VPN network: $network")
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Failed to request network validation", e)
-                        }
-                    }
+                    Log.d(TAG, "VPN network established, relying on requestCoreNetworkReset for app reconnection")
                 }
 
                 // Force a network reset after TUN is ready to clear any stale connections
@@ -1397,6 +1570,16 @@ private val platformInterface = object : PlatformInterface {
                             updateDefaultInterface(network)
                             // Ensure libbox is aware of the new physical interface immediately
                             requestCoreNetworkReset(reason = "networkAvailable:$network", force = true)
+
+                            // 在网络恢复时触发一次轻量级健康检查
+                            // 这可以帮助在网络切换（如 WiFi <-> 移动数据）时快速恢复连接
+                            serviceScope.launch {
+                                delay(500) // 等待网络稳定
+                                if (isRunning) {
+                                    Log.d(TAG, "🔍 Triggering health check after network recovery")
+                                    performLightweightHealthCheck()
+                                }
+                            }
                         } else {
                             Log.v(TAG, "Network available but not active default, ignoring for now: $network")
                         }
@@ -1608,14 +1791,6 @@ private val platformInterface = object : PlatformInterface {
                 Log.d(TAG, "libbox: $message")
             }
             com.kunk.singbox.repository.LogRepository.getInstance().addLog(message)
-
-            // 检测 TUN 栈不兼容错误，触发智能降级
-            // 当 system/mixed 模式因缺少 CAP_NET_RAW 权限而失败时，自动标记需要降级到 gVisor
-            if (message.contains("bind forwarder to interface") &&
-                message.contains("operation not permitted", ignoreCase = true)) {
-                Log.w(TAG, "Detected TUN stack incompatibility, marking fallback to gVisor")
-                ConfigRepository.getInstance(this@SingBoxService).markTunStackFallbackNeeded()
-            }
         }
     }
     
@@ -1776,15 +1951,26 @@ private val platformInterface = object : PlatformInterface {
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1 && (network != lastKnownNetwork || upstreamChanged)) {
-                setUnderlyingNetworks(arrayOf(network))
-                lastKnownNetwork = network
-                noPhysicalNetworkWarningLogged = false // 重置警告标志
-                postTunRebindJob?.cancel()
-                postTunRebindJob = null
-                Log.i(TAG, "Switched underlying network to $network (upstream=$interfaceName)")
+                // 防抖检查：避免频繁调用 setUnderlyingNetworks 触发系统提示音
+                val now = SystemClock.elapsedRealtime()
+                val lastSet = lastSetUnderlyingNetworksAtMs.get()
+                val timeSinceLastSet = now - lastSet
 
-                // 强制重置，因为网络变更通常伴随着 IP/Interface 变更
-                requestCoreNetworkReset(reason = "underlyingNetworkChanged", force = true)
+                // 只在距离上次设置超过防抖时间，或网络真正变化时才设置
+                if (timeSinceLastSet >= setUnderlyingNetworksDebounceMs || network != lastKnownNetwork) {
+                    setUnderlyingNetworks(arrayOf(network))
+                    lastSetUnderlyingNetworksAtMs.set(now)
+                    lastKnownNetwork = network
+                    noPhysicalNetworkWarningLogged = false // 重置警告标志
+                    postTunRebindJob?.cancel()
+                    postTunRebindJob = null
+                    Log.i(TAG, "Switched underlying network to $network (upstream=$interfaceName, debounce=${timeSinceLastSet}ms)")
+
+                    // 强制重置，因为网络变更通常伴随着 IP/Interface 变更
+                    requestCoreNetworkReset(reason = "underlyingNetworkChanged", force = true)
+                } else {
+                    Log.v(TAG, "Skipped setUnderlyingNetworks due to debounce (${timeSinceLastSet}ms < ${setUnderlyingNetworksDebounceMs}ms)")
+                }
             }
 
             val now = System.currentTimeMillis()
@@ -1934,6 +2120,7 @@ private val platformInterface = object : PlatformInterface {
                 VpnStateStore.setManuallyStopped(applicationContext, true)
                 VpnTileService.persistVpnPending(applicationContext, "stopping")
                 updateServiceState(ServiceState.STOPPING)
+                requestNotificationUpdate(force = true)
                 synchronized(this) {
                     pendingStartConfigPath = null
                 }
@@ -2097,6 +2284,7 @@ private val platformInterface = object : PlatformInterface {
                 // Android 9-
                 startForeground(NOTIFICATION_ID, notification)
             }
+            hasForegroundStarted.set(true) // 标记已调用 startForeground()
             Log.d(TAG, "startForeground called successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to call startForeground", e)
@@ -2126,6 +2314,9 @@ private val platformInterface = object : PlatformInterface {
                     wifiLock?.setReferenceCounted(false)
                     wifiLock?.acquire()
                     Log.i(TAG, "WakeLock and WifiLock acquired")
+
+                    // 注册屏幕状态监听器 - 这是修复 Telegram 切换回来后卡住的关键
+                    registerScreenStateReceiver()
 
                     // 检查电池优化状态,如果未豁免则记录警告日志
                     if (!com.kunk.singbox.utils.BatteryOptimizationHelper.isIgnoringBatteryOptimizations(this@SingBoxService)) {
@@ -2328,68 +2519,65 @@ private val platformInterface = object : PlatformInterface {
                         // 延长到 2.5 秒,让应用层等待而非发起连接后失败
                         Log.i(TAG, "Waiting for sing-box core to fully initialize (2.5s)...")
                         delay(2500)
+                        Log.i(TAG, "Core initialization wait completed")
 
                         // === 核心就绪后首次设置底层网络 ===
                         // 新策略: TUN 建立时不设置底层网络,延迟到核心就绪后首次设置
                         // 这样可以避免应用在 VPN 未完全就绪时发起连接
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                             try {
+                                Log.d(TAG, "Starting to configure underlying network...")
                                 val currentNetwork = lastKnownNetwork ?: findBestPhysicalNetwork()
                                 if (currentNetwork != null) {
                                     Log.i(TAG, "Setting underlying network for the first time (network=$currentNetwork)")
                                     setUnderlyingNetworks(arrayOf(currentNetwork))
                                     delay(300) // 等待网络设置生效,让系统识别到网络可用
+                                    Log.i(TAG, "Underlying network configured successfully")
                                     LogRepository.getInstance().addLog("INFO: VPN 底层网络已配置,开始路由流量")
                                 } else {
                                     Log.w(TAG, "No physical network found after core ready")
+                                    LogRepository.getInstance().addLog("WARN: 未找到物理网络,VPN 可能无法正常工作")
                                 }
                             } catch (e: Exception) {
-                                Log.w(TAG, "Failed to set underlying network", e)
+                                Log.e(TAG, "Failed to set underlying network", e)
+                                LogRepository.getInstance().addLog("ERROR: 设置底层网络失败: ${e.message}")
                             }
+                        } else {
+                            Log.i(TAG, "Skipping underlying network configuration (Android < 5.1)")
                         }
 
                         // DNS 预热: 预解析常见域名,避免首次查询超时导致用户感知延迟
-                        warmupDnsCache()
-
-                        // === 关键修复: 发送网络切换通知强制应用重连 ===
-                        // 解决问题: VPN 启动瞬间建立的应用层连接会永久卡死
-                        // 原理: Android 系统在 VPN 启动时不会自动发送该广播,需要我们主动触发
-                        // 参考: PCAPdroid, NetGuard, Clash 等成熟 VPN 项目的标准做法
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            try {
-                                val cm = connectivityManager ?: getSystemService(ConnectivityManager::class.java)
-                                // 找到我们的 VPN 网络
-                                val vpnNetwork = cm?.allNetworks?.find { network ->
-                                    val caps = cm.getNetworkCapabilities(network)
-                                    caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
-                                }
-
-                                if (vpnNetwork != null) {
-                                    Log.i(TAG, "Triggering connectivity change notification (network=$vpnNetwork)")
-
-                                    // 方法 1: 报告网络连接状态变化,触发 ConnectivityManager 回调
-                                    // 这会导致应用层感知到网络切换,从而放弃旧连接并重新建连
-                                    cm?.reportNetworkConnectivity(vpnNetwork, true)
-                                    delay(100)
-
-                                    // 方法 2: 短暂震荡底层网络,强制系统重新评估网络状态
-                                    // 这会触发应用的 NetworkCallback.onAvailable/onLost 回调
-                                    val physicalNet = lastKnownNetwork ?: findBestPhysicalNetwork()
-                                    if (physicalNet != null) {
-                                        setUnderlyingNetworks(null)
-                                        delay(200) // 延长震荡时间,确保应用感知到网络切换
-                                        setUnderlyingNetworks(arrayOf(physicalNet))
-                                        Log.i(TAG, "Network oscillation complete, apps should reconnect now")
-                                    }
-
-                                    LogRepository.getInstance().addLog("INFO: 已通知应用网络已切换,强制重新建立连接")
-                                } else {
-                                    Log.w(TAG, "VPN network not found after core ready, skip connectivity notification")
-                                }
-                            } catch (e: Exception) {
-                                Log.w(TAG, "Failed to trigger connectivity change notification", e)
-                            }
+                        try {
+                            Log.d(TAG, "Starting DNS warmup...")
+                            warmupDnsCache()
+                            Log.d(TAG, "DNS warmup completed")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "DNS warmup failed", e)
                         }
+
+                // === 关键修复: 使用 libbox resetNetwork() 强制应用重连 ===
+                // 解决问题: VPN 启动瞬间建立的应用层连接会永久卡死
+                // 原理: 使用 libbox 的 resetNetwork() 代替 reportNetworkConnectivity()
+                // BUG修复: reportNetworkConnectivity() 在华为EMUI等系统上会触发持续的系统提示音
+                // 参考: Android VPN 最佳实践,成熟 VPN 项目不使用 reportNetworkConnectivity
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    try {
+                        Log.d(TAG, "Starting network connectivity notification...")
+
+                        // 仅使用 libbox resetNetwork() 方法强制应用重连
+                        // 避免使用 reportNetworkConnectivity() 触发系统提示音
+                        try {
+                            boxService?.resetNetwork()
+                            Log.i(TAG, "Network reset triggered via libbox, apps should reconnect now")
+                            LogRepository.getInstance().addLog("INFO: 已通知应用网络已切换,强制重新建立连接")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to reset network via libbox", e)
+                            LogRepository.getInstance().addLog("WARN: 触发应用重连失败: ${e.message}")
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to trigger connectivity change notification", e)
+                    }
+                }
 
                         Log.i(TAG, "Sing-box core initialization complete, VPN is now fully ready")
                         LogRepository.getInstance().addLog("INFO: VPN 核心已完全就绪,网络连接可用")
@@ -2428,10 +2616,13 @@ private val platformInterface = object : PlatformInterface {
                 stopForeignVpnMonitor()
                 setLastError(null)
                 Log.i(TAG, "KunBox VPN started successfully")
-                
+
+                // 立即重置 isStarting 标志,确保UI能正确显示已连接状态
+                isStarting = false
+
                 VpnTileService.persistVpnState(applicationContext, true)
                 VpnStateStore.setMode(applicationContext, VpnStateStore.CoreMode.VPN)
-                
+
                 // 启动 TrafficStats 速度监控 (在状态持久化之后)
                 startTrafficStatsMonitor()
                 VpnTileService.persistVpnPending(applicationContext, "")
@@ -2447,27 +2638,6 @@ private val platformInterface = object : PlatformInterface {
                 // 调度 WorkManager 保活任务,防止息屏时进程被系统杀死
                 VpnKeepaliveWorker.schedule(applicationContext)
                 Log.i(TAG, "VPN keepalive worker scheduled")
-
-                // TUN 栈智能降级:启动后检查是否触发了降级标记
-                // 如果检测到 "bind forwarder to interface: operation not permitted" 错误，
-                // 自动重启 VPN 使用 gVisor 模式
-                serviceScope.launch {
-                    delay(3000) // 等待 3 秒让错误日志有时间出现
-                    val configRepo = ConfigRepository.getInstance(this@SingBoxService)
-                    if (configRepo.shouldRetryWithFallback() && isRunning) {
-                        val settings = SettingsRepository.getInstance(this@SingBoxService).settings.first()
-                        // 只有用户选择的不是 gVisor 时才需要重试
-                        if (settings.tunStack != TunStack.GVISOR) {
-                            Log.i(TAG, "TUN stack fallback triggered, restarting VPN with gVisor mode")
-                            LogRepository.getInstance().addLog("INFO: 检测到设备不支持 ${settings.tunStack.name} 模式，自动切换到 gVisor 模式")
-
-                            // 重新生成配置（这次会使用 gVisor）并重启
-                            withContext(Dispatchers.Main) {
-                                restartVpnWithFallback()
-                            }
-                        }
-                    }
-                }
 
             } catch (e: CancellationException) {
                 Log.i(TAG, "startVpn cancelled")
@@ -2564,48 +2734,6 @@ private val platformInterface = object : PlatformInterface {
         }.getOrDefault(false)
     }
 
-    /**
-     * TUN 栈智能降级：重启 VPN 使用 gVisor 模式
-     * 当检测到设备不支持 system/mixed 模式时自动调用
-     */
-    private fun restartVpnWithFallback() {
-        if (!isRunning) return
-
-        serviceScope.launch {
-            try {
-                Log.i(TAG, "Restarting VPN with gVisor fallback...")
-
-                // 停止当前 VPN
-                withContext(Dispatchers.Main) {
-                    stopVpn(stopService = false)
-                }
-
-                // 等待停止完成
-                var waitCount = 0
-                while (isStopping && waitCount < 50) {
-                    delay(100)
-                    waitCount++
-                }
-
-                // 重新生成配置文件（这次会使用降级后的 gVisor 模式）
-                val configRepo = ConfigRepository.getInstance(this@SingBoxService)
-
-                // 使用 generateConfigFile 重新生成配置
-                val result = configRepo.generateConfigFile()
-                if (result != null) {
-                    Log.i(TAG, "Generated new config with gVisor fallback: ${result.path}")
-                    // 重启 VPN
-                    delay(500)
-                    startVpn(result.path)
-                } else {
-                    Log.e(TAG, "Failed to generate config for fallback restart")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to restart VPN with fallback", e)
-            }
-        }
-    }
-
     private fun stopVpn(stopService: Boolean) {
         synchronized(this) {
             stopSelfRequested = stopSelfRequested || stopService
@@ -2615,6 +2743,7 @@ private val platformInterface = object : PlatformInterface {
             isStopping = true
         }
         updateServiceState(ServiceState.STOPPING)
+                requestNotificationUpdate(force = true)
         updateTileState() // Force tile update immediately upon stopping
         runCatching {
             val intent = Intent(VpnTileService.ACTION_REFRESH_TILE).apply {
@@ -2644,6 +2773,9 @@ private val platformInterface = object : PlatformInterface {
 
         notificationUpdateJob?.cancel()
         notificationUpdateJob = null
+
+        // 重置前台服务标志,以便下次启动时重新调用 startForeground()
+        hasForegroundStarted.set(false)
 
         remoteStateUpdateJob?.cancel()
         remoteStateUpdateJob = null
@@ -2695,6 +2827,9 @@ private val platformInterface = object : PlatformInterface {
         } catch (e: Exception) {
             Log.w(TAG, "Failed to release locks", e)
         }
+
+        // 注销屏幕状态监听器
+        unregisterScreenStateReceiver()
 
         // Stop command client/server
         try {
@@ -2797,21 +2932,27 @@ private val platformInterface = object : PlatformInterface {
     
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(NotificationManager::class.java)
+            // Cleanup old channel
+            try {
+                manager.deleteNotificationChannel("singbox_vpn")
+            } catch (_: Exception) {}
+
             Log.d(TAG, "Creating notification channel: $CHANNEL_ID")
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "KunBox VPN",
-                NotificationManager.IMPORTANCE_DEFAULT // 提升优先级,确保前台服务不被系统杀死
+                NotificationManager.IMPORTANCE_LOW // 静音通知
             ).apply {
                 description = "VPN Service Notification"
                 setShowBadge(false) // 不显示角标
                 enableVibration(false) // 禁用振动
                 enableLights(false) // 禁用指示灯
+                setSound(null, null) // 显式禁用声音
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC // 锁屏可见
             }
-            val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
-            Log.d(TAG, "Notification channel created with IMPORTANCE_DEFAULT")
+            Log.d(TAG, "Notification channel created with IMPORTANCE_LOW")
         }
     }
     
@@ -2826,19 +2967,32 @@ private val platformInterface = object : PlatformInterface {
             Log.i(TAG, "Notification content: $text")
         }
 
-        // Some ROMs are not sensitive to notify() updates for a foreground service notification.
-        // Try to refresh via startForeground first; fallback to notify.
-        runCatching {
-            startForeground(NOTIFICATION_ID, notification)
-        }.onFailure {
+        // BUG修复(华为设备): 避免频繁调用 startForeground() 触发系统提示音
+        // 原因: 华为EMUI等系统在每次 startForeground() 调用时可能播放提示音
+        // 解决: 只在首次启动时调用 startForeground(),后续使用 NotificationManager.notify() 更新
+        val manager = getSystemService(NotificationManager::class.java)
+        if (!hasForegroundStarted.get()) {
+            // 首次启动,尝试调用 startForeground
             runCatching {
-                val manager = getSystemService(NotificationManager::class.java)
+                startForeground(NOTIFICATION_ID, notification)
+                hasForegroundStarted.set(true)
+                Log.d(TAG, "First foreground notification set via startForeground()")
+            }.onFailure { e ->
+                Log.w(TAG, "Failed to call startForeground, fallback to notify()", e)
                 manager.notify(NOTIFICATION_ID, notification)
+            }
+        } else {
+            // 后续更新,只使用 notify() 避免触发提示音
+            runCatching {
+                manager.notify(NOTIFICATION_ID, notification)
+            }.onFailure { e ->
+                Log.w(TAG, "Failed to update notification via notify()", e)
             }
         }
     }
 
     private fun requestNotificationUpdate(force: Boolean = false) {
+        if (isStopping) return // Prevent updates during shutdown to avoid flickering
         val now = SystemClock.elapsedRealtime()
         val last = lastNotificationUpdateAtMs.get()
 
@@ -2868,6 +3022,19 @@ private val platformInterface = object : PlatformInterface {
     }
 
     private fun createNotification(): Notification {
+        if (serviceState == ServiceState.STOPPING) {
+             return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(this, CHANNEL_ID)
+            } else {
+                Notification.Builder(this)
+            }.apply {
+                setContentTitle("KunBox VPN")
+                setContentText(getString(R.string.connection_disconnecting))
+                setSmallIcon(android.R.drawable.ic_lock_idle_low_battery)
+                setOngoing(true)
+            }.build()
+        }
+
         val intent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, intent,

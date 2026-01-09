@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material.icons.rounded.VpnKey
 import androidx.compose.material.icons.rounded.Brightness6
@@ -216,6 +217,13 @@ fun SettingsScreen(
                 value = stringResource(settings.appLanguage.displayNameRes),
                 icon = Icons.Rounded.Language,
                 onClick = { showLanguageDialog = true }
+            )
+            SettingSwitchItem(
+                title = "自动检查更新",
+                subtitle = "启动应用时自动检查新版本",
+                icon = Icons.Rounded.SystemUpdate,
+                checked = settings.autoCheckUpdate,
+                onCheckedChange = { scope.launch { viewModel.setAutoCheckUpdate(it) } }
             )
             SettingItem(
                 title = stringResource(R.string.settings_connection_startup),

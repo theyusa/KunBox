@@ -65,49 +65,21 @@ class ConfigRepository(private val context: Context) {
     private val singBoxCore = SingBoxCore.getInstance(context)
     private val settingsRepository = SettingsRepository.getInstance(context)
 
-    // TUN 栈降级状态管理
-    // 当设备不支持 system/mixed 模式时（报 "operation not permitted" 错误），
-    // 自动降级到 gvisor 模式，但 UI 仍显示用户选择的模式（视觉安慰）
-    @Volatile
-    private var tunStackFallbackToGvisor: Boolean = false
-
     /**
      * 获取实际使用的 TUN 栈模式
-     * 如果设备不支持 system/mixed 模式且已触发降级，则返回 GVISOR
+     * 针对特定不支持 System 模式的设备强制使用 gVisor
      * 否则返回用户选择的模式
      */
     private fun getEffectiveTunStack(userSelected: TunStack): TunStack {
-        return if (tunStackFallbackToGvisor && userSelected != TunStack.GVISOR) {
-            Log.d(TAG, "TUN stack fallback active: using GVISOR instead of ${userSelected.name}")
-            TunStack.GVISOR
-        } else {
-            userSelected
+        // 针对特定不支持 System 模式的设备强制使用 gVisor
+        // 这些设备在 System 模式下会报错 "bind forwarder to interface: operation not permitted"
+        val model = Build.MODEL
+        if (model.contains("SM-G986U", ignoreCase = true)) {
+            Log.w(TAG, "Device $model detected, forcing GVISOR stack (ignoring user selection: ${userSelected.name})")
+            return TunStack.GVISOR
         }
-    }
 
-    /**
-     * 标记需要降级到 gVisor 模式
-     * 当检测到 "bind forwarder to interface: operation not permitted" 错误时调用
-     */
-    fun markTunStackFallbackNeeded() {
-        if (!tunStackFallbackToGvisor) {
-            Log.w(TAG, "TUN stack fallback triggered: device does not support system/mixed mode, will use GVISOR")
-            tunStackFallbackToGvisor = true
-        }
-    }
-
-    /**
-     * 检查是否需要重试连接（使用降级后的 gVisor 模式）
-     */
-    fun shouldRetryWithFallback(): Boolean {
-        return tunStackFallbackToGvisor
-    }
-
-    /**
-     * 重置降级状态（用于用户手动切换 TUN 栈时）
-     */
-    fun resetTunStackFallback() {
-        tunStackFallbackToGvisor = false
+        return userSelected
     }
 
     // client 改为动态获取，以支持可配置的超时

@@ -117,6 +117,27 @@ data class NodeUi(
 ) {
     val displayName: String
         get() = name
+
+    /**
+     * 获取协议的显示名称
+     * 将内部协议类型转换为用户友好的显示名称
+     */
+    val protocolDisplay: String
+        get() = when (protocol.lowercase()) {
+            "http" -> "HTTPS"  // HTTP 类型配置了 TLS 就是 HTTPS
+            "socks" -> "SOCKS5"  // SOCKS 协议的现代版本
+            "shadowsocks" -> "SS"
+            "vmess" -> "VMess"
+            "vless" -> "VLESS"
+            "trojan" -> "Trojan"
+            "hysteria" -> "Hysteria"
+            "hysteria2" -> "Hysteria2"
+            "tuic" -> "TUIC"
+            "wireguard" -> "WireGuard"
+            "ssh" -> "SSH"
+            "anytls" -> "AnyTLS"
+            else -> protocol.uppercase()
+        }
 }
 
 data class RuleSetUi(

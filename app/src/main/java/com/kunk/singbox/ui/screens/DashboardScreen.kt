@@ -150,26 +150,9 @@ fun DashboardScreen(
         }
     }
 
-    val connectionFailedMsg = stringResource(R.string.connection_failed_check_config)
-    val connectedMsg = stringResource(R.string.connection_connected)
-    val disconnectedMsg = stringResource(R.string.connection_idle)
-
-    // Monitor connection errors
-    LaunchedEffect(connectionState, testStatus) {
-        if (connectionState == ConnectionState.Error && testStatus.isNullOrBlank()) {
-            Toast.makeText(context, connectionFailedMsg, Toast.LENGTH_SHORT).show()
-        }
-    }
-    
+    // 已移除连接状态的 Toast 提示，避免干扰用户
+    // 用户可以通过 UI 上的连接状态指示器（表情、文字）来了解当前状态
     LaunchedEffect(connectionState) {
-        val prev = lastConnectionState
-        if (prev != null && prev != connectionState) {
-            if (connectionState == ConnectionState.Connected) {
-                Toast.makeText(context, connectedMsg, Toast.LENGTH_SHORT).show()
-            } else if (connectionState == ConnectionState.Idle && (prev == ConnectionState.Connected || prev == ConnectionState.Disconnecting)) {
-                Toast.makeText(context, disconnectedMsg, Toast.LENGTH_SHORT).show()
-            }
-        }
         lastConnectionState = connectionState
     }
 
@@ -461,7 +444,7 @@ fun DashboardScreen(
                 modifier = Modifier.weight(1f)
             ) {
                 BigToggle(
-                    isRunning = connectionState == ConnectionState.Connected || connectionState == ConnectionState.Connecting || connectionState == ConnectionState.Disconnecting,
+                    isRunning = connectionState == ConnectionState.Connected || connectionState == ConnectionState.Connecting,
                     onClick = {
                         viewModel.toggleConnection()
                     }

@@ -108,7 +108,12 @@ data class Outbound(
     @SerializedName("server") val server: String? = null,
     @SerializedName("server_port") val serverPort: Int? = null,
     @SerializedName("tcp_fast_open") val tcpFastOpen: Boolean? = null,
-    
+
+    // TCP Keepalive 字段 (sing-box 1.13.0+)
+    @SerializedName("tcp_keep_alive") val tcpKeepAlive: String? = null,
+    @SerializedName("tcp_keep_alive_interval") val tcpKeepAliveInterval: String? = null,
+    @SerializedName("connect_timeout") val connectTimeout: String? = null,
+
     // Selector/URLTest 字段
     @SerializedName("outbounds") val outbounds: List<String>? = null,
     @SerializedName("default") val default: String? = null,
@@ -325,7 +330,8 @@ data class RuleSetConfig(
 
 @Keep
 data class ExperimentalConfig(
-    @SerializedName("cache_file") val cacheFile: CacheFileConfig? = null
+    @SerializedName("cache_file") val cacheFile: CacheFileConfig? = null,
+    @SerializedName("clash_api") val clashApi: ClashApiConfig? = null
 )
 
 @Keep
@@ -333,5 +339,13 @@ data class CacheFileConfig(
     @SerializedName("enabled") val enabled: Boolean? = null,
     @SerializedName("path") val path: String? = null,
     @SerializedName("store_fakeip") val storeFakeip: Boolean? = null
+)
+
+@Keep
+data class ClashApiConfig(
+    @SerializedName("external_controller") val externalController: String? = null,
+    @SerializedName("external_ui") val externalUi: String? = null,
+    @SerializedName("secret") val secret: String? = null,
+    @SerializedName("default_mode") val defaultMode: String? = null
 )
 

@@ -80,6 +80,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setAppLanguage(value: AppLanguage) {
         viewModelScope.launch { repository.setAppLanguage(value) }
     }
+
+    fun setAutoCheckUpdate(value: Boolean) {
+        viewModelScope.launch { repository.setAutoCheckUpdate(value) }
+    }
     
     fun setShowNotificationSpeed(value: Boolean) {
         viewModelScope.launch {

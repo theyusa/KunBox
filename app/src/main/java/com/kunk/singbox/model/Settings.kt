@@ -79,7 +79,10 @@ data class AppSettings(
     // 节点列表设置
     @SerializedName("nodeFilter") val nodeFilter: NodeFilter = NodeFilter(),
     @SerializedName("nodeSortType") val nodeSortType: NodeSortType = NodeSortType.DEFAULT,
-    @SerializedName("customNodeOrder") val customNodeOrder: List<String> = emptyList()
+    @SerializedName("customNodeOrder") val customNodeOrder: List<String> = emptyList(),
+
+    // 版本更新设置
+    @SerializedName("autoCheckUpdate") val autoCheckUpdate: Boolean = true
 )
 
 enum class LatencyTestMethod(@StringRes val displayNameRes: Int) {

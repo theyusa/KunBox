@@ -1,5 +1,5 @@
 # Final Fix Build Script
-# 1. Downloads/Uses Go 1.23 (Fixed path to avoid re-download)
+# 1. Downloads/Uses Go 1.24.3 (Updated for sing-box 1.12+ compatibility)
 # 2. Builds with correct package name (Fixes crash)
 # 3. Builds with aggressive strip (Fixes size)
 # 4. Auto-fetches latest stable version from GitHub if not specified
@@ -11,8 +11,19 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# Fix Chinese encoding issues in PowerShell
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+chcp 65001 | Out-Null
+
+# Go 版本配置 (集中管理以便后续升级)
+# sing-box 1.12.15 要求 go1.24.11 toolchain (2025-12-02 已正式发布)
+$GO_VERSION = "1.24.11"
+$GO_DOWNLOAD_URL = "https://go.dev/dl/go$GO_VERSION.windows-amd64.zip"
+
 $CacheDir = Join-Path $env:TEMP "SingBoxBuildCache_Fixed"
-$GoZipPath = Join-Path $CacheDir "go1.23.4.zip"
+$GoZipPath = Join-Path $CacheDir "go$GO_VERSION.zip"
 $GoExtractPath = Join-Path $CacheDir "go_extract"
 $GoRoot = Join-Path $GoExtractPath "go"
 $GoBin = Join-Path $GoRoot "bin"
@@ -29,25 +40,25 @@ if ([string]::IsNullOrEmpty($Version) -or $UseLatest) {
         Write-Host "Latest stable version: $Version" -ForegroundColor Green
     }
     catch {
-        Write-Host "Failed to fetch latest version, using fallback: 1.10.7" -ForegroundColor Yellow
-        $Version = "1.10.7"
+        Write-Host "Failed to fetch, forcing v1.12.15" -ForegroundColor Yellow
+        $Version = "1.12.15"
     }
 }
 
-# 2. Check/Download Go 1.24
+# 2. Check/Download Go
 if (-not (Test-Path "$GoBin\go.exe")) {
     if (-not (Test-Path $GoZipPath)) {
-        Write-Host "[2/7] Downloading Go 1.24.0 (Required for gomobile compatibility)..." -ForegroundColor Yellow
+        Write-Host "[2/7] Downloading Go $GO_VERSION (Required for sing-box 1.12+ compatibility)..." -ForegroundColor Yellow
         try {
-            Invoke-WebRequest -Uri "https://go.dev/dl/go1.24.0.windows-amd64.zip" -OutFile $GoZipPath
+            Invoke-WebRequest -Uri $GO_DOWNLOAD_URL -OutFile $GoZipPath
         }
         catch {
-            Write-Host "Download failed." -ForegroundColor Red
+            Write-Host "Download failed. Please check network connection or manually download from: $GO_DOWNLOAD_URL" -ForegroundColor Red
             exit 1
         }
     }
     else {
-        Write-Host "[2/7] Found cached Go zip..." -ForegroundColor Green
+        Write-Host "[2/7] Found cached Go $GO_VERSION zip..." -ForegroundColor Green
     }
     
     Write-Host "Extracting Go..." -ForegroundColor Yellow
@@ -56,7 +67,7 @@ if (-not (Test-Path "$GoBin\go.exe")) {
     [System.IO.Compression.ZipFile]::ExtractToDirectory($GoZipPath, $GoExtractPath)
 }
 else {
-    Write-Host "[2/7] Using cached Go environment..." -ForegroundColor Green
+    Write-Host "[2/7] Using cached Go $GO_VERSION environment..." -ForegroundColor Green
 }
 
 # 3. Setup Env
@@ -65,6 +76,10 @@ $env:GOROOT = $GoRoot
 $env:PATH = "$GoBin;$env:PATH"
 $env:GOPATH = Join-Path $CacheDir "gopath"
 $env:PATH = "$env:PATH;$env:GOPATH\bin"
+
+# 关键:启用 Go toolchain 自动下载 (允许自动下载 go1.24.11)
+$env:GOTOOLCHAIN = "auto"
+Write-Host "  GOTOOLCHAIN=auto (允许自动升级到 go1.24.11)" -ForegroundColor Cyan
 
 # Fix NDK Path - Auto detect or use explicit valid version
 $SdkRoot = $env:ANDROID_SDK_ROOT
@@ -85,11 +100,30 @@ if (-not $env:ANDROID_NDK_HOME) {
 
 # 4. Install Tools
 Write-Host "[4/7] Installing build tools..." -ForegroundColor Yellow
-# Ensure bind source is present
-go get golang.org/x/mobile/bind
-go install golang.org/x/mobile/cmd/gomobile@latest
-go install golang.org/x/mobile/cmd/gobind@latest
-gomobile init
+
+# 清理可能损坏的 gomobile 缓存
+$GomobilePkg = Join-Path $env:GOPATH "pkg\gomobile"
+if (Test-Path $GomobilePkg) {
+    Write-Host "  Cleaning gomobile cache..." -ForegroundColor Gray
+    Remove-Item -Recurse -Force $GomobilePkg -ErrorAction SilentlyContinue
+}
+
+# 关键:使用 SagerNet 修改版的 gomobile (修复 Go 1.24 兼容性)
+Write-Host "  Installing gomobile..." -ForegroundColor Cyan
+go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.8
+if ($LASTEXITCODE -ne 0) { throw "Failed to install gomobile" }
+
+Write-Host "  Installing gobind..." -ForegroundColor Cyan
+go install github.com/sagernet/gomobile/cmd/gobind@v0.1.8
+if ($LASTEXITCODE -ne 0) { throw "Failed to install gobind" }
+
+Write-Host "  Initializing gomobile (this may take a while)..." -ForegroundColor Cyan
+gomobile init -v
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "  gomobile init failed, retrying..." -ForegroundColor Yellow
+    gomobile init -v
+    if ($LASTEXITCODE -ne 0) { throw "Failed to initialize gomobile after retry" }
+}
 
 # 5. Clone/Update Source - Always fetch the target version
 Write-Host "[5/7] Preparing Source (v$Version)..." -ForegroundColor Yellow
@@ -118,24 +152,16 @@ else {
 }
 Push-Location $BuildDir
 
-# Fix deps in source
-# Create a dummy file to force retention of mobile/bind dependency
-$DummyFile = Join-Path $BuildDir "tools_build.go"
-# Must match existing package name in root (box)
-Set-Content -Path $DummyFile -Value 'package box; import _ "golang.org/x/mobile/bind"'
-
-go get golang.org/x/mobile/bind
-go mod tidy
+# Fix deps in source (不再需要,官方构建工具会处理)
+# go mod tidy
 
 # 6. Build
 Write-Host "[6/7] Building kernel..." -ForegroundColor Yellow
-$BUILD_TAGS = "with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,with_conntrack"
-Write-Host "Building optimized kernel (Package: io.nekohasekai.libbox) with version $Version..." -ForegroundColor Yellow
+Write-Host "Using official sing-box build tool for version $Version..." -ForegroundColor Yellow
 
-# IMPORTANT: -javapkg should be the prefix. Gomobile appends the go package name 'libbox'.
-# So io.nekohasekai -> io.nekohasekai.libbox
-# Include -X flag to inject version number into the binary
-gomobile bind -v -androidapi 21 -target "android/arm64" -tags "$BUILD_TAGS" -javapkg io.nekohasekai -trimpath -ldflags "-s -w -buildid= -X github.com/sagernet/sing-box/constant.Version=$Version -extldflags '-Wl,-s'" -o "libbox.aar" ./experimental/libbox
+# 关键:使用 sing-box 官方构建工具 (修复 Go 1.24 兼容性问题)
+# 不再直接调用 gomobile bind,而是通过官方 build_libbox 工具
+go run ./cmd/internal/build_libbox -target android
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "[7/7] Build Success! Updating project..." -ForegroundColor Green

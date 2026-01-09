@@ -374,10 +374,10 @@ fun NodesScreen(
                 ) { index, node ->
                     val isSelected = activeNodeId == node.id
                     val isTestingNode = testingNodeIds.contains(node.id)
-                    
+
                     val onNodeClick = remember(node.id) { { viewModel.setActiveNode(node.id) } }
-                    val onEdit = remember(node.id) { 
-                        { navController.navigate(Screen.NodeDetail.createRoute(node.id)) } 
+                    val onEdit = remember(node.id) {
+                        { navController.navigate(Screen.NodeDetail.createRoute(node.id)) }
                     }
                     val onExport = remember(node.id) {
                         {
@@ -390,63 +390,43 @@ fun NodesScreen(
                     val onLatency = remember(node.id) { { viewModel.testLatency(node.id) } }
                     val onDelete = remember(node.id) { { viewModel.deleteNode(node.id) } }
 
-                    // Optimization: Only animate first 15 items to reduce load
-                    if (index < 15) {
-                        var visible by remember { mutableStateOf(false) }
-                        LaunchedEffect(Unit) {
-                            delay(index * 30L)
-                            visible = true
-                        }
-
-                        val alpha by animateFloatAsState(
-                            targetValue = if (visible) 1f else 0f,
-                            animationSpec = tween(durationMillis = 300),
-                            label = "alpha"
-                        )
-                        val translateY by animateFloatAsState(
-                            targetValue = if (visible) 0f else 40f,
-                            animationSpec = tween(durationMillis = 300),
-                            label = "translateY"
-                        )
-
-                        NodeCard(
-                            name = node.displayName,
-                            type = node.protocol,
-                            latency = node.latencyMs,
-                            isSelected = isSelected,
-                            isTesting = isTestingNode,
-                            regionFlag = node.regionFlag,
-                            trafficUsed = node.trafficUsed,
-                            onClick = onNodeClick,
-                            onEdit = onEdit,
-                            onExport = onExport,
-                            onLatency = onLatency,
-                            onDelete = onDelete,
-                            modifier = Modifier
-                                .animateItemPlacement()
-                                .graphicsLayer(
-                                    alpha = alpha,
-                                    translationY = translateY
-                                )
-                        )
-                    } else {
-                        // For items beyond the first 15, render directly without animation overhead
-                        NodeCard(
-                            name = node.displayName,
-                            type = node.protocol,
-                            latency = node.latencyMs,
-                            isSelected = isSelected,
-                            isTesting = isTestingNode,
-                            regionFlag = node.regionFlag,
-                            trafficUsed = node.trafficUsed,
-                            onClick = onNodeClick,
-                            onEdit = onEdit,
-                            onExport = onExport,
-                            onLatency = onLatency,
-                            onDelete = onDelete,
-                            modifier = Modifier.animateItemPlacement()
-                        )
+                    // Scroll-triggered animation for all items
+                    var visible by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        visible = true
                     }
+
+                    val alpha by animateFloatAsState(
+                        targetValue = if (visible) 1f else 0f,
+                        animationSpec = tween(durationMillis = 300),
+                        label = "alpha"
+                    )
+                    val translateY by animateFloatAsState(
+                        targetValue = if (visible) 0f else 50f,
+                        animationSpec = tween(durationMillis = 300),
+                        label = "translateY"
+                    )
+
+                    NodeCard(
+                        name = node.displayName,
+                        type = node.protocolDisplay,
+                        latency = node.latencyMs,
+                        isSelected = isSelected,
+                        isTesting = isTestingNode,
+                        regionFlag = node.regionFlag,
+                        trafficUsed = node.trafficUsed,
+                        onClick = onNodeClick,
+                        onEdit = onEdit,
+                        onExport = onExport,
+                        onLatency = onLatency,
+                        onDelete = onDelete,
+                        modifier = Modifier
+                            .animateItemPlacement()
+                            .graphicsLayer(
+                                alpha = alpha,
+                                translationY = translateY
+                            )
+                    )
                 }
             }
         }

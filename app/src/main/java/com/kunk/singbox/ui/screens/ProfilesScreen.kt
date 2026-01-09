@@ -72,6 +72,7 @@ import com.kunk.singbox.ui.components.InputDialog
 import com.kunk.singbox.ui.components.ProfileCard
 import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.navigation.Screen
+import com.kunk.singbox.utils.DeepLinkHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -102,6 +103,21 @@ fun ProfilesScreen(
     androidx.compose.runtime.LaunchedEffect(Unit) {
         viewModel.toastEvents.collectLatest { message ->
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // 监听深度链接导入事件 (URL Scheme)
+    val pendingImport by DeepLinkHandler.pendingSubscriptionImport.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(pendingImport) {
+        pendingImport?.let { data ->
+            // 自动触发订阅导入
+            viewModel.importSubscription(
+                name = data.name,
+                url = data.url,
+                autoUpdateInterval = data.autoUpdateInterval
+            )
+            // 清除待处理数据
+            DeepLinkHandler.clearPendingSubscriptionImport()
         }
     }
 

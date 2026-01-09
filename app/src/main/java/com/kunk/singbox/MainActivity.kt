@@ -1,5 +1,6 @@
 package com.kunk.singbox
 
+import android.content.Intent
 import android.Manifest
 import android.app.ActivityManager
 import android.content.Context
@@ -67,6 +68,7 @@ import com.kunk.singbox.viewmodel.DashboardViewModel
 import com.kunk.singbox.model.ConnectionState
 import com.kunk.singbox.model.AppLanguage
 import com.kunk.singbox.utils.LocaleHelper
+import com.kunk.singbox.utils.DeepLinkHandler
 import com.kunk.singbox.ipc.SingBoxRemote
 import com.kunk.singbox.service.VpnTileService
 import com.kunk.singbox.ui.components.AppNavBar
@@ -85,7 +87,12 @@ import android.app.Activity
 import com.kunk.singbox.ui.scanner.QrScannerActivity
 
 class MainActivity : ComponentActivity() {
-    
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
     override fun attachBaseContext(newBase: Context) {
         // 从 SharedPreferences 读取语言设置
         val prefs = newBase.getSharedPreferences("settings", Context.MODE_PRIVATE)
@@ -154,8 +161,8 @@ fun SingBoxApp() {
     val settingsRepository = remember { SettingsRepository.getInstance(context) }
     val settings by settingsRepository.settings.collectAsState(initial = null)
     val dashboardViewModel: DashboardViewModel = viewModel()
-    
-    // 当语言设置变化时，缓存到 SharedPreferences 供 attachBaseContext 使用
+
+    // 当语言设置变化时,缓存到 SharedPreferences 供 attachBaseContext 使用
     LaunchedEffect(settings?.appLanguage) {
         settings?.appLanguage?.let { language ->
             val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
@@ -165,7 +172,7 @@ fun SingBoxApp() {
 
     // Handle App Shortcuts - need navController reference
     var pendingNavigation by remember { mutableStateOf<String?>(null) }
-    
+
     LaunchedEffect(Unit) {
         val activity = context as? Activity
         activity?.intent?.let { intent ->
@@ -186,6 +193,29 @@ fun SingBoxApp() {
                     // 设置待导航目标，等待 navController 初始化后执行
                     pendingNavigation = "nodes"
                     intent.action = null
+                }
+                android.content.Intent.ACTION_VIEW -> {
+                    // 处理 URL Scheme (singbox:// 或 kunbox://)
+                    intent.data?.let { uri ->
+                        val scheme = uri.scheme
+                        val host = uri.host
+
+                        if ((scheme == "singbox" || scheme == "kunbox") && host == "install-config") {
+                            val url = uri.getQueryParameter("url")
+                            val name = uri.getQueryParameter("name") ?: "导入的订阅"
+                            val intervalStr = uri.getQueryParameter("interval")
+                            val interval = intervalStr?.toIntOrNull() ?: 0
+
+                            if (!url.isNullOrBlank()) {
+                                // 使用 DeepLinkHandler 存储数据
+                                DeepLinkHandler.setPendingSubscriptionImport(name, url, interval)
+                                // 导航到 profiles 页面
+                                pendingNavigation = "profiles"
+                            }
+                        }
+                    }
+                    // 清除 data 防止重复处理
+                    intent.data = null
                 }
             }
         }
