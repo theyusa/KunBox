@@ -97,8 +97,9 @@ class SingBoxService : VpnService() {
     companion object {
         private const val TAG = "SingBoxService"
         private const val NOTIFICATION_ID = 1
-        private const val CHANNEL_ID = "singbox_vpn_service"
-        
+        private const val CHANNEL_ID = "singbox_vpn_service_silent"
+        private const val LEGACY_CHANNEL_ID = "singbox_vpn_service"
+
         const val ACTION_START = "com.kunk.singbox.START"
         const val ACTION_STOP = "com.kunk.singbox.STOP"
         const val ACTION_SWITCH_NODE = "com.kunk.singbox.SWITCH_NODE"
@@ -3287,6 +3288,11 @@ private val platformInterface = object : PlatformInterface {
             // Cleanup old channel
             try {
                 manager.deleteNotificationChannel("singbox_vpn")
+            } catch (_: Exception) {}
+
+            // Clean legacy channel if present (cannot override user sound settings)
+            try {
+                manager.deleteNotificationChannel(LEGACY_CHANNEL_ID)
             } catch (_: Exception) {}
 
             val channel = NotificationChannel(

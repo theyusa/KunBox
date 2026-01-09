@@ -13,6 +13,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.Log
 import com.kunk.singbox.MainActivity
 import com.kunk.singbox.core.SingBoxCore
@@ -54,7 +55,8 @@ class ProxyOnlyService : Service() {
     companion object {
         private const val TAG = "ProxyOnlyService"
         private const val NOTIFICATION_ID = 11
-        private const val CHANNEL_ID = "singbox_proxy"
+        private const val CHANNEL_ID = "singbox_proxy_silent"
+        private const val LEGACY_CHANNEL_ID = "singbox_proxy"
 
         const val ACTION_START = SingBoxService.ACTION_START
         const val ACTION_STOP = SingBoxService.ACTION_STOP
@@ -83,6 +85,15 @@ class ProxyOnlyService : Service() {
     }
 
     private var boxService: BoxService? = null
+
+    private val notificationUpdateDebounceMs: Long = 900L
+    private val lastNotificationUpdateAtMs = java.util.concurrent.atomic.AtomicLong(0L)
+    @Volatile private var notificationUpdateJob: Job? = null
+    @Volatile private var suppressNotificationUpdates = false
+
+    // 华为设备修复: 追踪是否已经调用过 startForeground(),避免重复调用触发提示音
+    private val hasForegroundStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+
     private val serviceSupervisorJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceSupervisorJob)
     private val cleanupSupervisorJob = SupervisorJob()
@@ -346,7 +357,7 @@ class ProxyOnlyService : Service() {
         serviceScope.launch {
             ConfigRepository.getInstance(this@ProxyOnlyService).activeNodeId.collect {
                 if (isRunning) {
-                    updateNotification()
+                    requestNotificationUpdate(force = false)
                     notifyRemoteState()
                 }
             }
@@ -409,6 +420,7 @@ class ProxyOnlyService : Service() {
 
         try {
             startForeground(NOTIFICATION_ID, createNotification())
+            hasForegroundStarted.set(true)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to call startForeground", e)
         }
@@ -447,7 +459,7 @@ class ProxyOnlyService : Service() {
                 setLastError(null)
                 notifyRemoteState(state = SingBoxService.ServiceState.RUNNING)
                 updateTileState()
-                updateNotification()
+                requestNotificationUpdate(force = true)
 
             } catch (e: CancellationException) {
                 return@launch
@@ -512,6 +524,10 @@ class ProxyOnlyService : Service() {
                 stopSelfRequested = false
             }
         }
+
+        notificationUpdateJob?.cancel()
+        notificationUpdateJob = null
+        hasForegroundStarted.set(false)
     }
 
     private fun updateDefaultInterface(network: Network) {
@@ -558,12 +574,22 @@ class ProxyOnlyService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(NotificationManager::class.java)
+            try {
+                manager.deleteNotificationChannel(LEGACY_CHANNEL_ID)
+            } catch (_: Exception) {}
+
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "SingBox Proxy",
                 NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(NotificationManager::class.java)
+            ).apply {
+                setShowBadge(false)
+                enableVibration(false)
+                enableLights(false)
+                setSound(null, null)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
             manager.createNotificationChannel(channel)
         }
     }
@@ -600,9 +626,53 @@ class ProxyOnlyService : Service() {
     }
 
     private fun updateNotification() {
-        runCatching {
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.notify(NOTIFICATION_ID, createNotification())
+        val notification = createNotification()
+        val manager = getSystemService(NotificationManager::class.java)
+        if (!hasForegroundStarted.get()) {
+            runCatching {
+                startForeground(NOTIFICATION_ID, notification)
+                hasForegroundStarted.set(true)
+            }.onFailure { e ->
+                Log.w(TAG, "Failed to call startForeground, fallback to notify()", e)
+                manager.notify(NOTIFICATION_ID, notification)
+            }
+        } else {
+            runCatching {
+                manager.notify(NOTIFICATION_ID, notification)
+            }.onFailure { e ->
+                Log.w(TAG, "Failed to update notification via notify()", e)
+            }
+        }
+    }
+
+    private fun requestNotificationUpdate(force: Boolean = false) {
+        if (suppressNotificationUpdates) return
+        if (isStopping) return
+        val now = SystemClock.elapsedRealtime()
+        val last = lastNotificationUpdateAtMs.get()
+
+        if (force) {
+            lastNotificationUpdateAtMs.set(now)
+            notificationUpdateJob?.cancel()
+            notificationUpdateJob = null
+            updateNotification()
+            return
+        }
+
+        val delayMs = (notificationUpdateDebounceMs - (now - last)).coerceAtLeast(0L)
+        if (delayMs <= 0L) {
+            lastNotificationUpdateAtMs.set(now)
+            notificationUpdateJob?.cancel()
+            notificationUpdateJob = null
+            updateNotification()
+            return
+        }
+
+        if (notificationUpdateJob?.isActive == true) return
+        notificationUpdateJob = serviceScope.launch {
+            delay(delayMs)
+            lastNotificationUpdateAtMs.set(SystemClock.elapsedRealtime())
+            updateNotification()
         }
     }
 
@@ -610,5 +680,8 @@ class ProxyOnlyService : Service() {
         super.onDestroy()
         runCatching { serviceSupervisorJob.cancel() }
         runCatching { cleanupSupervisorJob.cancel() }
+        notificationUpdateJob?.cancel()
+        notificationUpdateJob = null
+        hasForegroundStarted.set(false)
     }
 }
