@@ -1842,22 +1842,48 @@ class ConfigRepository(private val context: Context) {
                 val isFirstSwitchWhileRunning = lastRunProfileId == null && remoteRunning
                 val profileChanged = (lastRunProfileId != null && lastRunProfileId != currentProfileId) || isFirstSwitchWhileRunning
                 
-                // 2025-fix: 改进 tagsChanged 判断逻辑
-                // 问题：lastRunOutboundTags 在 App 启动后为 null，导致首次切换节点时
-                // 即使配置没有实际变化，也会触发 VPN 完全重启
-                // 修复：如果 VPN 已经在运行（remoteRunning=true），且 lastRunOutboundTags 为 null，
-                // 则首先尝试热切换，不强制重启。只有当配置确实变化时才重启。
+                // 2025-fix-v5: 统一的重启判断逻辑
+                // 需要重启 VPN 的场景：
+                // 1. outboundTags 实际发生变化（节点列表不同）
+                // 2. profileChanged（跨配置切换，即使 tags 相同也需要重启，因为 sing-box 核心中的 selector 不包含新节点）
+                // 3. VPN 正在启动中（核心还没准备好接受热切换）
+                // 4. lastRunOutboundTags 为 null（首次运行或 App 重启后状态丢失）
                 val tagsActuallyChanged = lastRunOutboundTags != null && lastRunOutboundTags != currentTags
-                val tagsChanged = tagsActuallyChanged || profileChanged
-                
-                Log.d(TAG, "Switch decision: profileChanged=$profileChanged (last=$lastRunProfileId, cur=$currentProfileId, firstSwitch=$isFirstSwitchWhileRunning), tagsActuallyChanged=$tagsActuallyChanged, tagsChanged=$tagsChanged")
+                val isVpnStartingNotReady = SingBoxRemote.isStarting.value && !SingBoxRemote.isRunning.value
+                val needsConfigReload = lastRunOutboundTags == null && remoteRunning
+
+                val tagsChanged = tagsActuallyChanged || profileChanged || isVpnStartingNotReady || needsConfigReload
+
+                Log.d(TAG, "Switch decision: profileChanged=$profileChanged (last=$lastRunProfileId, cur=$currentProfileId, firstSwitch=$isFirstSwitchWhileRunning), tagsActuallyChanged=$tagsActuallyChanged, isVpnStartingNotReady=$isVpnStartingNotReady, needsConfigReload=$needsConfigReload, tagsChanged=$tagsChanged")
                 
                 // 更新缓存（在判断之后更新，确保下次能正确比较）
                 lastRunOutboundTags = currentTags
                 lastRunProfileId = currentProfileId
-                
+
 
                 val coreMode = VpnStateStore.getMode(context)
+
+                // ⭐ 2025-fix: 跨配置切换预清理机制
+                // 如果需要重启 VPN (tagsChanged=true)，先发送预清理信号让 Service 关闭现有连接
+                // 这样应用（如 Telegram）能立即感知网络中断，而不是在旧连接上等待超时
+                if (tagsChanged && remoteRunning) {
+                    Log.i(TAG, "Sending PREPARE_RESTART before VPN restart")
+                    val prepareIntent = if (coreMode == VpnStateStore.CoreMode.PROXY) {
+                        Intent(context, ProxyOnlyService::class.java).apply {
+                            action = ProxyOnlyService.ACTION_PREPARE_RESTART
+                        }
+                    } else {
+                        Intent(context, SingBoxService::class.java).apply {
+                            action = SingBoxService.ACTION_PREPARE_RESTART
+                        }
+                    }
+                    context.startService(prepareIntent)
+                    // 2025-fix-v2: 简化后的预清理只需等待网络广播发送
+                    // 底层网络断开(立即) + 等待应用收到广播(100ms) + 缓冲(50ms)
+                    // 注意: 不再需要等待 closeAllConnectionsImmediate，sing-box restart 会自动处理
+                    delay(200)
+                }
+
                 val intent = if (coreMode == VpnStateStore.CoreMode.PROXY) {
                     Intent(context, ProxyOnlyService::class.java).apply {
                         if (tagsChanged) {

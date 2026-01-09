@@ -61,6 +61,7 @@ class ProxyOnlyService : Service() {
         const val ACTION_START = SingBoxService.ACTION_START
         const val ACTION_STOP = SingBoxService.ACTION_STOP
         const val ACTION_SWITCH_NODE = SingBoxService.ACTION_SWITCH_NODE
+        const val ACTION_PREPARE_RESTART = SingBoxService.ACTION_PREPARE_RESTART
         const val EXTRA_CONFIG_PATH = SingBoxService.EXTRA_CONFIG_PATH
 
         @Volatile
@@ -398,6 +399,45 @@ class ProxyOnlyService : Service() {
                         stopCore(stopService = false)
                         delay(350)
                         startCore(generationResult!!.path)
+                    }
+                }
+            }
+            ACTION_PREPARE_RESTART -> {
+                // 跨配置切换预清理机制
+                // ProxyOnlyService 模式下：唤醒核心 + 重置网络 + 关闭连接
+                // 2025-fix: 简化流程，减少过度的重置次数
+                Log.i(TAG, "Received ACTION_PREPARE_RESTART -> preparing for restart")
+                serviceScope.launch {
+                    try {
+                        // Step 1: 唤醒核心
+                        boxService?.wake()
+                        Log.i(TAG, "[PrepareRestart] Step 1/3: Woke up core")
+
+                        // Step 2: 重置网络栈，让 libbox 更新路由信息
+                        Log.i(TAG, "[PrepareRestart] Step 2/3: Reset network stack")
+                        delay(50)
+                        try {
+                            boxService?.resetNetwork()
+                        } catch (e: Exception) {
+                            Log.w(TAG, "resetNetwork failed: ${e.message}")
+                        }
+
+                        // Step 3: 关闭所有连接
+                        Log.i(TAG, "[PrepareRestart] Step 3/3: Close connections")
+                        boxService?.let { service ->
+                            try {
+                                val method = service.javaClass.methods.find {
+                                    it.name == "closeConnections" && it.parameterCount == 0
+                                }
+                                method?.invoke(service)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "closeConnections failed: ${e.message}")
+                            }
+                        }
+
+                        Log.i(TAG, "[PrepareRestart] Complete")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "PrepareRestart error", e)
                     }
                 }
             }

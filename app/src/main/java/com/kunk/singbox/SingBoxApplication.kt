@@ -2,6 +2,7 @@ package com.kunk.singbox
 
 import android.app.ActivityManager
 import android.app.Application
+import android.net.ConnectivityManager
 import android.os.Process
 import androidx.work.Configuration
 import androidx.work.WorkManager
@@ -9,6 +10,7 @@ import com.kunk.singbox.repository.LogRepository
 import com.kunk.singbox.service.RuleSetAutoUpdateWorker
 import com.kunk.singbox.service.SubscriptionAutoUpdateWorker
 import com.kunk.singbox.service.VpnKeepaliveWorker
+import com.kunk.singbox.utils.DefaultNetworkListener
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -39,6 +41,15 @@ class SingBoxApplication : Application(), Configuration.Provider {
         // 只在主进程中调度自动更新任务
         if (isMainProcess()) {
             applicationScope.launch {
+                // 预缓存物理网络 - 参考 NekoBox 优化
+                // VPN 启动时可直接使用已缓存的网络，避免应用二次加载
+                val cm = getSystemService(CONNECTIVITY_SERVICE) as? ConnectivityManager
+                if (cm != null) {
+                    DefaultNetworkListener.start(cm, this@SingBoxApplication) { network ->
+                        android.util.Log.d("SingBoxApp", "Underlying network updated: $network")
+                    }
+                }
+
                 // 订阅自动更新
                 SubscriptionAutoUpdateWorker.rescheduleAll(this@SingBoxApplication)
                 // 规则集自动更新

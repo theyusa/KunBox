@@ -202,7 +202,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         _sortType,
         _customNodeOrder,
         configRepository.activeNodeId
-    ) { nodes: List<NodeUi>, filter: NodeFilter, sortType: NodeSortType, customOrder: List<String>, currentActiveNodeId: String? ->
+    ) { nodes: List<NodeUi>, filter: NodeFilter, sortType: NodeSortType, customOrder: List<String>, _ ->
         val filtered = when (filter.filterMode) {
             FilterMode.NONE -> nodes
             FilterMode.INCLUDE -> {
@@ -233,14 +233,11 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
         
-        // 如果当前活跃节点不在过滤后的列表中，自动选择第一个过滤后的节点
-        if (sorted.isNotEmpty() && (currentActiveNodeId == null || sorted.none { it.id == currentActiveNodeId })) {
-            // 直接通过 configRepository 设置活跃节点，避免显示 Toast
-            viewModelScope.launch {
-                configRepository.setActiveNode(sorted.first().id)
-            }
-        }
-        
+        // 2025-fix: 移除自动选择第一个节点的逻辑
+        // 原因: 配置切换时 ProfilesViewModel/DashboardViewModel.setActiveProfile() 已经处理了节点切换
+        // 这里再次调用 setActiveNode() 会导致重复触发 VPN 重启，造成 TG 等应用二次加载
+        // 如果用户过滤后当前节点不在列表中，UI 只需显示第一个节点即可，不需要强制切换 VPN
+
         sorted
     }.stateIn(
         scope = viewModelScope,
@@ -344,19 +341,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     _currentNodePing.value = null
                 }
             }
-        }
-
-        // 专门处理自动测速逻辑：仅在 VPN 状态从停止变为运行时（真正的新连接）触发测速
-        // 使用 drop(1) 跳过初始状态，防止每次进入 Dashboard 只要 VPN 开着就重测
-        viewModelScope.launch {
-            SingBoxRemote.isRunning
-                .drop(1) // 忽略初始值，避免进入页面时重复触发
-                .distinctUntilChanged() // 确保状态发生变化
-                .filter { it } // 只关注变为 running 的情况
-                .collect {
-                    // VPN 启动后自动对当前节点进行测速
-                    startPingTest()
-                }
         }
 
         // Surface service-level startup errors on UI
