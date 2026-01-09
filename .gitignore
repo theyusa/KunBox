@@ -34,3 +34,7 @@ build_log.txt
 
 # MCP 安装文档（本地配置文档，无需提交）
 docs/mcp-setup/
+
+# 临时文件和调试文件
+temp_fix.txt
+planning-with-files/
