@@ -1,4 +1,4 @@
-package com.kunk.singbox.service
+﻿package com.kunk.singbox.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -634,10 +634,8 @@ class SingBoxService : VpnService() {
                                 it.name == "closeConnections" && it.parameterCount == 0
                             }
                             closeMethod?.invoke(service)
-                            Log.d(TAG, "Closed existing connections before reset")
                         }
                     } catch (e: Exception) {
-                        Log.v(TAG, "closeConnections not available or failed: ${e.message}")
                     }
 
                     // Step 2: 延迟等待连接关闭完成
@@ -650,7 +648,6 @@ class SingBoxService : VpnService() {
                     resetFailureCounter.set(0)
                     lastSuccessfulResetAt.set(SystemClock.elapsedRealtime())
 
-                    Log.d(TAG, "Core network stack reset triggered (reason=$reason)")
                 } catch (e: Exception) {
                     // 重置失败,增加失败计数
                     val newFailures = resetFailureCounter.incrementAndGet()
@@ -670,7 +667,6 @@ class SingBoxService : VpnService() {
                     boxService?.resetNetwork()
                     resetFailureCounter.set(0)
                     lastSuccessfulResetAt.set(SystemClock.elapsedRealtime())
-                    Log.d(TAG, "Core network stack reset triggered (reason=$reason)")
                 } catch (e: Exception) {
                     resetFailureCounter.incrementAndGet()
                     Log.w(TAG, "Failed to reset core network stack (reason=$reason)", e)
@@ -690,7 +686,6 @@ class SingBoxService : VpnService() {
                 boxService?.resetNetwork()
                 resetFailureCounter.set(0)
                 lastSuccessfulResetAt.set(SystemClock.elapsedRealtime())
-                Log.d(TAG, "Core network stack reset triggered (reason=$reason)")
             } catch (e: Exception) {
                 resetFailureCounter.incrementAndGet()
                 Log.w(TAG, "Failed to reset core network stack (reason=$reason)", e)
@@ -821,7 +816,6 @@ class SingBoxService : VpnService() {
     private fun registerScreenStateReceiver() {
         try {
             if (screenStateReceiver != null) {
-                Log.d(TAG, "Screen state receiver already registered")
                 return
             }
 
@@ -833,7 +827,6 @@ class SingBoxService : VpnService() {
                             val elapsed = now - lastScreenOnCheckMs
 
                             if (elapsed < screenOnCheckDebounceMs) {
-                                Log.d(TAG, "Screen ON event debounced (${elapsed}ms < ${screenOnCheckDebounceMs}ms)")
                                 return
                             }
 
@@ -847,7 +840,6 @@ class SingBoxService : VpnService() {
                             }
                         }
                         Intent.ACTION_SCREEN_OFF -> {
-                            Log.d(TAG, "📱 Screen OFF detected")
                             // 屏幕关闭时不做特殊处理，WakeLock 会保持服务运行
                         }
                     }
@@ -891,7 +883,6 @@ class SingBoxService : VpnService() {
      */
     private suspend fun performScreenOnHealthCheck() {
         if (!isRunning) {
-            Log.d(TAG, "VPN not running, skip screen-on health check")
             return
         }
 
@@ -968,7 +959,6 @@ class SingBoxService : VpnService() {
         if (!isRunning) return
 
         try {
-            Log.d(TAG, "Performing lightweight health check...")
 
             // 检查 VPN 接口和 boxService 基本状态
             val vpnInterfaceValid = vpnInterface?.fileDescriptor?.valid() == true
@@ -980,7 +970,6 @@ class SingBoxService : VpnService() {
                 return
             }
 
-            Log.d(TAG, "✓ Lightweight health check passed")
         } catch (e: Exception) {
             Log.w(TAG, "Lightweight health check failed", e)
         }
@@ -1035,7 +1024,6 @@ private val platformInterface = object : PlatformInterface {
         val result = protect(fd)
         if (result) {
             if (Log.isLoggable(TAG, Log.DEBUG)) {
-                Log.d(TAG, "autoDetectInterfaceControl: protect($fd) success")
             }
         } else {
             Log.e(TAG, "autoDetectInterfaceControl: protect($fd) failed")
@@ -1048,7 +1036,6 @@ private val platformInterface = object : PlatformInterface {
     }
     
     override fun openTun(options: TunOptions?): Int {
-            Log.v(TAG, "openTun called")
             if (options == null) return -1
             isConnectingTun.set(true)
 
@@ -1339,7 +1326,6 @@ private val platformInterface = object : PlatformInterface {
                 // BUG修复: 移除 reportNetworkConnectivity() 调用,避免在华为等设备上触发持续的系统提示音
                 // 参考: Android VPN 最佳实践,成熟 VPN 项目不使用 reportNetworkConnectivity 主动触发网络验证
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    Log.d(TAG, "VPN network established, relying on requestCoreNetworkReset for app reconnection")
                 }
 
                 // Force a network reset after TUN is ready to clear any stale connections
@@ -1430,7 +1416,6 @@ private val platformInterface = object : PlatformInterface {
                         }
                         if (resultUid > 0) return resultUid
                     } catch (e: Exception) {
-                        Log.d(TAG, "Failed to read proc file: $path", e)
                     }
                 }
                 return 0
@@ -1552,7 +1537,6 @@ private val platformInterface = object : PlatformInterface {
         }
         
         override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener?) {
-            Log.v(TAG, "startDefaultInterfaceMonitor")
             currentInterfaceListener = listener
             
             connectivityManager = getSystemService(ConnectivityManager::class.java)
@@ -1576,12 +1560,10 @@ private val platformInterface = object : PlatformInterface {
                             serviceScope.launch {
                                 delay(500) // 等待网络稳定
                                 if (isRunning) {
-                                    Log.d(TAG, "🔍 Triggering health check after network recovery")
                                     performLightweightHealthCheck()
                                 }
                             }
                         } else {
-                            Log.v(TAG, "Network available but not active default, ignoring for now: $network")
                         }
                     }
                 }
@@ -1704,7 +1686,6 @@ private val platformInterface = object : PlatformInterface {
         }
         
         override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener?) {
-            Log.v(TAG, "closeDefaultInterfaceMonitor")
             networkCallback?.let {
                 try {
                     connectivityManager?.unregisterNetworkCallback(it)
@@ -1788,7 +1769,6 @@ private val platformInterface = object : PlatformInterface {
         override fun writeLog(message: String?) {
             if (message.isNullOrBlank()) return
             if (Log.isLoggable(TAG, Log.DEBUG)) {
-                Log.d(TAG, "libbox: $message")
             }
             com.kunk.singbox.repository.LogRepository.getInstance().addLog(message)
         }
@@ -1830,7 +1810,6 @@ private val platformInterface = object : PlatformInterface {
             ) {
                 // 如果系统已经选好了一个物理网络，直接用它，不要自己选
                 // 这能最大程度避免 Sing-box 选了 WiFi 但系统正在切流量（或反之）导致的 operation not permitted
-                Log.d(TAG, "findBestPhysicalNetwork: using system active network $activeNetwork")
                 return activeNetwork
             }
         }
@@ -1869,7 +1848,6 @@ private val platformInterface = object : PlatformInterface {
             }
             
             if (bestNetwork != null) {
-                Log.d(TAG, "findBestPhysicalNetwork: fallback selected $bestNetwork (score=$bestScore)")
                 return bestNetwork
             }
         }
@@ -1889,7 +1867,6 @@ private val platformInterface = object : PlatformInterface {
     private fun warmupDnsCache() {
         serviceScope.launch(Dispatchers.IO) {
             try {
-                Log.d(TAG, "Starting DNS warmup...")
                 val startTime = System.currentTimeMillis()
 
                 // 常见域名列表 (根据用户使用场景调整)
@@ -1909,9 +1886,7 @@ private val platformInterface = object : PlatformInterface {
                             try {
                                 // 通过 InetAddress 触发系统 DNS 解析,结果会被缓存
                                 InetAddress.getByName(domain)
-                                Log.v(TAG, "DNS warmup: resolved $domain")
                             } catch (e: Exception) {
-                                Log.v(TAG, "DNS warmup: failed to resolve $domain (${e.javaClass.simpleName})")
                             }
                         }
                     }.awaitAll()
@@ -1933,7 +1908,6 @@ private val platformInterface = object : PlatformInterface {
                                   caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true
             
             if (!isValidPhysical) {
-                Log.v(TAG, "updateDefaultInterface: network $network is not a valid physical network, skipping")
                 return
             }
             
@@ -1969,7 +1943,6 @@ private val platformInterface = object : PlatformInterface {
                     // 强制重置，因为网络变更通常伴随着 IP/Interface 变更
                     requestCoreNetworkReset(reason = "underlyingNetworkChanged", force = true)
                 } else {
-                    Log.v(TAG, "Skipped setUnderlyingNetworks due to debounce (${timeSinceLastSet}ms < ${setUnderlyingNetworksDebounceMs}ms)")
                 }
             }
 
@@ -1987,7 +1960,6 @@ private val platformInterface = object : PlatformInterface {
                         }
                     }
                 } else {
-                    Log.d(TAG, "Auto-reconnect skipped: manuallyStopped=$isManuallyStopped, debounce=${now - lastAutoReconnectAttemptMs < autoReconnectDebounceMs}")
                 }
             }
 
@@ -2267,7 +2239,6 @@ private val platformInterface = object : PlatformInterface {
         setLastError(null)
         
         lastConfigPath = configPath
-        Log.d(TAG, "Attempting to start foreground service with ID: $NOTIFICATION_ID")
         try {
             val notification = createNotification()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -2285,7 +2256,6 @@ private val platformInterface = object : PlatformInterface {
                 startForeground(NOTIFICATION_ID, notification)
             }
             hasForegroundStarted.set(true) // 标记已调用 startForeground()
-            Log.d(TAG, "startForeground called successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to call startForeground", e)
         }
@@ -2401,7 +2371,6 @@ private val platformInterface = object : PlatformInterface {
                         forceUpdate = false,
                         allowNetwork = false
                     ) { progress ->
-                        Log.v(TAG, "Rule set update: $progress")
                     }
                     if (!allReady) {
                         Log.w(TAG, "Some rule sets are not ready, proceeding with available cache")
@@ -2412,7 +2381,6 @@ private val platformInterface = object : PlatformInterface {
 
                 // 加载最新设置
                 currentSettings = SettingsRepository.getInstance(this@SingBoxService).settings.first()
-                Log.v(TAG, "Settings loaded: tunEnabled=${currentSettings?.tunEnabled}")
 
                 // 配置日志级别
                 val logLevel = if (currentSettings?.debugLoggingEnabled == true) "debug" else "info"
@@ -2461,7 +2429,6 @@ private val platformInterface = object : PlatformInterface {
                     Log.w(TAG, "Failed to patch config: ${e.message}")
                 }
 
-                Log.v(TAG, "Config loaded, length: ${configContent.length}")
                 
                 try {
                     SingBoxCore.ensureLibboxSetup(this@SingBoxService)
@@ -2526,7 +2493,6 @@ private val platformInterface = object : PlatformInterface {
                         // 这样可以避免应用在 VPN 未完全就绪时发起连接
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                             try {
-                                Log.d(TAG, "Starting to configure underlying network...")
                                 val currentNetwork = lastKnownNetwork ?: findBestPhysicalNetwork()
                                 if (currentNetwork != null) {
                                     Log.i(TAG, "Setting underlying network for the first time (network=$currentNetwork)")
@@ -2548,9 +2514,7 @@ private val platformInterface = object : PlatformInterface {
 
                         // DNS 预热: 预解析常见域名,避免首次查询超时导致用户感知延迟
                         try {
-                            Log.d(TAG, "Starting DNS warmup...")
                             warmupDnsCache()
-                            Log.d(TAG, "DNS warmup completed")
                         } catch (e: Exception) {
                             Log.w(TAG, "DNS warmup failed", e)
                         }
@@ -2562,7 +2526,6 @@ private val platformInterface = object : PlatformInterface {
                 // 参考: Android VPN 最佳实践,成熟 VPN 项目不使用 reportNetworkConnectivity
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     try {
-                        Log.d(TAG, "Starting network connectivity notification...")
 
                         // 仅使用 libbox resetNetwork() 方法强制应用重连
                         // 避免使用 reportNetworkConnectivity() 触发系统提示音
@@ -2938,7 +2901,6 @@ private val platformInterface = object : PlatformInterface {
                 manager.deleteNotificationChannel("singbox_vpn")
             } catch (_: Exception) {}
 
-            Log.d(TAG, "Creating notification channel: $CHANNEL_ID")
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "KunBox VPN",
@@ -2952,7 +2914,6 @@ private val platformInterface = object : PlatformInterface {
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC // 锁屏可见
             }
             manager.createNotificationChannel(channel)
-            Log.d(TAG, "Notification channel created with IMPORTANCE_LOW")
         }
     }
     
@@ -2976,7 +2937,6 @@ private val platformInterface = object : PlatformInterface {
             runCatching {
                 startForeground(NOTIFICATION_ID, notification)
                 hasForegroundStarted.set(true)
-                Log.d(TAG, "First foreground notification set via startForeground()")
             }.onFailure { e ->
                 Log.w(TAG, "Failed to call startForeground, fallback to notify()", e)
                 manager.notify(NOTIFICATION_ID, notification)
@@ -3035,7 +2995,9 @@ private val platformInterface = object : PlatformInterface {
             }.build()
         }
 
-        val intent = Intent(this, MainActivity::class.java)
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
         val pendingIntent = PendingIntent.getActivity(
             this, 0, intent,
             PendingIntent.FLAG_IMMUTABLE
@@ -3200,7 +3162,6 @@ private val platformInterface = object : PlatformInterface {
         // as a foreground service, but some users expect it to stop.
         // Usually, a foreground service continues running.
         // However, if we want to ensure no "zombie" states, we can at least log or check health.
-        Log.d(TAG, "onTaskRemoved called")
     }
 
     private fun startForeignVpnMonitor() {
@@ -3278,7 +3239,6 @@ private val platformInterface = object : PlatformInterface {
      */
     private suspend fun ensureNetworkCallbackReadyWithTimeout(timeoutMs: Long = 2000L) {
         if (networkCallbackReady && lastKnownNetwork != null) {
-            Log.v(TAG, "Network callback already ready, lastKnownNetwork=$lastKnownNetwork")
             return
         }
         
@@ -3371,7 +3331,6 @@ private val platformInterface = object : PlatformInterface {
                 LogRepository.getInstance().addLog("INFO: VPN 连通性检查通过 ($host:$port)")
                 return@withContext true
             } catch (e: Exception) {
-                Log.d(TAG, "Connectivity check failed for $host:$port - ${e.message}")
                 // 继续尝试下一个目标
             }
         }
@@ -3399,7 +3358,6 @@ private val platformInterface = object : PlatformInterface {
         // CommandClient Handler
         val clientHandler = object : CommandClientHandler {
             override fun connected() {
-                Log.d(TAG, "CommandClient connected")
             }
 
             override fun disconnected(message: String?) {
@@ -3622,7 +3580,6 @@ private val platformInterface = object : PlatformInterface {
                     if (newNode != activeConnectionNode || labelChanged) {
                         activeConnectionNode = newNode
                         if (newNode != null) {
-                            Log.v(TAG, "Active connection node: $newNode")
                         }
                         requestNotificationUpdate(force = false)
                     }

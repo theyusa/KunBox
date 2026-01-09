@@ -318,7 +318,6 @@ class ProxyOnlyService : Service() {
         override fun writeLog(message: String?) {
             if (message.isNullOrBlank()) return
             if (Log.isLoggable(TAG, Log.DEBUG)) {
-                Log.d(TAG, "libbox: $message")
             }
             LogRepository.getInstance().addLog(message)
         }
@@ -570,7 +569,9 @@ class ProxyOnlyService : Service() {
     }
 
     private fun createNotification(): Notification {
-        val intent = Intent(this, MainActivity::class.java)
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,
