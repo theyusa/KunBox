@@ -1,5 +1,29 @@
 # Changelog
 
+## [2.1.7](https://github.com/roseforljh/KunBox/compare/v2.1.6...v2.1.7) (2026-01-09)
+
+
+### Bug Fixes
+
+* ? ([ce75fb3](https://github.com/roseforljh/KunBox/commit/ce75fb3b7ad19b183aa1d8fcac66560357e490bb))
+* 2 ([14dff9d](https://github.com/roseforljh/KunBox/commit/14dff9dfece056188d862bc683b54f2546d726ea))
+* bug ([daea0e7](https://github.com/roseforljh/KunBox/commit/daea0e7f8c845104114261e6aec5c91f834ecc7c))
+* huawei ([50e13fc](https://github.com/roseforljh/KunBox/commit/50e13fc67575c2392f13d38f4b9018e5cd178609))
+* 优化 SingBoxCore 代码注释和错误处理 ([9619b59](https://github.com/roseforljh/KunBox/commit/9619b59b1e9cb33fcda7ee75d8338f4a5658b372))
+* 优化构建配置和 ProGuard 混淆规则 ([217080d](https://github.com/roseforljh/KunBox/commit/217080d2679892361927977f542e196401cff229))
+* 修复从通知栏进入app后返回键需按两次才能退出的问题 ([814b4d3](https://github.com/roseforljh/KunBox/commit/814b4d37749f33266bb01c6d494f63cd23a70ecb))
+* 新增 URL Scheme 深度链接支持和问题修复文档 ([9b3f8b3](https://github.com/roseforljh/KunBox/commit/9b3f8b34bc9e27079c319864b1dd4679ca536f04))
+* 新增应用启动时清理遗留临时数据库文件的功能 ([eb21abb](https://github.com/roseforljh/KunBox/commit/eb21abb803f0031197f138d486ad3165a3dfe98c))
+* 新增项目文档索引和优化指南 ([d0c89c2](https://github.com/roseforljh/KunBox/commit/d0c89c240f259fea326d746c909042be52cd570c))
+* 更新 planning-with-files submodule 和临时修复代码 ([9bf826d](https://github.com/roseforljh/KunBox/commit/9bf826d907c96dab2d24aec38e1c30d89019e60e))
+* 更新优化后的 libbox.aar ([421de3b](https://github.com/roseforljh/KunBox/commit/421de3b22c6cd204b5f09cef74b4f6d6d4bc1a8f))
+* 清理不必要的临时文件和 planning-with-files ([372f471](https://github.com/roseforljh/KunBox/commit/372f471ebd6c8d9f5dc90e392facfa72e27c40fd))
+* 清理冗余调试日志以提升性能和可读性 ([2986e53](https://github.com/roseforljh/KunBox/commit/2986e5322a00e3e37dea860417b3b3b59cf439b5))
+* 清理废弃的构建脚本并优化 libbox 构建流程 ([8d87215](https://github.com/roseforljh/KunBox/commit/8d8721557717d3aff3fb4f643ebe15d2d97756f4))
+* 移除内核版本管理功能并优化核心服务 ([c661d71](https://github.com/roseforljh/KunBox/commit/c661d718cff1630d9700d1fcd54a5afdefcb887d))
+* 移除已过时的 bugfix 文档 ([df0dc64](https://github.com/roseforljh/KunBox/commit/df0dc643c75b8e6588e7429fe50cb5b9c6911196))
+* 统一 TUN MTU 默认值并移除冗余日志 ([3ea5b7b](https://github.com/roseforljh/KunBox/commit/3ea5b7b9200bc9969dbdc0ed1f3c9d779a259d9a))
+
 ## [2.1.6](https://github.com/roseforljh/KunBox/compare/v2.1.5...v2.1.6) (2026-01-08)
 
 
