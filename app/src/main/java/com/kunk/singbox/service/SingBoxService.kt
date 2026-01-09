@@ -75,6 +75,7 @@ class SingBoxService : VpnService() {
     private val notificationUpdateDebounceMs: Long = 900L
     private val lastNotificationUpdateAtMs = AtomicLong(0L)
     @Volatile private var notificationUpdateJob: Job? = null
+    @Volatile private var suppressNotificationUpdates = false
 
     // 华为设备修复: 追踪是否已经调用过 startForeground(),避免重复调用触发提示音
     private val hasForegroundStarted = AtomicBoolean(false)
@@ -311,6 +312,60 @@ class SingBoxService : VpnService() {
         }
         if (closed > 0) {
             LogRepository.getInstance().addLog("INFO SingBoxService: closeConnection($reason) closed=$closed total=${ids.size}")
+        }
+    }
+
+    /**
+     * ⭐ 修复核心函数: 立即强制关闭所有活跃连接
+     *
+     * 与 closeRecentConnectionsBestEffort 的区别:
+     * - 不仅关闭"最近连接",而是关闭**所有活跃连接**
+     * - 绕过防抖机制,立即执行
+     * - 用于网络切换等关键时刻,确保旧连接不会被复用
+     *
+     * 这是解决 Telegram 连接卡死的关键 - 在网络变化时必须强制断开所有现有 TCP 连接
+     */
+    private suspend fun closeAllConnectionsImmediate() {
+        withContext(Dispatchers.IO) {
+            try {
+                // 方法1: 尝试使用 CommandClient.closeConnections() (libbox 1.9.0+)
+                val client = commandClient ?: commandClientConnections
+                if (client != null) {
+                    try {
+                        val method = client.javaClass.methods.find {
+                            it.name == "closeConnections" && it.parameterCount == 0
+                        }
+                        if (method != null) {
+                            method.invoke(client)
+                            Log.i(TAG, "✅ Called CommandClient.closeConnections() successfully")
+                            return@withContext
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "CommandClient.closeConnections() failed: ${e.message}")
+                    }
+                }
+
+                // 方法2: 回退到 BoxService.closeConnections() (如果存在)
+                boxService?.let { service ->
+                    try {
+                        val method = service.javaClass.methods.find {
+                            it.name == "closeConnections" && it.parameterCount == 0
+                        }
+                        method?.invoke(service)
+                        Log.i(TAG, "✅ Called BoxService.closeConnections() successfully")
+                        return@withContext
+                    } catch (e: Exception) {
+                        Log.w(TAG, "BoxService.closeConnections() failed: ${e.message}")
+                    }
+                }
+
+                // 方法3: 如果以上都失败,至少关闭已知的最近连接
+                Log.w(TAG, "⚠️ No closeConnections() API available, falling back to closeRecent")
+                closeRecentConnectionsBestEffort(reason = "closeAllImmediate_fallback")
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to close all connections immediately", e)
+            }
         }
     }
 
@@ -573,6 +628,14 @@ class SingBoxService : VpnService() {
     private var trafficStatsLastSampleTime: Long = 0L
     @Volatile private var trafficStatsMonitorJob: Job? = null
 
+    // 连接卡死检测（基于流量停滞）
+    private val stallCheckIntervalMs: Long = 15000L
+    private val stallMinBytesDelta: Long = 1024L // 1KB
+    private val stallMinSamples: Int = 3
+    private var lastStallCheckAtMs: Long = 0L
+    private var stallConsecutiveCount: Int = 0
+    private var lastStallTrafficBytes: Long = 0L
+
     private val coreResetDebounceMs: Long = 2500L
     private val lastCoreNetworkResetAtMs = AtomicLong(0L)
     @Volatile private var coreNetworkResetJob: Job? = null
@@ -768,6 +831,34 @@ class SingBoxService : VpnService() {
                         try {
                             // 轻量级检查:验证对象引用仍然有效
                             service.toString()
+
+                            // 仅在检测到流量停滞时才触发清理，避免无谓断连
+                            val now = SystemClock.elapsedRealtime()
+                            val totalBytes = (trafficStatsLastTx + trafficStatsLastRx).coerceAtLeast(0L)
+                            val shouldCheckStall = (now - lastStallCheckAtMs) >= stallCheckIntervalMs
+                            if (shouldCheckStall) {
+                                val delta = (totalBytes - lastStallTrafficBytes).coerceAtLeast(0L)
+                                lastStallCheckAtMs = now
+                                lastStallTrafficBytes = totalBytes
+                                if (delta < stallMinBytesDelta) {
+                                    stallConsecutiveCount++
+                                } else {
+                                    stallConsecutiveCount = 0
+                                }
+                            }
+
+                            if (shouldCheckStall && stallConsecutiveCount >= stallMinSamples) {
+                                Log.w(TAG, "⚠️ Periodic check detected stall (count=$stallConsecutiveCount), forcing refresh")
+                                try {
+                                    service.wake()
+                                    delay(30)
+                                    closeAllConnectionsImmediate()
+                                    Log.i(TAG, "Periodic check: cleared stale connections after stall")
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Periodic check: failed to clear connections", e)
+                                }
+                                requestCoreNetworkReset(reason = "periodic_stall", force = true)
+                            }
 
                             // 健康检查通过,重置失败计数器
                             if (consecutiveHealthCheckFailures > 0) {
@@ -981,25 +1072,34 @@ class SingBoxService : VpnService() {
 
             withContext(Dispatchers.IO) {
                 try {
-                    // **关键修复**: 调用 libbox 的 Wake() 方法通知核心设备唤醒
+                    // **关键修复步骤1**: 立即调用 libbox 的 Wake() 方法通知核心设备唤醒
                     // 这会触发核心内部的连接恢复逻辑，是业界标准做法
                     service.wake()
-                    Log.i(TAG, "✅ Called boxService.wake() to notify core about device wake")
+                    Log.i(TAG, "✅ [Step 1/4] Called boxService.wake() to notify core about device wake")
 
-                    // 等待核心处理完唤醒逻辑
-                    delay(200)
+                    // 短暂等待核心处理完唤醒逻辑
+                    delay(150)
+
+                    // **关键修复步骤2**: 强制关闭所有旧连接
+                    // 避免 Telegram 等应用复用屏幕息屏期间可能已失效的 TCP 连接
+                    closeAllConnectionsImmediate()
+                    Log.i(TAG, "✅ [Step 2/4] Closed all stale connections")
+
+                    // 等待连接关闭完成
+                    delay(100)
+
                 } catch (e: Exception) {
-                    Log.e(TAG, "❌ Failed to call boxService.wake()", e)
-                    handleHealthCheckFailure("Wake call failed: ${e.message}")
+                    Log.e(TAG, "❌ Failed to wake or close connections", e)
+                    handleHealthCheckFailure("Wake/close failed: ${e.message}")
                     return@withContext
                 }
             }
 
-            // 检查 3: 网络震荡恢复 - 触发系统重新评估网络连接
+            // **关键修复步骤3**: 网络震荡恢复 - 触发系统重新评估网络连接
             // 这会让 Telegram 等应用收到网络变化通知，重新建立连接
             val currentNetwork = lastKnownNetwork
             if (currentNetwork != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                Log.i(TAG, "🔄 Triggering network oscillation to refresh app connections...")
+                Log.i(TAG, "🔄 [Step 3/4] Triggering network oscillation to refresh app connections...")
                 withContext(Dispatchers.IO) {
                     try {
                         // 短暂断开底层网络，让应用层感知到网络变化
@@ -1013,7 +1113,8 @@ class SingBoxService : VpnService() {
                 }
             }
 
-            // 检查 4: 主动触发核心网络重置（轻量级）
+            // **关键修复步骤4**: 主动触发核心网络重置（轻量级）
+            Log.i(TAG, "🔄 [Step 4/4] Triggering core network reset...")
             requestCoreNetworkReset(reason = "screen_on_health_check", force = false)
 
             Log.i(TAG, "✅ Screen-on health check passed, VPN connection should be healthy now")
@@ -1060,23 +1161,32 @@ class SingBoxService : VpnService() {
 
             withContext(Dispatchers.IO) {
                 try {
-                    // **关键修复**: 调用 libbox 的 Wake() 方法
+                    // **关键修复步骤1**: 立即调用 libbox 的 Wake() 方法
                     service.wake()
-                    Log.i(TAG, "✅ [App Foreground] Called boxService.wake()")
+                    Log.i(TAG, "✅ [App Foreground Step 1/3] Called boxService.wake()")
 
                     // 短暂等待，应用切换场景不需要太长延迟
-                    delay(100)
+                    delay(80)
+
+                    // **关键修复步骤2**: 强制关闭所有旧连接
+                    // 这是解决"用户切回 Telegram 后一直连接中"的核心修复
+                    closeAllConnectionsImmediate()
+                    Log.i(TAG, "✅ [App Foreground Step 2/3] Closed all stale connections")
+
+                    delay(80)
+
                 } catch (e: Exception) {
-                    Log.e(TAG, "❌ [App Foreground] Failed to call boxService.wake()", e)
-                    handleHealthCheckFailure("Wake call failed: ${e.message}")
+                    Log.e(TAG, "❌ [App Foreground] Failed to wake or close connections", e)
+                    handleHealthCheckFailure("Wake/close failed: ${e.message}")
                     return@withContext
                 }
             }
 
-            // 检查 3: 网络震荡恢复（可选，仅在必要时执行）
+            // **关键修复步骤3**: 网络震荡恢复
+            // 让 Telegram 等应用收到网络变化通知,主动重连
             val currentNetwork = lastKnownNetwork
             if (currentNetwork != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                Log.i(TAG, "🔄 [App Foreground] Triggering network oscillation...")
+                Log.i(TAG, "🔄 [App Foreground Step 3/3] Triggering network oscillation...")
                 withContext(Dispatchers.IO) {
                     try {
                         setUnderlyingNetworks(null)
@@ -1101,21 +1211,60 @@ class SingBoxService : VpnService() {
     /**
      * 轻量级健康检查
      * 用于网络恢复等场景，只做基本验证而不触发完整的重启流程
+     *
+     * ⭐ 增强修复: 主动清理超时连接，解决 "context deadline exceeded" 导致的卡死
      */
     private suspend fun performLightweightHealthCheck() {
         if (!isRunning) return
 
         try {
+            Log.i(TAG, "🔍 [Lightweight Check] Performing health check...")
 
             // 检查 VPN 接口和 boxService 基本状态
             val vpnInterfaceValid = vpnInterface?.fileDescriptor?.valid() == true
             val boxServiceValid = boxService != null
 
             if (!vpnInterfaceValid || !boxServiceValid) {
-                Log.w(TAG, "Lightweight health check found issues (vpnInterface=$vpnInterfaceValid, boxService=$boxServiceValid)")
+                Log.w(TAG, "❌ [Lightweight Check] Issues found (vpnInterface=$vpnInterfaceValid, boxService=$boxServiceValid)")
                 // 不立即触发重启，只记录，让定期检查来处理
                 return
             }
+
+            val now = SystemClock.elapsedRealtime()
+            val totalBytes = (trafficStatsLastTx + trafficStatsLastRx).coerceAtLeast(0L)
+            val shouldCheckStall = (now - lastStallCheckAtMs) >= stallCheckIntervalMs
+            if (shouldCheckStall) {
+                val delta = (totalBytes - lastStallTrafficBytes).coerceAtLeast(0L)
+                lastStallCheckAtMs = now
+                lastStallTrafficBytes = totalBytes
+                if (delta < stallMinBytesDelta) {
+                    stallConsecutiveCount++
+                } else {
+                    stallConsecutiveCount = 0
+                }
+            }
+
+            val isStalled = shouldCheckStall && stallConsecutiveCount >= stallMinSamples
+
+            // ⭐ 核心修复: 仅在确认卡死时才清理连接，避免无谓抖动
+            if (isStalled) {
+                Log.w(TAG, "⚠️ [Lightweight Check] Detected traffic stall (count=$stallConsecutiveCount), forcing refresh")
+                withContext(Dispatchers.IO) {
+                    try {
+                        boxService?.wake()
+                        delay(50)
+                        closeAllConnectionsImmediate()
+                        Log.i(TAG, "✅ [Lightweight Check] Cleared stale connections after stall")
+                        delay(50)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "[Lightweight Check] Failed to clear connections", e)
+                    }
+                }
+
+                requestCoreNetworkReset(reason = "traffic_stall", force = true)
+            }
+
+            Log.i(TAG, "✅ [Lightweight Check] Health check passed")
 
         } catch (e: Exception) {
             Log.w(TAG, "Lightweight health check failed", e)
@@ -1160,7 +1309,9 @@ class SingBoxService : VpnService() {
 
     // Periodic health check states
     private var periodicHealthCheckJob: Job? = null
-    private val healthCheckIntervalMs: Long = 15000L // 每 15 秒检查一次
+    // ⭐ 优化间隔: 从 15 秒缩短到 10 秒,更及时清理超时连接
+    // 根据日志 "context deadline exceeded" 发生在 18.37s,缩短间隔可以在超时前清理
+    private val healthCheckIntervalMs: Long = 10000L // 每 10 秒检查一次
     @Volatile private var consecutiveHealthCheckFailures: Int = 0
     private val maxConsecutiveHealthCheckFailures: Int = 3 // 连续失败 3 次触发重启
 
@@ -1701,6 +1852,21 @@ private val platformInterface = object : PlatformInterface {
                         val isActiveDefault = connectivityManager?.activeNetwork == network
                         if (isActiveDefault) {
                             networkCallbackReady = true
+
+                            // ⭐ 修复1: 在网络变化时立即强制关闭所有旧连接
+                            // 这是解决 Telegram 连接卡死的关键 - 避免复用已失效的 TCP 连接
+                            if (isRunning) {
+                                serviceScope.launch {
+                                    try {
+                                        Log.i(TAG, "🔥 [Network Available] Closing all connections to prevent stale connection reuse")
+                                        closeAllConnectionsImmediate()
+                                        delay(100) // 等待连接关闭完成
+                                    } catch (e: Exception) {
+                                        Log.w(TAG, "Failed to close connections on network available", e)
+                                    }
+                                }
+                            }
+
                             updateDefaultInterface(network)
                             // Ensure libbox is aware of the new physical interface immediately
                             requestCoreNetworkReset(reason = "networkAvailable:$network", force = true)
@@ -1720,6 +1886,21 @@ private val platformInterface = object : PlatformInterface {
                 
                 override fun onLost(network: Network) {
                     Log.i(TAG, "Network lost: $network")
+
+                    // ⭐ 修复2: 网络丢失时立即强制关闭所有连接
+                    // 防止应用继续使用已失效的网络路径
+                    if (isRunning && network == lastKnownNetwork) {
+                        serviceScope.launch {
+                            try {
+                                Log.i(TAG, "🔥 [Network Lost] Closing all connections on primary network loss")
+                                closeAllConnectionsImmediate()
+                                delay(50) // 短暂等待
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to close connections on network lost", e)
+                            }
+                        }
+                    }
+
                     if (network == lastKnownNetwork) {
                         // Check if there is another active network immediately
                         val newActive = connectivityManager?.activeNetwork
@@ -1744,6 +1925,26 @@ private val platformInterface = object : PlatformInterface {
                         // Only react if this is the active network
                         if (connectivityManager?.activeNetwork == network) {
                             networkCallbackReady = true
+
+                            // ⭐ 修复3: 网络能力变化时(如从WiFi切到移动数据)立即清理连接
+                            // 这种切换通常伴随IP地址和路由的变化,旧连接必须丢弃
+                            if (isRunning && network == lastKnownNetwork) {
+                                val wasValidated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                                // 只在网络已验证(即真正可用)时才关闭旧连接并重置
+                                // 避免在网络验证过程中过早关闭连接导致短暂中断
+                                if (wasValidated) {
+                                    serviceScope.launch {
+                                        try {
+                                            Log.i(TAG, "🔥 [Network Caps Changed] Network validated, closing stale connections")
+                                            closeAllConnectionsImmediate()
+                                            delay(80)
+                                        } catch (e: Exception) {
+                                            Log.w(TAG, "Failed to close connections on caps changed", e)
+                                        }
+                                    }
+                                }
+                            }
+
                             updateDefaultInterface(network)
                             // Trigger reset to ensure libbox updates its interface list if properties changed
                             requestCoreNetworkReset(reason = "networkCapsChanged:$network", force = false)
@@ -2261,7 +2462,11 @@ private val platformInterface = object : PlatformInterface {
                 VpnStateStore.setManuallyStopped(applicationContext, true)
                 VpnTileService.persistVpnPending(applicationContext, "stopping")
                 updateServiceState(ServiceState.STOPPING)
-                requestNotificationUpdate(force = true)
+                suppressNotificationUpdates = true
+                runCatching {
+                    val manager = getSystemService(NotificationManager::class.java)
+                    manager.cancel(NOTIFICATION_ID)
+                }
                 synchronized(this) {
                     pendingStartConfigPath = null
                 }
@@ -2752,6 +2957,7 @@ private val platformInterface = object : PlatformInterface {
                 // 立即重置 isStarting 标志,确保UI能正确显示已连接状态
                 isStarting = false
 
+                suppressNotificationUpdates = false
                 VpnTileService.persistVpnState(applicationContext, true)
                 VpnStateStore.setMode(applicationContext, VpnStateStore.CoreMode.VPN)
 
@@ -2824,6 +3030,11 @@ private val platformInterface = object : PlatformInterface {
                 }
                 withContext(Dispatchers.Main) {
                     isRunning = false
+                    suppressNotificationUpdates = true
+                    runCatching {
+                        val manager = getSystemService(NotificationManager::class.java)
+                        manager.cancel(NOTIFICATION_ID)
+                    }
                     updateServiceState(ServiceState.STOPPED)
                     stopVpn(stopService = true)
                 }
@@ -2875,7 +3086,11 @@ private val platformInterface = object : PlatformInterface {
             isStopping = true
         }
         updateServiceState(ServiceState.STOPPING)
-                requestNotificationUpdate(force = true)
+        suppressNotificationUpdates = true
+        runCatching {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.cancel(NOTIFICATION_ID)
+        }
         updateTileState() // Force tile update immediately upon stopping
         runCatching {
             val intent = Intent(VpnTileService.ACTION_REFRESH_TILE).apply {
@@ -3003,6 +3218,10 @@ private val platformInterface = object : PlatformInterface {
                 } catch (e: Exception) {
                     Log.e(TAG, "Error stopping foreground", e)
                 }
+                runCatching {
+                    val manager = getSystemService(NotificationManager::class.java)
+                    manager.cancel(NOTIFICATION_ID)
+                }
                 if (stopSelfRequested) {
                     stopSelf()
                 }
@@ -3121,6 +3340,7 @@ private val platformInterface = object : PlatformInterface {
     }
 
     private fun requestNotificationUpdate(force: Boolean = false) {
+        if (suppressNotificationUpdates) return
         if (isStopping) return // Prevent updates during shutdown to avoid flickering
         val now = SystemClock.elapsedRealtime()
         val last = lastNotificationUpdateAtMs.get()
@@ -3849,39 +4069,42 @@ private val platformInterface = object : PlatformInterface {
 
     private fun startTrafficStatsMonitor() {
         stopTrafficStatsMonitor()
-        
+
         // 重置平滑缓存
         currentUploadSpeed = 0
         currentDownloadSpeed = 0
         lastSpeedUpdateTime = 0
-        
+        stallConsecutiveCount = 0
+        lastStallCheckAtMs = 0L
+
         // 获取当前 TrafficStats 基准值
         val uid = Process.myUid()
         val tx0 = TrafficStats.getUidTxBytes(uid).let { if (it > 0) it else 0L }
         val rx0 = TrafficStats.getUidRxBytes(uid).let { if (it > 0) it else 0L }
-        
+
         trafficStatsBaseTx = tx0
         trafficStatsBaseRx = rx0
         trafficStatsLastTx = tx0
         trafficStatsLastRx = rx0
         trafficStatsLastSampleTime = SystemClock.elapsedRealtime()
-        
+        lastStallTrafficBytes = tx0 + rx0
+
         // 启动定时采样任务
         trafficStatsMonitorJob = serviceScope.launch(Dispatchers.Default) {
             while (isActive) {
                 delay(1000)
-                
+
                 val nowElapsed = SystemClock.elapsedRealtime()
                 val tx = TrafficStats.getUidTxBytes(uid).let { if (it > 0) it else 0L }
                 val rx = TrafficStats.getUidRxBytes(uid).let { if (it > 0) it else 0L }
-                
+
                 val dtMs = (nowElapsed - trafficStatsLastSampleTime).coerceAtLeast(1L)
                 val dTx = (tx - trafficStatsLastTx).coerceAtLeast(0L)
                 val dRx = (rx - trafficStatsLastRx).coerceAtLeast(0L)
-                
+
                 val up = (dTx * 1000L) / dtMs
                 val down = (dRx * 1000L) / dtMs
-                
+
                 // 平滑处理 (指数移动平均)，与首页 DashboardViewModel 保持一致
                 // 使用 synchronized 确保线程安全
                 synchronized(this@SingBoxService) {
@@ -3889,11 +4112,11 @@ private val platformInterface = object : PlatformInterface {
                     currentUploadSpeed = if (currentUploadSpeed == 0L) up else (currentUploadSpeed * (1 - smoothFactor) + up * smoothFactor).toLong()
                     currentDownloadSpeed = if (currentDownloadSpeed == 0L) down else (currentDownloadSpeed * (1 - smoothFactor) + down * smoothFactor).toLong()
                 }
-                
+
                 if (showNotificationSpeed) {
                     requestNotificationUpdate(force = false)
                 }
-                
+
                 trafficStatsLastTx = tx
                 trafficStatsLastRx = rx
                 trafficStatsLastSampleTime = nowElapsed
@@ -3911,5 +4134,8 @@ private val platformInterface = object : PlatformInterface {
         trafficStatsLastTx = 0
         trafficStatsLastRx = 0
         trafficStatsLastSampleTime = 0
+        stallConsecutiveCount = 0
+        lastStallCheckAtMs = 0L
+        lastStallTrafficBytes = 0L
     }
 }
