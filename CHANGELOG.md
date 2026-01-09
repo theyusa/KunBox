@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.1.6](https://github.com/roseforljh/KunBox/compare/v2.1.5...v2.1.6) (2026-01-08)
+
+
+### Bug Fixes
+
+* **core:** 修复 VPN 服务因 bbolt 数据库并发冲突导致自动停止的 bug ([a2e689a](https://github.com/roseforljh/KunBox/commit/a2e689a71d2970a0290c2d323b5b051f6323ea4d))
+* **core:** 彻底修复 bbolt panic - 根本原因是多进程并发访问同一数据库 ([497b0d9](https://github.com/roseforljh/KunBox/commit/497b0d9751840611c417a2dc26900c2914c152ad))
+* **core:** 确保测试数据库目录存在 - 添加 mkdirs() 调用 ([b76a1e6](https://github.com/roseforljh/KunBox/commit/b76a1e6bc3d8db3952e4f13f3b9240c664d21007))
+* internet op ([b4c4d0f](https://github.com/roseforljh/KunBox/commit/b4c4d0fcb03a8f964835cdf9b5c1de83d9fb4923))
+* **vpn:** 修复VPN自动关闭和启动期间连接泄漏问题 ([3d9f2f2](https://github.com/roseforljh/KunBox/commit/3d9f2f21cf0576e7bd459bcdacd85ffa70fabd7b))
+* **vpn:** 全面加固 VPN 息屏保活机制,防止被系统杀死 ([826bee3](https://github.com/roseforljh/KunBox/commit/826bee388ca2e5d40025bb0f2cbb2f88d7e24791))
+* **vpn:** 添加周期性健康检查防止 VPN 服务僵尸状态 ([7426735](https://github.com/roseforljh/KunBox/commit/7426735cd84be66fe4fb973158ba41b00e7df237))
+* 优化 ([c9036f1](https://github.com/roseforljh/KunBox/commit/c9036f115a37eef2ee12c8ebad6f010e2fbf9037))
+* 修复节点选择状态未正确保存和显示的问题 ([4272779](https://github.com/roseforljh/KunBox/commit/42727791c22bbe99c88578a6719e6d6d5aa183ea))
+
 ## [2.1.5](https://github.com/roseforljh/KunBox/compare/v2.1.4...v2.1.5) (2026-01-04)
 
 
