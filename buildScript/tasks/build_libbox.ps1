@@ -77,9 +77,9 @@ $env:PATH = "$GoBin;$env:PATH"
 $env:GOPATH = Join-Path $CacheDir "gopath"
 $env:PATH = "$env:PATH;$env:GOPATH\bin"
 
-# 关键:启用 Go toolchain 自动下载 (允许自动下载 go1.24.11)
+# Critical: Enable Go toolchain auto-download (allows auto-upgrade to go1.24.11)
 $env:GOTOOLCHAIN = "auto"
-Write-Host "  GOTOOLCHAIN=auto (允许自动升级到 go1.24.11)" -ForegroundColor Cyan
+Write-Host "  GOTOOLCHAIN=auto (Allow auto-upgrade to go1.24.11)" -ForegroundColor Cyan
 
 # Fix NDK Path - Auto detect or use explicit valid version
 $SdkRoot = $env:ANDROID_SDK_ROOT
@@ -110,19 +110,40 @@ if (Test-Path $GomobilePkg) {
 
 # 关键:使用 SagerNet 修改版的 gomobile (修复 Go 1.24 兼容性)
 Write-Host "  Installing gomobile..." -ForegroundColor Cyan
-go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.8
+& "$GoBin\go.exe" install github.com/sagernet/gomobile/cmd/gomobile@v0.1.8
 if ($LASTEXITCODE -ne 0) { throw "Failed to install gomobile" }
 
 Write-Host "  Installing gobind..." -ForegroundColor Cyan
-go install github.com/sagernet/gomobile/cmd/gobind@v0.1.8
+& "$GoBin\go.exe" install github.com/sagernet/gomobile/cmd/gobind@v0.1.8
 if ($LASTEXITCODE -ne 0) { throw "Failed to install gobind" }
 
-Write-Host "  Initializing gomobile (this may take a while)..." -ForegroundColor Cyan
-gomobile init -v
+# 验证安装
+$GomobileBin = Join-Path $env:GOPATH "bin\gomobile.exe"
+$GobindBin = Join-Path $env:GOPATH "bin\gobind.exe"
+if (-not (Test-Path $GomobileBin)) { throw "gomobile.exe not found at $GomobileBin" }
+if (-not (Test-Path $GobindBin)) { throw "gobind.exe not found at $GobindBin" }
+
+Write-Host "  Initializing gomobile (this may take a while, typically 2-5 minutes)..." -ForegroundColor Cyan
+Write-Host "  Note: This downloads and compiles Android toolchains..." -ForegroundColor Gray
+
+# 使用完整路径调用 gomobile，避免 PATH 问题
+# 关键修复: 设置 GOROOT 环境变量，让 gomobile 能找到 go 命令
+$env:GOROOT = $GoRoot
+& $GomobileBin init -v
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "  gomobile init failed, retrying..." -ForegroundColor Yellow
-    gomobile init -v
+    Write-Host "  gomobile init failed, retrying with NDK path..." -ForegroundColor Yellow
+    & $GomobileBin init -ndk $env:ANDROID_NDK_HOME -v
     if ($LASTEXITCODE -ne 0) { throw "Failed to initialize gomobile after retry" }
+}
+
+Write-Host "  Verifying gomobile installation..." -ForegroundColor Cyan
+# 跳过 gomobile version 检查，因为它需要 go.mod 文件
+# 直接验证 gomobile init 的关键产物
+$GomobileCache = Join-Path $env:GOPATH "pkg\gomobile"
+if (Test-Path $GomobileCache) {
+    Write-Host "  gomobile initialized successfully (cache found)" -ForegroundColor Green
+} else {
+    Write-Warning "gomobile cache not found, but continuing anyway..."
 }
 
 # 5. Clone/Update Source - Always fetch the target version
@@ -158,13 +179,52 @@ Push-Location $BuildDir
 # 6. Build
 Write-Host "[6/7] Building kernel..." -ForegroundColor Yellow
 Write-Host "Using official sing-box build tool for version $Version..." -ForegroundColor Yellow
+Write-Host "Optimization: Building arm64-v8a only..." -ForegroundColor Cyan
+
+# 关键修复: 确保所有环境变量都正确设置，包括 GOPATH/bin 在 PATH 中
+# 这样 go run 启动的子进程也能找到 gomobile 和 gobind
+$env:GOROOT = $GoRoot
+$env:GOPATH = Join-Path $CacheDir "gopath"
+$env:PATH = "$GoBin;$env:GOPATH\bin;$env:PATH"
+$env:GOTOOLCHAIN = "auto"
+
+# 验证 gobind 可访问
+$GobindPath = Join-Path $env:GOPATH "bin\gobind.exe"
+if (-not (Test-Path $GobindPath)) {
+    throw "gobind not found at $GobindPath"
+}
+Write-Host "Environment check: gobind found at $GobindPath" -ForegroundColor Gray
 
 # 关键:使用 sing-box 官方构建工具 (修复 Go 1.24 兼容性问题)
-# 不再直接调用 gomobile bind,而是通过官方 build_libbox 工具
-go run ./cmd/internal/build_libbox -target android
+# 优化:仅构建 arm64-v8a 架构 (覆盖 99% 现代设备,减少 75% 体积)
+# 如需支持旧设备,可改为: android/arm64,android/arm
+# 注意: sing-box 构建工具内部已包含 -s -w 优化参数 (见 main.go:62)
+
+# 修复: 使用 -platform 参数而不是 -target (sing-box 1.12+ 的正确参数名)
+Write-Host ""
+Write-Host "Executing: go run ./cmd/internal/build_libbox -target android -platform android/arm64" -ForegroundColor Gray
+Write-Host "This will take several minutes (typically 5-15 minutes)..." -ForegroundColor Gray
+Write-Host ""
+
+# 使用完整路径的 go 命令，确保环境变量正确传递
+& "$GoBin\go.exe" run ./cmd/internal/build_libbox -target android -platform android/arm64
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "[7/7] Build Success! Updating project..." -ForegroundColor Green
+    Write-Host ""
+    Write-Host "[7/7] Checking build output..." -ForegroundColor Yellow
+
+    # 检查 libbox.aar 是否生成
+    if (-not (Test-Path "libbox.aar")) {
+        Write-Host "Error: libbox.aar not found in build directory!" -ForegroundColor Red
+        Write-Host "Build may have failed silently. Please check the output above for errors." -ForegroundColor Red
+        Pop-Location
+        exit 1
+    }
+
+    $AarSize = (Get-Item "libbox.aar").Length / 1MB
+    Write-Host "Build Success! Generated libbox.aar (${AarSize:N2} MB)" -ForegroundColor Green
+
+    Write-Host "Updating project..." -ForegroundColor Yellow
     $Dest = $OutputDir
     if (-not (Test-Path $Dest)) { New-Item -ItemType Directory -Force -Path $Dest | Out-Null }
     Copy-Item "libbox.aar" (Join-Path $Dest "libbox.aar") -Force
@@ -172,11 +232,14 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host ""
     Write-Host "================================================" -ForegroundColor Green
     Write-Host "  sing-box v$Version built successfully!" -ForegroundColor Green
-    Write-Host "  Output: $Dest\libbox.aar" -ForegroundColor Green
+    Write-Host "  Output: $Dest\libbox.aar (${AarSize:N2} MB)" -ForegroundColor Green
+    Write-Host "  Target: arm64-v8a only" -ForegroundColor Green
     Write-Host "================================================" -ForegroundColor Green
 }
 else {
-    Write-Host "Build failed." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Build failed with exit code: $LASTEXITCODE" -ForegroundColor Red
+    Write-Host "Please check the error messages above." -ForegroundColor Red
 }
 
 Pop-Location
