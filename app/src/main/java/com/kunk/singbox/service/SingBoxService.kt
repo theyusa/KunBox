@@ -324,19 +324,19 @@ class SingBoxService : VpnService() {
     }
 
     /**
-     * ⭐ 修复核心函数: 立即强制关闭所有活跃连接
+     * 修复核心函数: 立即强制关闭所有活跃连接
      *
-     * 与 closeRecentConnectionsBestEffort 的区别:
-     * - 不仅关闭"最近连接",而是关闭**所有活跃连接**
-     * - 绕过防抖机制,立即执行
-     * - 用于网络切换等关键时刻,确保旧连接不会被复用
+     * 学习 NekoBox 的实现：NekoBox 使用 Libcore.resetAllConnections(true) 静态方法，
+     * 但标准 libbox 没有这个 API。我们使用 CommandClient.closeConnections() 作为替代。
      *
-     * 这是解决 Telegram 连接卡死的关键 - 在网络变化时必须强制断开所有现有 TCP 连接
+     * 关键改进：
+     * 1. 直接调用 API 而不使用反射（更可靠、更快）
+     * 2. 优先使用 commandClientConnections（专门用于连接管理）
+     * 3. 增加重试机制
      *
-     * @param skipDebounce 是否跳过防抖检查（网络接口变化时应跳过）
+     * @param skipDebounce 是否跳过防抖检查（Doze 退出、网络接口变化时应跳过）
      */
     private suspend fun closeAllConnectionsImmediate(skipDebounce: Boolean = false) {
-        // NekoBox-style: 防抖机制，避免多次重置导致 Telegram 反复加载
         val now = SystemClock.elapsedRealtime()
         val elapsed = now - lastConnectionsResetAtMs
         if (!skipDebounce && elapsed < connectionsResetDebounceMs) {
@@ -346,44 +346,46 @@ class SingBoxService : VpnService() {
         lastConnectionsResetAtMs = now
 
         withContext(Dispatchers.IO) {
-            try {
-                // 方法1: 尝试使用 CommandClient.closeConnections() (libbox 1.9.0+)
-                val client = commandClient ?: commandClientConnections
-                if (client != null) {
-                    try {
-                        val method = client.javaClass.methods.find {
-                            it.name == "closeConnections" && it.parameterCount == 0
-                        }
-                        if (method != null) {
-                            method.invoke(client)
-                            Log.i(TAG, "✅ Called CommandClient.closeConnections() successfully")
-                            return@withContext
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "CommandClient.closeConnections() failed: ${e.message}")
-                    }
-                }
+            var success = false
 
-                // 方法2: 回退到 BoxService.closeConnections() (如果存在)
-                boxService?.let { service ->
-                    try {
-                        val method = service.javaClass.methods.find {
-                            it.name == "closeConnections" && it.parameterCount == 0
-                        }
-                        method?.invoke(service)
-                        Log.i(TAG, "✅ Called BoxService.closeConnections() successfully")
-                        return@withContext
-                    } catch (e: Exception) {
-                        Log.w(TAG, "BoxService.closeConnections() failed: ${e.message}")
-                    }
+            // 方法1: 直接调用 CommandClient.closeConnections()
+            // 优先使用 commandClientConnections，因为它是专门用于连接管理的客户端
+            val clients = listOfNotNull(commandClientConnections, commandClient)
+            for (client in clients) {
+                try {
+                    client.closeConnections()
+                    Log.i(TAG, "Called CommandClient.closeConnections() successfully")
+                    success = true
+                    break
+                } catch (e: Exception) {
+                    Log.w(TAG, "CommandClient.closeConnections() failed: ${e.message}")
                 }
+            }
 
-                // 方法3: 如果以上都失败,至少关闭已知的最近连接
-                Log.w(TAG, "⚠️ No closeConnections() API available, falling back to closeRecent")
+            // 方法2: 如果 CommandClient 失败，尝试重连后再调用
+            if (!success && clients.isNotEmpty()) {
+                try {
+                    // 尝试重连 commandClient
+                    commandClient?.let { client ->
+                        try {
+                            client.connect()
+                            delay(50)
+                            client.closeConnections()
+                            Log.i(TAG, "Called closeConnections() after reconnect")
+                            success = true
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Reconnect + closeConnections failed: ${e.message}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Reconnect attempt failed: ${e.message}")
+                }
+            }
+
+            // 方法3: 回退到逐个关闭已知连接
+            if (!success) {
+                Log.w(TAG, "closeConnections() API failed, falling back to closeRecent")
                 closeRecentConnectionsBestEffort(reason = "closeAllImmediate_fallback")
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to close all connections immediately", e)
             }
         }
     }
@@ -979,21 +981,47 @@ class SingBoxService : VpnService() {
                             }
                         }
                         PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> {
-                            // NekoBox-style: 设备退出 Doze 模式时立即 wake + resetAllConnections
-                            // 这是唯一需要强制关闭所有连接的时机
+                            // NekoBox-style: 设备退出 Doze 模式时执行完整的网络恢复序列
+                            // 这是修复 Telegram 等应用息屏后卡在加载中的关键
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                                 val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
-                                if (powerManager?.isDeviceIdleMode == false) {
+                                val isIdleMode = powerManager?.isDeviceIdleMode == true
+
+                                if (isIdleMode) {
+                                    // 进入 Doze 模式：调用 sleep() 通知核心进入省电模式
                                     serviceScope.launch {
                                         try {
-                                            boxService?.wake()
-                                            Log.i(TAG, "[Doze Exit] Called wake() - device exited idle mode")
-                                            // NekoBox 核心机制: Doze 退出时强制关闭所有连接
-                                            // skipDebounce=true: Doze 退出是关键时刻，必须执行
-                                            closeAllConnectionsImmediate(skipDebounce = true)
-                                            Log.i(TAG, "[Doze Exit] Called closeAllConnectionsImmediate()")
+                                            boxService?.pause()
+                                            Log.i(TAG, "[Doze Enter] Called pause() - device entered idle mode")
                                         } catch (e: Exception) {
-                                            Log.w(TAG, "[Doze Exit] Failed: ${e.message}")
+                                            Log.w(TAG, "[Doze Enter] pause() failed: ${e.message}")
+                                        }
+                                    }
+                                } else {
+                                    // 退出 Doze 模式：执行完整的网络恢复序列
+                                    // 学习 NekoBox：wake() + resetAllConnections + resetNetwork
+                                    serviceScope.launch {
+                                        try {
+                                            // Step 1: 唤醒核心
+                                            boxService?.wake()
+                                            Log.i(TAG, "[Doze Exit] Step 1/3: Called wake()")
+
+                                            // Step 2: 等待核心稳定（关键！）
+                                            // Doze 退出后系统需要时间恢复网络连接
+                                            delay(200)
+
+                                            // Step 3: 强制关闭所有现有连接
+                                            // 这是 NekoBox 的核心机制：Libcore.resetAllConnections(true)
+                                            // 我们使用 CommandClient.closeConnections() 作为替代
+                                            closeAllConnectionsImmediate(skipDebounce = true)
+                                            Log.i(TAG, "[Doze Exit] Step 2/3: Called closeAllConnectionsImmediate()")
+
+                                            // Step 4: 重置网络栈
+                                            boxService?.resetNetwork()
+                                            Log.i(TAG, "[Doze Exit] Step 3/3: Called resetNetwork()")
+
+                                        } catch (e: Exception) {
+                                            Log.w(TAG, "[Doze Exit] Recovery failed: ${e.message}")
                                         }
                                     }
                                 }
@@ -1183,12 +1211,12 @@ class SingBoxService : VpnService() {
         }
 
         try {
-            Log.i(TAG, "🔍 [App Foreground] Performing health check...")
+            Log.i(TAG, "[App Foreground] Performing health check...")
 
             // 检查 1: VPN 接口是否有效
             val vpnInterfaceValid = vpnInterface?.fileDescriptor?.valid() == true
             if (!vpnInterfaceValid) {
-                Log.e(TAG, "❌ [App Foreground] VPN interface invalid, triggering recovery")
+                Log.e(TAG, "[App Foreground] VPN interface invalid, triggering recovery")
                 handleHealthCheckFailure("VPN interface invalid after app foreground")
                 return
             }
@@ -1196,24 +1224,35 @@ class SingBoxService : VpnService() {
             // 检查 2: boxService 是否响应
             val service = boxService
             if (service == null) {
-                Log.e(TAG, "❌ [App Foreground] boxService is null")
+                Log.e(TAG, "[App Foreground] boxService is null")
                 handleHealthCheckFailure("boxService is null after app foreground")
                 return
             }
 
-            // === NekoBox-style: 简化唤醒逻辑，不进行网络震荡 ===
-            // 应用切换回前台时，只需要 wake() 即可，不需要触发网络变化广播
+            // 计算后台时长
+            val now = SystemClock.elapsedRealtime()
+            val backgroundDuration = if (lastAppBackgroundAtMs > 0) now - lastAppBackgroundAtMs else 0L
+            val needConnectionReset = backgroundDuration > backgroundThresholdForConnectionResetMs
+
             withContext(Dispatchers.IO) {
                 try {
                     // Step 1: 调用 libbox wake() 确保核心处于活跃状态
                     service.wake()
-                    Log.i(TAG, "[AppForeground] Called boxService.wake() - no network oscillation")
+
+                    // Step 2: NekoBox-style - 长时间后台后清理旧连接
+                    // 类似 NekoBox 的 wakeResetConnections 逻辑
+                    if (needConnectionReset) {
+                        Log.i(TAG, "[AppForeground] Background duration ${backgroundDuration}ms > threshold, resetting connections")
+                        closeAllConnectionsImmediate(skipDebounce = true)
+                    } else {
+                        Log.i(TAG, "[AppForeground] Called wake() - short background (${backgroundDuration}ms), no connection reset")
+                    }
                 } catch (e: Exception) {
-                    Log.w(TAG, "[AppForeground] wake failed: ${e.message}")
+                    Log.w(TAG, "[AppForeground] wake/reset failed: ${e.message}")
                 }
             }
 
-            Log.i(TAG, "App foreground health check passed (NekoBox-style, no network oscillation)")
+            Log.i(TAG, "App foreground health check passed")
             consecutiveHealthCheckFailures = 0
 
         } catch (e: Exception) {
@@ -1320,6 +1359,8 @@ class SingBoxService : VpnService() {
     private val screenOnCheckDebounceMs: Long = 3000L // 屏幕开启后 3 秒才检查，避免频繁触发
     @Volatile private var isScreenOn: Boolean = true // ⭐ P0修复1: 跟踪屏幕状态
     @Volatile private var isAppInForeground: Boolean = true // ⭐ P0修复2: 跟踪应用前后台状态
+    @Volatile private var lastAppBackgroundAtMs: Long = 0L // NekoBox-style: 记录进入后台的时间戳
+    private val backgroundThresholdForConnectionResetMs: Long = 30_000L // 后台超过 30 秒才清理连接
     private var activityLifecycleCallbacks: Application.ActivityLifecycleCallbacks? = null // ⭐ P0修复3: Activity生命周期回调
 
     // NekoBox-style: 连接重置防抖，避免多次重置导致 Telegram 反复加载
@@ -2403,8 +2444,9 @@ private val platformInterface = object : PlatformInterface {
         when (level) {
             android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> {
                 // 应用进入后台 (所有UI不可见)
-                Log.i(TAG, "📲 App moved to BACKGROUND (UI hidden)")
+                Log.i(TAG, "App moved to BACKGROUND (UI hidden)")
                 isAppInForeground = false
+                lastAppBackgroundAtMs = SystemClock.elapsedRealtime()
             }
         }
     }
