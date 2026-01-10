@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.1.8](https://github.com/roseforljh/KunBox/compare/v2.1.7...v2.1.8) (2026-01-10)
+
+
+### Bug Fixes
+
+* **settings:** 移除断线重连功能和UI ([57a044e](https://github.com/roseforljh/KunBox/commit/57a044eff54fc6fd17b1fb8ddb2d44f4789d70ae))
+* **subscription:** 修复取消导入后弹窗重复弹出及应用无法使用自身代理的问题 ([37e4b1b](https://github.com/roseforljh/KunBox/commit/37e4b1b5d2e71360177e32c5bddac1c1e35da507))
+* **vpn:** 修复多个 VPN 启动和节点切换问题 ([684c9fa](https://github.com/roseforljh/KunBox/commit/684c9fac81cde7daf74f017de9a0f28542f223c1))
+* **vpn:** 修复息屏后 Telegram 等应用卡在加载中的问题 ([de6c7ef](https://github.com/roseforljh/KunBox/commit/de6c7eff56ee06609cc19878a7a5fb815c093430))
+* 修复跨配置切换节点时无法上网的问题 ([c953cf3](https://github.com/roseforljh/KunBox/commit/c953cf3aafbe26ea459c269e37a3233ea3f1cd9b))
+
 ## [2.1.7](https://github.com/roseforljh/KunBox/compare/v2.1.6...v2.1.7) (2026-01-09)
 
 
