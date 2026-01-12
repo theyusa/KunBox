@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -51,6 +52,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -155,7 +157,24 @@ fun ProfilesScreen(
     }
 
     val scope = rememberCoroutineScope()
-    
+    val listState = rememberLazyListState()
+    val isAtBottom by remember {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val visibleItems = layoutInfo.visibleItemsInfo
+            if (layoutInfo.totalItemsCount == 0 || visibleItems.isEmpty()) {
+                false
+            } else {
+                val lastVisibleItem = visibleItems.last()
+                val isLastItemVisible = lastVisibleItem.index == layoutInfo.totalItemsCount - 1
+                val isLastItemFullyVisible = isLastItemVisible &&
+                    (lastVisibleItem.offset + lastVisibleItem.size <= layoutInfo.viewportEndOffset)
+                val listFitsScreen = visibleItems.size == layoutInfo.totalItemsCount
+                !listFitsScreen && isLastItemFullyVisible
+            }
+        }
+    }
+
     // 文件选择器 Launcher
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -363,12 +382,18 @@ fun ProfilesScreen(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showImportSelection = true },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
+            AnimatedVisibility(
+                visible = !isAtBottom,
+                enter = fadeIn(animationSpec = tween(300)),
+                exit = fadeOut(animationSpec = tween(300))
             ) {
-                Icon(Icons.Rounded.Add, contentDescription = "Add Profile")
+                FloatingActionButton(
+                    onClick = { showImportSelection = true },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ) {
+                    Icon(Icons.Rounded.Add, contentDescription = "Add Profile")
+                }
             }
         }
     ) { padding ->
@@ -400,6 +425,7 @@ fun ProfilesScreen(
 
             // List
             LazyColumn(
+                state = listState,
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {

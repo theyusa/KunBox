@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -52,6 +53,7 @@ import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -89,6 +91,23 @@ fun NodesScreen(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+    val isAtBottom by remember {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val visibleItems = layoutInfo.visibleItemsInfo
+            if (layoutInfo.totalItemsCount == 0 || visibleItems.isEmpty()) {
+                false
+            } else {
+                val lastVisibleItem = visibleItems.last()
+                val isLastItemVisible = lastVisibleItem.index == layoutInfo.totalItemsCount - 1
+                val isLastItemFullyVisible = isLastItemVisible &&
+                    (lastVisibleItem.offset + lastVisibleItem.size <= layoutInfo.viewportEndOffset)
+                val listFitsScreen = visibleItems.size == layoutInfo.totalItemsCount
+                !listFitsScreen && isLastItemFullyVisible
+            }
+        }
+    }
     val nodes by viewModel.nodes.collectAsState()
     val activeNodeId by viewModel.activeNodeId.collectAsState()
     val groups by viewModel.nodeGroups.collectAsState()
@@ -196,17 +215,22 @@ fun NodesScreen(
             .statusBarsPadding(),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
-            Column(horizontalAlignment = Alignment.End) {
-                AnimatedVisibility(
-                    visible = isFabExpanded,
-                    enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                    exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.End,
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        modifier = Modifier.padding(bottom = 16.dp)
+            AnimatedVisibility(
+                visible = !isAtBottom,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                Column(horizontalAlignment = Alignment.End) {
+                    AnimatedVisibility(
+                        visible = isFabExpanded,
+                        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
                     ) {
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        ) {
                         // Clear Latency
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -289,6 +313,7 @@ fun NodesScreen(
                 }
             }
         }
+        }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -364,6 +389,7 @@ fun NodesScreen(
 
             // 3. Node List
             LazyColumn(
+                state = listState,
                 contentPadding = PaddingValues(bottom = 88.dp, top = 16.dp, start = 16.dp, end = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
