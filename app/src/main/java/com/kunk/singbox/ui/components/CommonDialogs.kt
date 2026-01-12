@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -44,6 +46,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Divider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -222,9 +225,11 @@ fun AppMultiSelectDialog(
     selectedPackages: Set<String>,
     confirmText: String = stringResource(R.string.common_ok),
     enableQuickSelectCommonApps: Boolean = false,
+    quickSelectExcludeCommonApps: Boolean = false,
     onConfirm: (List<String>) -> Unit,
     onDismiss: () -> Unit
 ) {
+
     // 内部数据类，用于增强应用信息（添加 hasLauncher 属性）
     data class EnhancedApp(
         val label: String,
@@ -297,7 +302,18 @@ fun AppMultiSelectDialog(
         )
     }
 
-    val filteredApps = remember(query, showSystemApps, showNoLauncherApps, allApps) {
+    val commonMatches = remember(allApps, commonExactPackages, commonPrefixPackages) {
+        allApps
+            .asSequence()
+            .map { it.packageName }
+            .filter { pkg ->
+                pkg in commonExactPackages || commonPrefixPackages.any { prefix -> pkg.startsWith(prefix) }
+            }
+            .toSet()
+    }
+
+    val filteredApps = remember(query, showSystemApps, showNoLauncherApps, allApps, tempSelected) {
+
         val q = query.trim().lowercase()
         allApps
             .asSequence()
@@ -307,14 +323,20 @@ fun AppMultiSelectDialog(
                 q.isEmpty() || it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
             }
             .toList()
+            .sortedWith(
+                compareByDescending<EnhancedApp> { tempSelected.contains(it.packageName) }
+                    .thenBy { it.label.lowercase() }
+            )
     }
+
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .fillMaxHeight(0.92f)
                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
-                .padding(24.dp)
+                .padding(16.dp)
         ) {
             Text(
                 text = title,
@@ -323,9 +345,10 @@ fun AppMultiSelectDialog(
                 color = MaterialTheme.colorScheme.onSurface
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             
             // 如果正在加载，显示加载进度
+
             if (loadingState is InstalledAppsRepository.LoadingState.Loading) {
                 val loading = loadingState as InstalledAppsRepository.LoadingState.Loading
                 Column(
@@ -365,89 +388,105 @@ fun AppMultiSelectDialog(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                placeholder = { Text(stringResource(R.string.app_list_search_hint), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
+                placeholder = { Text(stringResource(R.string.app_list_search_hint), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = MaterialTheme.colorScheme.onSurface,
                     unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
                     unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                     focusedLabelColor = MaterialTheme.colorScheme.primary,
-                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    cursorColor = MaterialTheme.colorScheme.primary
                 ),
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(12.dp)
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
-
+            Spacer(modifier = Modifier.height(8.dp))
+ 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(stringResource(R.string.app_list_show_system), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                Switch(
-                    checked = showSystemApps,
-                    onCheckedChange = { showSystemApps = it },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                        checkedTrackColor = MaterialTheme.colorScheme.primary,
-                        uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        uncheckedTrackColor = MaterialTheme.colorScheme.outline
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { showSystemApps = !showSystemApps }
+                        .padding(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = showSystemApps,
+                        onCheckedChange = { showSystemApps = it },
+                        modifier = Modifier.scale(0.8f).size(16.dp)
                     )
-                )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(stringResource(R.string.app_list_show_system), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { showNoLauncherApps = !showNoLauncherApps }
+                        .padding(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = showNoLauncherApps,
+                        onCheckedChange = { showNoLauncherApps = it },
+                        modifier = Modifier.scale(0.8f).size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(stringResource(R.string.app_list_show_no_launcher), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                
+                Spacer(modifier = Modifier.weight(1f))
+
+                if (enableQuickSelectCommonApps) {
+                    Box(
+                        modifier = Modifier
+                            .padding(end = 2.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable {
+                                val matches = if (quickSelectExcludeCommonApps) {
+                                    allApps
+                                        .asSequence()
+                                        .map { it.packageName }
+                                        .filter { pkg -> pkg !in commonMatches }
+                                        .toSet()
+                                } else {
+                                    commonMatches
+                                }
+
+                                tempSelected = tempSelected.toMutableSet().apply {
+                                    addAll(matches)
+                                }
+                            }
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.app_list_quick_select),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(stringResource(R.string.app_list_show_no_launcher), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                Switch(
-                    checked = showNoLauncherApps,
-                    onCheckedChange = { showNoLauncherApps = it },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                        checkedTrackColor = MaterialTheme.colorScheme.primary,
-                        uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        uncheckedTrackColor = MaterialTheme.colorScheme.outline
-                    )
-                )
-            }
-
-            if (enableQuickSelectCommonApps) {
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = {
-                        val matches = allApps
-                            .asSequence()
-                            .map { it.packageName }
-                            .filter { pkg ->
-                                pkg in commonExactPackages || commonPrefixPackages.any { prefix -> pkg.startsWith(prefix) }
-                            }
-                            .toSet()
-
-                        tempSelected = tempSelected.toMutableSet().apply {
-                            addAll(matches)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(44.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                    shape = RoundedCornerShape(22.dp)
-                ) {
-                    Text(stringResource(R.string.app_list_quick_select), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
-                }
-            }
+            Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+            Spacer(modifier = Modifier.height(8.dp))
 
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.72f)
+                    .weight(1f)
             ) {
                 items(filteredApps, key = { it.packageName }) { app ->
                     val checked = tempSelected.contains(app.packageName)
@@ -470,7 +509,7 @@ fun AppMultiSelectDialog(
                                     if (checked) remove(app.packageName) else add(app.packageName)
                                 }
                             }
-                            .padding(vertical = 10.dp, horizontal = 8.dp),
+                                .padding(vertical = 4.dp, horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Checkbox(
@@ -526,7 +565,7 @@ fun AppMultiSelectDialog(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

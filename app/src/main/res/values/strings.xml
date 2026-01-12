@@ -460,7 +460,7 @@
     <string name="app_list_search_hint">搜索应用或包名</string>
     <string name="app_list_show_system">显示系统应用</string>
     <string name="app_list_show_no_launcher">显示无启动入口应用</string>
-    <string name="app_list_quick_select">一键勾选常用翻墙应用</string>
+    <string name="app_list_quick_select">常见</string>
 
     <!-- QR Scanner -->
     <string name="qr_scanner_no_qr_found">未发现二维码</string>
@@ -478,7 +478,7 @@
     <!-- Service Notifications -->
     <string name="notification_switch_node">切换节点</string>
     <string name="notification_disconnect">断开</string>
-    <string name="notification_speed_format">↑ %s  ↓ %s</string>
+    <string name="notification_speed_format">↑ %1$s  ↓ %2$s</string>
 
     <!-- Connection Settings -->
     <string name="connection_settings_show_notification_speed">通知栏显示速度</string>

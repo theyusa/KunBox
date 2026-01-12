@@ -170,12 +170,15 @@ fun TunSettingsScreen(
         AppMultiSelectDialog(
             title = stringResource(R.string.tun_settings_select_bypass_apps),
             selectedPackages = selected,
+            enableQuickSelectCommonApps = true,
+            quickSelectExcludeCommonApps = true,
             onConfirm = { packages ->
                 settingsViewModel.setVpnBlocklist(packages.joinToString("\n"))
                 showBlocklistDialog = false
             },
             onDismiss = { showBlocklistDialog = false }
         )
+
     }
 
     Scaffold(
