@@ -80,8 +80,8 @@ data class Inbound(
     @SerializedName("listen") val listen: String? = null,
     @SerializedName("listen_port") val listenPort: Int? = null,
     @SerializedName("interface_name") val interfaceName: String? = null,
-    @SerializedName("inet4_address") val inet4Address: List<String>? = null,
-    @SerializedName("inet6_address") val inet6Address: List<String>? = null,
+    @SerializedName("inet4_address") val inet4AddressRaw: Any? = null,
+    @SerializedName("inet6_address") val inet6AddressRaw: Any? = null,
     @SerializedName("mtu") val mtu: Int? = null,
     @SerializedName("auto_route") val autoRoute: Boolean? = null,
     @SerializedName("strict_route") val strictRoute: Boolean? = null,
@@ -92,7 +92,21 @@ data class Inbound(
     @SerializedName("tcp_fast_open") val tcpFastOpen: Boolean? = null,
     @SerializedName("endpoint_independent_nat") val endpointIndependentNat: Boolean? = null,
     @SerializedName("users") val users: List<InboundUser>? = null
-)
+) {
+    val inet4Address: List<String>?
+        get() = when (val raw = inet4AddressRaw) {
+            is String -> listOf(raw)
+            is List<*> -> raw.filterIsInstance<String>()
+            else -> null
+        }
+
+    val inet6Address: List<String>?
+        get() = when (val raw = inet6AddressRaw) {
+            is String -> listOf(raw)
+            is List<*> -> raw.filterIsInstance<String>()
+            else -> null
+        }
+}
 
 @Keep
 data class InboundUser(

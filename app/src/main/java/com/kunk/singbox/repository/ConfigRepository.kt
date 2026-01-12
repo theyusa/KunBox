@@ -439,6 +439,20 @@ class ConfigRepository(private val context: Context) {
         }
     }
 
+    private fun parseExpireValue(raw: String): Long {
+        val normalized = raw.trim().trim('"', '\'')
+        if (normalized.isBlank()) return 0L
+        val lower = normalized.lowercase()
+        if (lower.contains("长期") || lower.contains("永久") || lower.contains("无限") || lower.contains("never")) {
+            return -1L
+        }
+        return if (normalized.contains("-")) {
+            parseDateString(normalized)
+        } else {
+            normalized.toLongOrNull() ?: 0L
+        }
+    }
+
     /**
      * 解析 Subscription-Userinfo 头或 Body 中的状态信息
      * 支持标准 Header 格式和常见的 Body 文本格式 (如 STATUS=...)
@@ -449,23 +463,61 @@ class ConfigRepository(private val context: Context) {
         var total = 0L
         var expire = 0L
         var found = false
+        var totalSpecified = false
+
+        fun isUnlimitedValue(raw: String): Boolean {
+            val normalized = raw.trim().lowercase()
+            return normalized == "unlimited" || normalized == "infinite" || normalized == "infinity" || normalized == "inf" || normalized == "∞"
+        }
+
+        fun parseTrafficValue(raw: String): Long {
+            val normalized = raw.trim().trim('"', '\'')
+            return normalized.toLongOrNull() ?: parseTrafficString(normalized)
+        }
+
+
+        fun applyKeyValue(key: String, rawValue: String) {
+            when (key.lowercase()) {
+                "upload" -> {
+                    upload = parseTrafficValue(rawValue)
+                    found = true
+                }
+                "download" -> {
+                    download = parseTrafficValue(rawValue)
+                    found = true
+                }
+                "total" -> {
+                    totalSpecified = true
+                    total = if (isUnlimitedValue(rawValue)) -1L else parseTrafficValue(rawValue)
+                    found = true
+                }
+                "expire" -> {
+                    expire = parseExpireValue(rawValue)
+                    found = true
+                }
+            }
+        }
+
+        fun parseKeyValuePairs(text: String) {
+            val kvRegex = Regex("(?i)\\b(upload|download|total|expire)\\b\\s*[:=]\\s*\"?([^,;\\s\\n\\r}]+)\"?")
+            kvRegex.findAll(text).forEach { match ->
+                applyKeyValue(match.groupValues[1], match.groupValues[2])
+            }
+        }
+
+        fun parseHeaderLike(text: String) {
+            text.split(",", ";").forEach { part ->
+                val kv = part.trim().split("=", ":", limit = 2)
+                if (kv.size == 2) {
+                    applyKeyValue(kv[0].trim(), kv[1].trim())
+                }
+            }
+        }
 
         // 1. 尝试解析 Header
         if (!header.isNullOrBlank()) {
             try {
-                header.split(";").forEach { part ->
-                    val kv = part.trim().split("=")
-                    if (kv.size == 2) {
-                        val key = kv[0].trim().lowercase()
-                        val value = kv[1].trim().toLongOrNull() ?: 0L
-                        when (key) {
-                            "upload" -> { upload = value; found = true }
-                            "download" -> { download = value; found = true }
-                            "total" -> { total = value; found = true }
-                            "expire" -> { expire = value; found = true }
-                        }
-                    }
-                }
+                parseHeaderLike(header)
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to parse Subscription-Userinfo header: $header", e)
             }
@@ -475,11 +527,24 @@ class ConfigRepository(private val context: Context) {
         // 格式示例: STATUS=🚀:0.12GB,🚀:37.95GB,TOT:100GB🗓Expires:2026-01-02
         if (bodyDecoded != null && (!found || total == 0L)) {
             try {
+                val userInfoIndex = bodyDecoded.indexOf("subscription-userinfo", ignoreCase = true)
+                val userInfoAltIndex = if (userInfoIndex >= 0) userInfoIndex else bodyDecoded.indexOf("subscription_userinfo", ignoreCase = true)
+                if (userInfoAltIndex >= 0) {
+                    val endIndex = (userInfoAltIndex + 800).coerceAtMost(bodyDecoded.length)
+                    val snippet = bodyDecoded.substring(userInfoAltIndex, endIndex)
+                    val inlineMatch = Regex("(?i)subscription[-_]userinfo\\s*[:=]\\s*\"?([^\"\\n\\r]+)\"?").find(snippet)
+                    if (inlineMatch != null) {
+                        parseHeaderLike(inlineMatch.groupValues[1])
+                    }
+                    parseKeyValuePairs(snippet)
+                }
+
                 val firstLine = bodyDecoded.lines().firstOrNull()?.trim()
                 if (firstLine != null && (firstLine.startsWith("STATUS=") || firstLine.contains("TOT:") || firstLine.contains("Expires:"))) {
                     // 解析 TOT:
                     val totalMatch = Regex("TOT:([\\d.]+[KMGTPE]?)B?").find(firstLine)
                     if (totalMatch != null) {
+                        totalSpecified = true
                         total = parseTrafficString(totalMatch.groupValues[1])
                         found = true
                     }
@@ -504,7 +569,7 @@ class ConfigRepository(private val context: Context) {
                     parts.forEach { part ->
                         if (part.contains("TOT:")) return@forEach
                         if (part.contains("Expires:")) return@forEach
-                        
+
                         // 提取流量值
                         val match = Regex("([\\d.]+[KMGTPE]?)B?").find(part)
                         if (match != null) {
@@ -512,7 +577,7 @@ class ConfigRepository(private val context: Context) {
                             found = true
                         }
                     }
-                    
+
                     if (usedAccumulator > 0) {
                         // 我们不知道哪个是 up 哪个是 down，暂且全部算作 download，或者平分
                         download = usedAccumulator
@@ -525,7 +590,54 @@ class ConfigRepository(private val context: Context) {
         }
 
         if (!found) return null
+        if (totalSpecified && total <= 0L) {
+            total = -1L
+        }
         return SubscriptionUserInfo(upload, download, total, expire)
+    }
+
+    private fun parseUserInfoFromOutbounds(outbounds: List<Outbound>?): SubscriptionUserInfo? {
+        if (outbounds.isNullOrEmpty()) return null
+        var remainingBytes: Long? = null
+        var expireValue: Long? = null
+
+        val remainingRegex = Regex("(?i)(剩余流量|流量剩余|remaining|balance)\\s*[:：]?\\s*([\\d.]+\\s*[KMGTPE]?)\\s*B?")
+        val expireRegex = Regex("(?i)(套餐到期|到期|expiry|expire)\\s*[:：]?\\s*([^\\s,;]+)")
+
+        outbounds.forEach { outbound ->
+            val tag = outbound.tag
+            if (remainingBytes == null) {
+                val match = remainingRegex.find(tag)
+                if (match != null) {
+                    remainingBytes = parseTrafficString(match.groupValues[2])
+                }
+            }
+            if (expireValue == null) {
+                val match = expireRegex.find(tag)
+                if (match != null) {
+                    expireValue = parseExpireValue(match.groupValues[2])
+                }
+            }
+        }
+
+        if (remainingBytes == null && expireValue == null) return null
+        return SubscriptionUserInfo(
+            upload = 0,
+            download = remainingBytes ?: 0,
+            total = if (remainingBytes != null) -2L else 0L,
+            expire = expireValue ?: 0L
+        )
+    }
+
+    private fun mergeUserInfo(primary: SubscriptionUserInfo?, fallback: SubscriptionUserInfo?): SubscriptionUserInfo? {
+        if (primary == null) return fallback
+        if (fallback == null) return primary
+        return SubscriptionUserInfo(
+            upload = if (primary.upload > 0) primary.upload else fallback.upload,
+            download = if (primary.download > 0) primary.download else fallback.download,
+            total = if (primary.total != 0L) primary.total else fallback.total,
+            expire = if (primary.expire != 0L) primary.expire else fallback.expire
+        )
     }
 
     /**
@@ -597,7 +709,8 @@ class ConfigRepository(private val context: Context) {
 
                 if (parsedConfig != null) {
                     Log.i(TAG, "Successfully parsed subscription with UA '$userAgent', got ${parsedConfig!!.outbounds?.size ?: 0} outbounds")
-                    return FetchResult(parsedConfig!!, userInfo)
+                    val mergedUserInfo = mergeUserInfo(userInfo, parseUserInfoFromOutbounds(parsedConfig!!.outbounds))
+                    return FetchResult(parsedConfig!!, mergedUserInfo)
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Error with UA '$userAgent': ${e.message}")
@@ -3109,7 +3222,7 @@ class ConfigRepository(private val context: Context) {
                     type = "tun",
                     tag = "tun-in",
                     interfaceName = settings.tunInterfaceName,
-                    inet4Address = listOf("172.19.0.1/30"),
+                    inet4AddressRaw = listOf("172.19.0.1/30"),
                     mtu = settings.tunMtu,
                     autoRoute = false, // Handled by Android VpnService
                     strictRoute = false, // Can cause issues on some Android versions

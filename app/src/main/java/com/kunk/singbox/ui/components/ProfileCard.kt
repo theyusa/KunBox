@@ -91,12 +91,14 @@ fun ProfileCard(
 
     val noExpiryMsg = stringResource(R.string.profile_card_no_expiry)
     val neverUpdatedMsg = stringResource(R.string.profile_card_never_updated)
-    
+    val unlimitedTrafficMsg = stringResource(R.string.profile_card_traffic_unlimited)
+
     fun formatDate(timestamp: Long): String {
         if (timestamp <= 0) return noExpiryMsg
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         return sdf.format(Date(timestamp * 1000)) // Subscription usually returns unix timestamp in seconds
     }
+
     
     fun formatLastUpdated(timestamp: Long): String {
         if (timestamp <= 0) return neverUpdatedMsg
@@ -205,7 +207,8 @@ fun ProfileCard(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.height(16.dp)
                 ) {
-                    if (totalTraffic > 0) {
+                    val showTraffic = totalTraffic > 0 || totalTraffic < 0
+                    if (showTraffic) {
                         Icon(
                             imageVector = Icons.Rounded.ImportExport,
                             contentDescription = null,
@@ -213,21 +216,30 @@ fun ProfileCard(
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
+                        val trafficText = when {
+                            totalTraffic > 0 -> "${formatTraffic(usedTraffic)} / ${formatTraffic(totalTraffic)}"
+                            totalTraffic == -2L -> stringResource(
+                                R.string.profile_card_traffic_remaining,
+                                formatTraffic(usedTraffic)
+                            )
+                            usedTraffic > 0 -> "${formatTraffic(usedTraffic)} / $unlimitedTrafficMsg"
+                            else -> unlimitedTrafficMsg
+                        }
                         Text(
-                            text = "${formatTraffic(usedTraffic)} / ${formatTraffic(totalTraffic)}",
+                            text = trafficText,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
+                            modifier = Modifier.weight(2f, fill = false)
                         )
                     }
-                    
-                    if (totalTraffic > 0 && expireDate > 0) {
-                        Spacer(modifier = Modifier.width(8.dp))
+
+                    if (showTraffic && expireDate != 0L) {
+                        Spacer(modifier = Modifier.width(16.dp))
                     }
-                    
-                    if (expireDate > 0) {
+
+                    if (expireDate != 0L) {
                         Icon(
                             imageVector = Icons.Rounded.DateRange,
                             contentDescription = null,
@@ -238,10 +250,16 @@ fun ProfileCard(
                         Text(
                             text = formatDate(expireDate),
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
                     }
                 }
+
+
+
             }
         }
 

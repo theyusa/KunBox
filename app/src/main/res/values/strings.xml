@@ -471,6 +471,8 @@
     <!-- Profile Card -->
     <string name="profile_card_no_expiry">无限期</string>
     <string name="profile_card_never_updated">从未更新</string>
+    <string name="profile_card_traffic_unlimited">不限量</string>
+    <string name="profile_card_traffic_remaining">剩余:%s</string>
     <string name="profile_card_updated_at">更新:</string>
 
     <!-- Service Notifications -->
