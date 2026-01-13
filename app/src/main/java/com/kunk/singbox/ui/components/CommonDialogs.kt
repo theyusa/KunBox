@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -66,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.RadioButtonChecked
@@ -1274,6 +1276,194 @@ fun NodeFilterDialog(
                         text = stringResource(R.string.common_ok),
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun NodeSelectorDialog(
+    title: String,
+    nodes: List<NodeUi>,
+    selectedNodeId: String?,
+    testingNodeIds: Set<String> = emptySet(),
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.75f)
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
+                .padding(24.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            if (nodes.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = stringResource(R.string.dashboard_no_nodes_available),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(nodes, key = { it.id }) { node ->
+                        val isSelected = node.id == selectedNodeId
+                        val isTesting = testingNodeIds.contains(node.id)
+                        
+                        NodeSelectorItem(
+                            node = node,
+                            isSelected = isSelected,
+                            isTesting = isTesting,
+                            onClick = {
+                                onSelect(node.id)
+                                onDismiss()
+                            }
+                        )
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
+            ) {
+                Text(stringResource(R.string.common_cancel))
+            }
+        }
+    }
+}
+
+@Composable
+private fun NodeSelectorItem(
+    node: NodeUi,
+    isSelected: Boolean,
+    isTesting: Boolean,
+    onClick: () -> Unit
+) {
+    val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
+    val backgroundColor = if (isSelected) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+    }
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(backgroundColor, RoundedCornerShape(12.dp))
+            .border(
+                width = if (isSelected) 1.5.dp else 0.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(12.dp)
+            )
+            .clickable(onClick = onClick)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier.size(20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            if (isSelected) {
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .background(MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Rounded.Check,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.width(12.dp))
+        
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (node.regionFlag != null && !node.displayName.contains(node.regionFlag)) {
+                    Text(
+                        text = node.regionFlag,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(end = 6.dp)
+                    )
+                }
+                Text(
+                    text = node.displayName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(2.dp))
+            
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = node.protocolDisplay,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                
+                Spacer(modifier = Modifier.width(8.dp))
+                
+                if (isTesting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(10.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                        strokeWidth = 1.5.dp
+                    )
+                } else {
+                    val latency = node.latencyMs
+                    val latencyColor = when {
+                        latency == null -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        latency < 0 -> Color.Red
+                        latency < 1000 -> Color(0xFF4CAF50)
+                        latency < 2000 -> Color(0xFFFFC107)
+                        else -> Color.Red
+                    }
+                    val latencyText = when {
+                        latency == null -> "---"
+                        latency < 0 -> "Timeout"
+                        else -> "${latency}ms"
+                    }
+                    Text(
+                        text = latencyText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = latencyColor,
+                        fontWeight = if (latency != null && latency > 0) FontWeight.Bold else FontWeight.Normal
                     )
                 }
             }

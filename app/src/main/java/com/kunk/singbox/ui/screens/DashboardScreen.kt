@@ -65,10 +65,12 @@ import com.kunk.singbox.ui.components.BigToggle
 import com.kunk.singbox.ui.components.ConfirmDialog
 import com.kunk.singbox.ui.components.InfoCard
 import com.kunk.singbox.ui.components.ModeChip
+import com.kunk.singbox.ui.components.NodeSelectorDialog
 import com.kunk.singbox.ui.components.SingleSelectDialog
 import com.kunk.singbox.ui.components.StatusChip
 import com.kunk.singbox.ui.theme.Neutral500
 import com.kunk.singbox.R
+import com.kunk.singbox.viewmodel.NodesViewModel
 import androidx.compose.ui.res.painterResource
 import android.widget.Toast
 import android.app.Activity
@@ -86,7 +88,8 @@ import androidx.compose.animation.core.tween
 fun DashboardScreen(
     navController: NavController,
     viewModel: DashboardViewModel = viewModel(),
-    settingsViewModel: SettingsViewModel = viewModel()
+    settingsViewModel: SettingsViewModel = viewModel(),
+    nodesViewModel: NodesViewModel = viewModel()
 ) {
     val context = LocalContext.current
     
@@ -100,6 +103,9 @@ fun DashboardScreen(
     val isPingTesting by viewModel.isPingTesting.collectAsState()
     val nodes by viewModel.nodes.collectAsState()
     val settings by settingsViewModel.settings.collectAsState()
+    
+    val nodesForSelector by nodesViewModel.nodes.collectAsState()
+    val testingNodeIds by nodesViewModel.testingNodeIds.collectAsState()
 
     // 优化: 使用 derivedStateOf 避免不必要的重组
     // 原因: profiles 或 activeProfileId 变化时,只有实际名称改变才触发重组
@@ -243,21 +249,13 @@ fun DashboardScreen(
     }
 
     if (showNodeDialog) {
-        val options = nodes.map { it.displayName }
-        SingleSelectDialog(
+        NodeSelectorDialog(
             title = stringResource(R.string.dashboard_select_node),
-            options = options,
-            selectedIndex = nodes.indexOfFirst { it.id == activeNodeId }.let { idx ->
-                when {
-                    options.isEmpty() -> -1
-                    idx >= 0 -> idx
-                    else -> 0
-                }
-            },
-            optionsHeight = 360.dp,
-            onSelect = { index ->
-                nodes.getOrNull(index)?.id?.let { viewModel.setActiveNode(it) }
-                showNodeDialog = false
+            nodes = nodesForSelector,
+            selectedNodeId = activeNodeId,
+            testingNodeIds = testingNodeIds,
+            onSelect = { nodeId ->
+                viewModel.setActiveNode(nodeId)
             },
             onDismiss = { showNodeDialog = false }
         )
