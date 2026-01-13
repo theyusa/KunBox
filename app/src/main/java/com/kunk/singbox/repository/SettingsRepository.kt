@@ -138,6 +138,10 @@ class SettingsRepository(private val context: Context) {
         val GH_PROXY_MIRROR = stringPreferencesKey("gh_proxy_mirror")
         val DEBUG_LOGGING_ENABLED = booleanPreferencesKey("debug_logging_enabled")
         
+        // 连接重置设置
+        val NETWORK_CHANGE_RESET_CONNECTIONS = booleanPreferencesKey("network_change_reset_connections")
+        val WAKE_RESET_CONNECTIONS = booleanPreferencesKey("wake_reset_connections")
+        
         // 代理设置
         val PROXY_PORT = intPreferencesKey("proxy_port")
         val ALLOW_LAN = booleanPreferencesKey("allow_lan")
@@ -386,6 +390,10 @@ class SettingsRepository(private val context: Context) {
             latencyTestConcurrency = preferences[PreferencesKeys.LATENCY_TEST_CONCURRENCY] ?: 10,
             bypassLan = preferences[PreferencesKeys.BYPASS_LAN] ?: true,
             
+            // 连接重置设置
+            networkChangeResetConnections = preferences[PreferencesKeys.NETWORK_CHANGE_RESET_CONNECTIONS] ?: true,
+            wakeResetConnections = preferences[PreferencesKeys.WAKE_RESET_CONNECTIONS] ?: false,
+            
             // 镜像设置
             ghProxyMirror = selectedMirror,
             
@@ -592,6 +600,14 @@ class SettingsRepository(private val context: Context) {
     suspend fun setBypassLan(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.BYPASS_LAN] = value }
         notifyRestartRequired()
+    }
+    
+    suspend fun setNetworkChangeResetConnections(value: Boolean) {
+        context.dataStore.edit { it[PreferencesKeys.NETWORK_CHANGE_RESET_CONNECTIONS] = value }
+    }
+    
+    suspend fun setWakeResetConnections(value: Boolean) {
+        context.dataStore.edit { it[PreferencesKeys.WAKE_RESET_CONNECTIONS] = value }
     }
     
     suspend fun setGhProxyMirror(value: GhProxyMirror) {

@@ -483,6 +483,10 @@
     <!-- Connection Settings -->
     <string name="connection_settings_show_notification_speed">通知栏显示速度</string>
     <string name="connection_settings_show_notification_speed_subtitle">在通知栏实时显示上传和下载速度</string>
+    <string name="connection_settings_network_change_reset">网络变化时重置连接</string>
+    <string name="connection_settings_network_change_reset_subtitle">WiFi/流量切换时关闭所有现有连接，加速网络恢复</string>
+    <string name="connection_settings_wake_reset">唤醒时重置连接</string>
+    <string name="connection_settings_wake_reset_subtitle">设备从休眠唤醒时关闭所有现有连接</string>
 
     <!-- About Dialog -->
     <string name="about_version">应用版本: %1$s (%2$d)</string>

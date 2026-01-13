@@ -1,0 +1,80 @@
+package com.kunk.singbox.core
+
+import android.util.Log
+import io.nekohasekai.libbox.Libbox
+import java.lang.reflect.Method
+
+/**
+ * Libbox 兼容层 - 提供对不同版本 libbox 的兼容性支持
+ * 
+ * 参考 NekoBox: libcore/box.go ResetAllConnections() 调用 conntrack.Close()
+ */
+object LibboxCompat {
+    private const val TAG = "LibboxCompat"
+
+    private var resetAllConnectionsMethod: Method? = null
+    private var resetAllConnectionsChecked = false
+
+    @Volatile
+    var hasResetAllConnections: Boolean = false
+        private set
+
+    init {
+        detectAvailableApis()
+    }
+
+    private fun detectAvailableApis() {
+        resetAllConnectionsMethod = try {
+            Libbox::class.java.getMethod("resetAllConnections", Boolean::class.javaPrimitiveType).also {
+                hasResetAllConnections = true
+                Log.i(TAG, "Detected Libbox.resetAllConnections(boolean)")
+            }
+        } catch (e: NoSuchMethodException) {
+            try {
+                Libbox::class.java.getMethod("ResetAllConnections", Boolean::class.javaPrimitiveType).also {
+                    hasResetAllConnections = true
+                    Log.i(TAG, "Detected Libbox.ResetAllConnections(boolean)")
+                }
+            } catch (e2: NoSuchMethodException) {
+                Log.d(TAG, "Libbox.resetAllConnections not available")
+                null
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error detecting resetAllConnections: ${e.message}")
+            null
+        }
+        resetAllConnectionsChecked = true
+    }
+
+    /**
+     * 重置所有连接，直接调用 sing-box 内核的 conntrack.Close()
+     * @param system true=关闭系统级连接表(推荐), false=仅用户级连接
+     * @return true 如果成功调用原生方法
+     */
+    fun resetAllConnections(system: Boolean = true): Boolean {
+        val method = resetAllConnectionsMethod ?: return false
+        
+        return try {
+            method.invoke(null, system)
+            Log.i(TAG, "Called Libbox.resetAllConnections($system)")
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to call resetAllConnections: ${e.message}")
+            false
+        }
+    }
+
+    fun getVersion(): String {
+        return try {
+            Libbox.version()
+        } catch (e: Exception) {
+            "unknown"
+        }
+    }
+
+    fun isNekoBoxLibbox(): Boolean = hasResetAllConnections
+
+    fun printDiagnostics() {
+        Log.i(TAG, "LibboxCompat: version=${getVersion()}, hasResetAllConnections=$hasResetAllConnections")
+    }
+}

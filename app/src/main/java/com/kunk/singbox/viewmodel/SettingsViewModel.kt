@@ -326,6 +326,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { repository.setBypassLan(value) }
     }
     
+    fun setNetworkChangeResetConnections(value: Boolean) {
+        viewModelScope.launch { repository.setNetworkChangeResetConnections(value) }
+    }
+    
+    fun setWakeResetConnections(value: Boolean) {
+        viewModelScope.launch { repository.setWakeResetConnections(value) }
+    }
+    
     fun updateLatencyTestConcurrency(value: Int) {
         viewModelScope.launch { repository.setLatencyTestConcurrency(value) }
     }

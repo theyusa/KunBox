@@ -53,6 +53,10 @@ data class AppSettings(
     @SerializedName("blockQuic") val blockQuic: Boolean = true,
     @SerializedName("debugLoggingEnabled") val debugLoggingEnabled: Boolean = false,
     
+    // 连接重置设置 (参考 NekoBox)
+    @SerializedName("networkChangeResetConnections") val networkChangeResetConnections: Boolean = true,
+    @SerializedName("wakeResetConnections") val wakeResetConnections: Boolean = false,
+    
     // 延迟测试设置
     @SerializedName("latencyTestMethod") val latencyTestMethod: LatencyTestMethod = LatencyTestMethod.REAL_RTT,
     @SerializedName("latencyTestUrl") val latencyTestUrl: String = "https://www.gstatic.com/generate_204",

@@ -142,28 +142,39 @@ Write-Host "  gomobile init completed, proceeding..." -ForegroundColor Green
 
 # 5. Clone/Update Source - Always fetch the target version
 Write-Host "[5/7] Preparing Source (v$Version)..." -ForegroundColor Yellow
-$LocalSource = Join-Path $PSScriptRoot "..\singbox-build"
-if (Test-Path $LocalSource) {
-    Write-Host "Using local source code from $LocalSource" -ForegroundColor Cyan
-    $BuildDir = $LocalSource
+$ExtensionDir = Join-Path $PSScriptRoot "..\singbox-build"
+$BuildDir = Join-Path $CacheDir "singbox-source-v$Version"
+
+# Clean up old source directories if building a different version
+$OldSources = Get-ChildItem -Path $CacheDir -Directory -Filter "singbox-source-*" -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne "singbox-source-v$Version" }
+foreach ($old in $OldSources) {
+    Write-Host "Removing old source: $($old.Name)" -ForegroundColor Gray
+    Remove-Item -Recurse -Force $old.FullName
+}
+
+if (-not (Test-Path $BuildDir)) {
+    Write-Host "Cloning sing-box v$Version from GitHub..." -ForegroundColor Yellow
+    git clone --depth 1 --branch "v$Version" https://github.com/SagerNet/sing-box.git $BuildDir
 }
 else {
-    $BuildDir = Join-Path $CacheDir "singbox-source-v$Version"
-    
-    # Clean up old source directories if building a different version
-    $OldSources = Get-ChildItem -Path $CacheDir -Directory -Filter "singbox-source-*" | Where-Object { $_.Name -ne "singbox-source-v$Version" }
-    foreach ($old in $OldSources) {
-        Write-Host "Removing old source: $($old.Name)" -ForegroundColor Gray
-        Remove-Item -Recurse -Force $old.FullName
-    }
-    
-    if (-not (Test-Path $BuildDir)) {
-        Write-Host "Cloning sing-box v$Version from GitHub..." -ForegroundColor Yellow
-        git clone --depth 1 --branch "v$Version" https://github.com/SagerNet/sing-box.git $BuildDir
+    Write-Host "Using cached source for v$Version" -ForegroundColor Green
+}
+
+# Inject KunBox extensions (ResetAllConnections, etc.)
+$BoxExtFile = Join-Path $ExtensionDir "box_ext.go"
+if (Test-Path $BoxExtFile) {
+    $LibboxDir = Join-Path $BuildDir "experimental\libbox"
+    if (Test-Path $LibboxDir) {
+        $DestFile = Join-Path $LibboxDir "box_ext.go"
+        Copy-Item $BoxExtFile $DestFile -Force
+        Write-Host "Injected KunBox extension: box_ext.go -> experimental/libbox/" -ForegroundColor Cyan
     }
     else {
-        Write-Host "Using cached source for v$Version" -ForegroundColor Green
+        Write-Host "Warning: libbox directory not found at $LibboxDir, skipping extension injection" -ForegroundColor Yellow
     }
+}
+else {
+    Write-Host "No extension file found at $BoxExtFile" -ForegroundColor Gray
 }
 Push-Location $BuildDir
 
