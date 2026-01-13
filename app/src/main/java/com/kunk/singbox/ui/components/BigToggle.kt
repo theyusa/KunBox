@@ -177,7 +177,8 @@ fun BigToggle(
                 Crossfade(
                     targetState = isRunning,
                     animationSpec = tween(400),
-                    label = "IconCrossfade"
+                    label = "IconCrossfade",
+                    modifier = Modifier.graphicsLayer { clip = false }
                 ) { running ->
                     val res = if (running) R.drawable.gengar_awake else R.drawable.gengar_sleep
                     val size = if (running) 560.dp else 640.dp
@@ -190,6 +191,7 @@ fun BigToggle(
                             .offset(x = 0.dp, y = 32.dp)
                             .graphicsLayer {
                                 rotationZ = rotation.value
+                                clip = false
                             }
                     )
                 }
