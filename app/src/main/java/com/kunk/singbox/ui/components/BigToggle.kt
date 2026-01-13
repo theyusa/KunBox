@@ -107,14 +107,14 @@ fun BigToggle(
             val bounceJob = launch {
                 // 慢速弹起到 -100dp (负值表示向上)
                 bounceOffset.animateTo(
-                    targetValue = -100f,
-                    animationSpec = tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                    targetValue = -40f,
+                    animationSpec = tween(450, easing = androidx.compose.animation.core.FastOutSlowInEasing)
                 )
                 // 落回到 0dp，使用更慢的弹簧效果
                 bounceOffset.animateTo(
                     targetValue = 0f,
                     animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        dampingRatio = Spring.DampingRatioLowBouncy,
                         stiffness = Spring.StiffnessLow
                     )
                 )
@@ -125,16 +125,16 @@ fun BigToggle(
                 // 快速晃动几下
                 if (isRunning) {
                     rotation.animateTo(
-                        targetValue = 8f,
-                        animationSpec = tween(75, easing = LinearEasing)
+                        targetValue = 3f,
+                        animationSpec = tween(120, easing = LinearEasing)
                     )
                     rotation.animateTo(
-                        targetValue = -8f,
-                        animationSpec = tween(150, easing = LinearEasing)
+                        targetValue = -3f,
+                        animationSpec = tween(240, easing = LinearEasing)
                     )
                     rotation.animateTo(
                         targetValue = 0f,
-                        animationSpec = tween(75, easing = LinearEasing)
+                        animationSpec = tween(120, easing = LinearEasing)
                     )
                 }
                 // 确保最后回到 0

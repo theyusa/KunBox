@@ -511,17 +511,23 @@ fun NodesScreen(
                 }
             }
 
-                ExpandableNodeSearchBar(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    isExpanded = isSearchExpanded,
-                    onToggle = {
-                        isSearchExpanded = !isSearchExpanded
-                    },
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = isFabVisible,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(start = 16.dp, end = 16.dp, top = 12.dp)
-                )
+                ) {
+                    ExpandableNodeSearchBar(
+                        query = searchQuery,
+                        onQueryChange = { searchQuery = it },
+                        isExpanded = isSearchExpanded,
+                        onToggle = {
+                            isSearchExpanded = !isSearchExpanded
+                        }
+                    )
+                }
             }
         }
     }
