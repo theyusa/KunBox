@@ -254,9 +254,15 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setActiveNode(nodeId: String) {
+        // 2025-fix: 先同步更新 activeNodeId，避免竞态条件
+        // 场景：用户在节点页面连续快速切换节点后立即到首页启动 VPN
+        // 如果不同步更新，generateConfigFile() 可能读取到旧的节点 ID
+        configRepository.setActiveNodeIdOnly(nodeId)
+
         viewModelScope.launch {
             // 使用 configRepository 获取节点，避免因过滤导致找不到节点名称
             val node = configRepository.getNodeById(nodeId)
+            // 异步处理热切换（如果 VPN 正在运行）
             val success = configRepository.setActiveNode(nodeId)
 
             // Only show toast when VPN is running

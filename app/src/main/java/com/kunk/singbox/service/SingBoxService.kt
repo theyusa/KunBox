@@ -47,6 +47,7 @@ import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.repository.TrafficRepository
 import com.kunk.singbox.utils.DefaultNetworkListener
 import com.kunk.singbox.core.LibboxCompat
+import com.kunk.singbox.core.BoxWrapperManager
 import com.kunk.singbox.service.network.NetworkManager
 import com.kunk.singbox.service.network.TrafficMonitor
 import io.nekohasekai.libbox.*
@@ -518,27 +519,34 @@ class SingBoxService : VpnService() {
                 Log.w(TAG, "Failed to wake boxService: ${e.message}")
             }
 
-            // Step 2: 直接调用 selectOutbound 切换节点
-            // 不进行网络震荡 - sing-box 的 interrupt_exist_connections 机制已经处理了连接清理
-            Log.i(TAG, "[HotSwitch Step 2/2] Calling selectOutbound (no network oscillation)...")
+            // Step 2: 优先使用 BoxWrapperManager 切换节点
+            Log.i(TAG, "[HotSwitch Step 2/2] Calling selectOutbound...")
 
             var switchSuccess = false
 
-            // sing-box 内部会根据 interrupt_exist_connections=true 自动中断连接
-
-            // 2a. 尝试直接通过 boxService 调用 (NekoBox 方式)
-            try {
-                val method = boxService?.javaClass?.getMethod("selectOutbound", String::class.java)
-                if (method != null) {
-                    val result = method.invoke(boxService, nodeTag) as? Boolean ?: false
-                    if (result) {
-                        Log.i(TAG, "[HotSwitch] Hot switch accepted by boxService.selectOutbound")
-                        switchSuccess = true
-                    }
+            // 2a. 优先使用 BoxWrapperManager (新 API)
+            if (BoxWrapperManager.isAvailable()) {
+                switchSuccess = BoxWrapperManager.selectOutbound(nodeTag)
+                if (switchSuccess) {
+                    Log.i(TAG, "[HotSwitch] Hot switch via BoxWrapperManager.selectOutbound")
                 }
-            } catch (_: Exception) {}
+            }
 
-            // 2b. 尝试通过 CommandClient 调用 (官方方式)
+            // 2b. 回退: 尝试直接通过 boxService 调用 (NekoBox 方式)
+            if (!switchSuccess) {
+                try {
+                    val method = boxService?.javaClass?.getMethod("selectOutbound", String::class.java)
+                    if (method != null) {
+                        val result = method.invoke(boxService, nodeTag) as? Boolean ?: false
+                        if (result) {
+                            Log.i(TAG, "[HotSwitch] Hot switch accepted by boxService.selectOutbound")
+                            switchSuccess = true
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+
+            // 2c. 回退: 尝试通过 CommandClient 调用 (官方方式)
             if (!switchSuccess) {
                 val client = commandClient
                 if (client != null) {
@@ -563,10 +571,6 @@ class SingBoxService : VpnService() {
                 Log.e(TAG, "[HotSwitch] Failed: no suitable method or method failed")
                 return false
             }
-
-            // selectOutbound 成功后，sing-box 内部的 interrupt_exist_connections 机制
-            // 已经自动调用了 interruptGroup.Interrupt(true) 来中断所有外部连接
-            // 不需要额外调用 resetNetwork() 或 closeAllConnectionsImmediate()
 
             Log.i(TAG, "[HotSwitch] Completed successfully - sing-box will handle connection cleanup")
 
@@ -955,41 +959,57 @@ class SingBoxService : VpnService() {
                             }
                         }
                         PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> {
-                            // NekoBox-style: 设备退出 Doze 模式时执行完整的网络恢复序列
-                            // 这是修复 Telegram 等应用息屏后卡在加载中的关键
+                            // 2025-fix: 简化 Doze 模式处理，参考 NekoBox 的简洁实现
+                            // NekoBox 只在进入 Doze 时调用 sleep()，退出时调用 wake() + 可选的 resetAllConnections()
+                            // 不需要额外的 resetNetwork() 调用，因为这会导致不必要的网络震荡
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                                 val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
                                 val isIdleMode = powerManager?.isDeviceIdleMode == true
 
                                 if (isIdleMode) {
-                                    // 进入 Doze 模式：调用 sleep() 通知核心进入省电模式
+                                    // 进入 Doze 模式：调用 sleep()/pause() 通知核心进入省电模式
+                                    Log.i(TAG, "[Doze Enter] Device entering idle mode")
                                     serviceScope.launch {
                                         try {
-                                            boxService?.pause()
-                                            Log.i(TAG, "[Doze Enter] Called pause() - device entered idle mode")
+                                            if (BoxWrapperManager.isAvailable()) {
+                                                BoxWrapperManager.pause()
+                                                Log.i(TAG, "[Doze Enter] Called BoxWrapperManager.pause()")
+                                            } else {
+                                                boxService?.pause()
+                                                Log.i(TAG, "[Doze Enter] Called boxService.pause()")
+                                            }
                                         } catch (e: Exception) {
                                             Log.w(TAG, "[Doze Enter] pause() failed: ${e.message}")
                                         }
                                     }
                                 } else {
-                                    // 退出 Doze 模式：执行完整的网络恢复序列
+                                    // 退出 Doze 模式：简化恢复逻辑
+                                    // 只调用 wake()/resume()，不做额外的网络重置
+                                    Log.i(TAG, "[Doze Exit] Device exiting idle mode")
                                     serviceScope.launch {
                                         try {
-                                            boxService?.wake()
-                                            Log.i(TAG, "[Doze Exit] Step 1/3: Called wake()")
-
-                                            delay(200)
-
-                                            val settings = currentSettings
-                                            if (settings?.wakeResetConnections == true) {
-                                                resetConnectionsOptimal(reason = "doze_exit", skipDebounce = true)
-                                                Log.i(TAG, "[Doze Exit] Step 2/3: Called resetConnectionsOptimal()")
+                                            // Step 1: 唤醒核心
+                                            if (BoxWrapperManager.isAvailable()) {
+                                                BoxWrapperManager.resume()
+                                                Log.i(TAG, "[Doze Exit] Called BoxWrapperManager.resume()")
                                             } else {
-                                                Log.i(TAG, "[Doze Exit] Step 2/3: Skipped (wakeResetConnections=false)")
+                                                boxService?.wake()
+                                                Log.i(TAG, "[Doze Exit] Called boxService.wake()")
                                             }
 
-                                            boxService?.resetNetwork()
-                                            Log.i(TAG, "[Doze Exit] Step 3/3: Called resetNetwork()")
+                                            // Step 2: 可选的连接重置（根据用户设置）
+                                            val settings = currentSettings
+                                            if (settings?.wakeResetConnections == true) {
+                                                // 短暂延迟确保核心已唤醒
+                                                delay(100)
+                                                resetConnectionsOptimal(reason = "doze_exit", skipDebounce = true)
+                                                Log.i(TAG, "[Doze Exit] Called resetConnectionsOptimal()")
+                                            }
+
+                                            // 2025-fix: 移除 resetNetwork() 调用
+                                            // 原因: resetNetwork() 会导致 sing-box 重新初始化网络栈，
+                                            // 向系统发送网络变化信号，导致 Telegram 等应用感知到网络变化并重新加载
+                                            // NekoBox 的做法是只调用 wake()，不做额外的网络重置
 
                                         } catch (e: Exception) {
                                             Log.w(TAG, "[Doze Exit] Recovery failed: ${e.message}")
@@ -2957,6 +2977,15 @@ private val platformInterface = object : PlatformInterface {
                 setLastError(null)
                 Log.i(TAG, "KunBox VPN started successfully")
 
+                // 初始化 BoxWrapperManager - 统一管理节点切换、电源管理、流量统计
+                boxService?.let { service ->
+                    if (BoxWrapperManager.init(service)) {
+                        Log.i(TAG, "BoxWrapperManager initialized, version=${BoxWrapperManager.getExtensionVersion()}")
+                    } else {
+                        Log.w(TAG, "BoxWrapperManager init failed, falling back to legacy APIs")
+                    }
+                }
+
                 // 立即重置 isStarting 标志,确保UI能正确显示已连接状态
                 isStarting = false
 
@@ -3169,6 +3198,9 @@ private val platformInterface = object : PlatformInterface {
         }
 
         tryClearRunningServiceForLibbox()
+
+        // 释放 BoxWrapperManager
+        BoxWrapperManager.release()
 
         Log.i(TAG, "stopVpn(stopService=$stopService) isManuallyStopped=$isManuallyStopped")
 

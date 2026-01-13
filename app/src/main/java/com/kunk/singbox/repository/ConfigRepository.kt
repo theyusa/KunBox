@@ -2491,6 +2491,11 @@ class ConfigRepository(private val context: Context) {
             val outboundsContext = buildRunOutbounds(config, activeNode, settings, allNodesSnapshot)
             val route = buildRunRoute(settings, outboundsContext.selectorTag, outboundsContext.outbounds, outboundsContext.nodeTagResolver, customRuleSets)
 
+            // 合并自定义配置
+            val mergedOutbounds = mergeCustomOutbounds(outboundsContext.outbounds, settings.customOutboundsJson)
+            val mergedRoute = mergeCustomRouteRules(route, settings.customRouteRulesJson)
+            val mergedDns = mergeCustomDnsRules(dns, settings.customDnsRulesJson)
+
             lastTagToNodeName = outboundsContext.nodeTagMap.mapNotNull { (nodeId, tag) ->
                 val name = allNodesSnapshot.firstOrNull { it.id == nodeId }?.name
                 if (name.isNullOrBlank() || tag.isBlank()) null else (tag to name)
@@ -2500,9 +2505,9 @@ class ConfigRepository(private val context: Context) {
                 log = log,
                 experimental = experimental,
                 inbounds = inbounds,
-                dns = dns,
-                route = route,
-                outbounds = outboundsContext.outbounds
+                dns = mergedDns,
+                route = mergedRoute,
+                outbounds = mergedOutbounds
             )
 
             val validation = singBoxCore.validateConfig(runConfig)
@@ -3217,8 +3222,79 @@ class ConfigRepository(private val context: Context) {
                 
             }
         }
-        
+
         return rules
+    }
+
+    /**
+     * 合并自定义 Outbounds JSON
+     */
+    private fun mergeCustomOutbounds(outbounds: List<Outbound>, customJson: String): List<Outbound> {
+        if (customJson.isBlank()) return outbounds
+        return try {
+            val customOutbounds = gson.fromJson<List<Outbound>>(
+                customJson,
+                object : com.google.gson.reflect.TypeToken<List<Outbound>>() {}.type
+            ) ?: emptyList()
+            if (customOutbounds.isEmpty()) {
+                outbounds
+            } else {
+                // 自定义 outbounds 添加到列表末尾，但在 direct/block/dns-out 之前
+                val systemTags = setOf("direct", "block", "dns-out")
+                val userOutbounds = outbounds.filter { it.tag !in systemTags }
+                val systemOutbounds = outbounds.filter { it.tag in systemTags }
+                userOutbounds + customOutbounds + systemOutbounds
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse custom outbounds JSON: ${e.message}")
+            outbounds
+        }
+    }
+
+    /**
+     * 合并自定义路由规则 JSON
+     */
+    private fun mergeCustomRouteRules(route: RouteConfig, customJson: String): RouteConfig {
+        if (customJson.isBlank()) return route
+        return try {
+            val customRules = gson.fromJson<List<RouteRule>>(
+                customJson,
+                object : com.google.gson.reflect.TypeToken<List<RouteRule>>() {}.type
+            ) ?: emptyList()
+            if (customRules.isEmpty()) {
+                route
+            } else {
+                // 自定义规则添加到规则列表开头（优先级最高）
+                val existingRules = route.rules ?: emptyList()
+                route.copy(rules = customRules + existingRules)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse custom route rules JSON: ${e.message}")
+            route
+        }
+    }
+
+    /**
+     * 合并自定义 DNS 规则 JSON
+     */
+    private fun mergeCustomDnsRules(dns: DnsConfig, customJson: String): DnsConfig {
+        if (customJson.isBlank()) return dns
+        return try {
+            val customRules = gson.fromJson<List<DnsRule>>(
+                customJson,
+                object : com.google.gson.reflect.TypeToken<List<DnsRule>>() {}.type
+            ) ?: emptyList()
+            if (customRules.isEmpty()) {
+                dns
+            } else {
+                // 自定义规则添加到规则列表开头（优先级最高）
+                val existingRules = dns.rules ?: emptyList()
+                dns.copy(rules = customRules + existingRules)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse custom DNS rules JSON: ${e.message}")
+            dns
+        }
     }
 
     private fun buildRunLogConfig(): LogConfig {
@@ -4005,6 +4081,101 @@ class ConfigRepository(private val context: Context) {
     /**
      * 删除节点
      */
+    /**
+     * 手动创建节点（从空白 Outbound 创建）
+     * 复用 addSingleNode 的逻辑，但直接接收 Outbound 对象
+     */
+    fun createNode(outbound: Outbound) {
+        try {
+            // 1. 查找或创建"手动添加"配置
+            val manualProfileName = "Manual"
+            var manualProfile = _profiles.value.find { it.name == manualProfileName && it.type == ProfileType.Imported }
+            val profileId: String
+            val existingConfig: SingBoxConfig?
+
+            if (manualProfile != null) {
+                profileId = manualProfile.id
+                existingConfig = loadConfig(profileId)
+            } else {
+                profileId = UUID.randomUUID().toString()
+                existingConfig = null
+            }
+
+            // 2. 合并或创建 outbounds
+            val newOutbounds = mutableListOf<Outbound>()
+            existingConfig?.outbounds?.let { existing ->
+                newOutbounds.addAll(existing.filter { it.type !in listOf("direct", "block", "dns") })
+            }
+
+            // 检查是否有同名节点，如有则添加后缀
+            var finalTag = outbound.tag
+            var counter = 1
+            while (newOutbounds.any { it.tag == finalTag }) {
+                finalTag = "${outbound.tag}_$counter"
+                counter++
+            }
+            val finalOutbound = if (finalTag != outbound.tag) outbound.copy(tag = finalTag) else outbound
+            newOutbounds.add(finalOutbound)
+
+            // 添加系统 outbounds
+            if (newOutbounds.none { it.tag == "direct" }) {
+                newOutbounds.add(Outbound(type = "direct", tag = "direct"))
+            }
+            if (newOutbounds.none { it.tag == "block" }) {
+                newOutbounds.add(Outbound(type = "block", tag = "block"))
+            }
+            if (newOutbounds.none { it.tag == "dns-out" }) {
+                newOutbounds.add(Outbound(type = "dns", tag = "dns-out"))
+            }
+
+            val newConfig = deduplicateTags(SingBoxConfig(outbounds = newOutbounds))
+
+            // 3. 保存配置文件
+            val configFile = File(configDir, "$profileId.json")
+            configFile.writeText(gson.toJson(newConfig))
+
+            // 4. 更新内存状态
+            cacheConfig(profileId, newConfig)
+            val nodes = extractNodesFromConfig(newConfig, profileId)
+            profileNodes[profileId] = nodes
+
+            // 5. 如果是新配置，添加到 profiles 列表
+            if (manualProfile == null) {
+                manualProfile = ProfileUi(
+                    id = profileId,
+                    name = manualProfileName,
+                    type = ProfileType.Imported,
+                    url = null,
+                    lastUpdated = System.currentTimeMillis(),
+                    enabled = true,
+                    updateStatus = UpdateStatus.Idle
+                )
+                _profiles.update { it + manualProfile }
+            } else {
+                _profiles.update { list ->
+                    list.map { if (it.id == profileId) it.copy(lastUpdated = System.currentTimeMillis()) else it }
+                }
+            }
+
+            // 6. 更新全局节点状态
+            updateAllNodesAndGroups()
+
+            // 7. 激活配置并选中新节点
+            setActiveProfile(profileId)
+            val addedNode = nodes.find { it.name == finalTag }
+            if (addedNode != null) {
+                _activeNodeId.value = addedNode.id
+            }
+
+            // 8. 保存配置
+            saveProfiles()
+
+            Log.i(TAG, "Created node: $finalTag in profile $profileId")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create node", e)
+        }
+    }
+
     fun deleteNode(nodeId: String) {
         val node = _nodes.value.find { it.id == nodeId } ?: return
         val profileId = node.sourceProfileId

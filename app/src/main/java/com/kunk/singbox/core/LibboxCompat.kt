@@ -6,8 +6,10 @@ import java.lang.reflect.Method
 
 /**
  * Libbox 兼容层 - 提供对不同版本 libbox 的兼容性支持
- * 
+ *
  * 参考 NekoBox: libcore/box.go ResetAllConnections() 调用 conntrack.Close()
+ *
+ * 注意: 新代码应优先使用 BoxWrapperManager，本类作为回退方案
  */
 object LibboxCompat {
     private const val TAG = "LibboxCompat"
@@ -19,11 +21,16 @@ object LibboxCompat {
     var hasResetAllConnections: Boolean = false
         private set
 
+    @Volatile
+    var hasExtensionApi: Boolean = false
+        private set
+
     init {
         detectAvailableApis()
     }
 
     private fun detectAvailableApis() {
+        // 检测 resetAllConnections
         resetAllConnectionsMethod = try {
             Libbox::class.java.getMethod("resetAllConnections", Boolean::class.javaPrimitiveType).also {
                 hasResetAllConnections = true
@@ -44,6 +51,17 @@ object LibboxCompat {
             null
         }
         resetAllConnectionsChecked = true
+
+        // 检测扩展 API (wrapBoxService, getGlobalWrapper 等)
+        hasExtensionApi = try {
+            Libbox::class.java.getMethod("wrapBoxService", Class.forName("io.nekohasekai.libbox.BoxService"))
+            Libbox::class.java.getMethod("getExtensionVersion")
+            Log.i(TAG, "Detected KunBox Extension API")
+            true
+        } catch (e: Exception) {
+            Log.d(TAG, "KunBox Extension API not available")
+            false
+        }
     }
 
     /**
@@ -52,8 +70,13 @@ object LibboxCompat {
      * @return true 如果成功调用原生方法
      */
     fun resetAllConnections(system: Boolean = true): Boolean {
+        // 优先使用 BoxWrapperManager
+        if (BoxWrapperManager.isAvailable()) {
+            return BoxWrapperManager.resetAllConnections(system)
+        }
+
         val method = resetAllConnectionsMethod ?: return false
-        
+
         return try {
             method.invoke(null, system)
             Log.i(TAG, "Called Libbox.resetAllConnections($system)")
@@ -72,9 +95,26 @@ object LibboxCompat {
         }
     }
 
+    /**
+     * 获取扩展版本
+     */
+    fun getExtensionVersion(): String {
+        return try {
+            Libbox.getExtensionVersion()
+        } catch (e: Exception) {
+            "N/A"
+        }
+    }
+
     fun isNekoBoxLibbox(): Boolean = hasResetAllConnections
 
+    /**
+     * 检查是否支持 KunBox 扩展 API
+     */
+    fun hasKunBoxExtension(): Boolean = hasExtensionApi
+
     fun printDiagnostics() {
-        Log.i(TAG, "LibboxCompat: version=${getVersion()}, hasResetAllConnections=$hasResetAllConnections")
+        Log.i(TAG, "LibboxCompat: version=${getVersion()}, extensionVersion=${getExtensionVersion()}, hasResetAllConnections=$hasResetAllConnections, hasExtensionApi=$hasExtensionApi")
     }
 }
+

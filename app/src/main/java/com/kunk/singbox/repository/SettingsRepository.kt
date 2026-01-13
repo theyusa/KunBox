@@ -166,6 +166,11 @@ class SettingsRepository(private val context: Context) {
 
         // 版本更新
         val AUTO_CHECK_UPDATE = booleanPreferencesKey("auto_check_update")
+
+        // 自定义配置 JSON
+        val CUSTOM_OUTBOUNDS_JSON = stringPreferencesKey("custom_outbounds_json")
+        val CUSTOM_ROUTE_RULES_JSON = stringPreferencesKey("custom_route_rules_json")
+        val CUSTOM_DNS_RULES_JSON = stringPreferencesKey("custom_dns_rules_json")
     }
     
     val settings: Flow<AppSettings> = context.dataStore.data.map { preferences ->
@@ -421,7 +426,12 @@ class SettingsRepository(private val context: Context) {
             customNodeOrder = customNodeOrder,
 
             // 版本更新设置
-            autoCheckUpdate = preferences[PreferencesKeys.AUTO_CHECK_UPDATE] ?: true
+            autoCheckUpdate = preferences[PreferencesKeys.AUTO_CHECK_UPDATE] ?: true,
+
+            // 自定义配置 JSON
+            customOutboundsJson = preferences[PreferencesKeys.CUSTOM_OUTBOUNDS_JSON] ?: "",
+            customRouteRulesJson = preferences[PreferencesKeys.CUSTOM_ROUTE_RULES_JSON] ?: "",
+            customDnsRulesJson = preferences[PreferencesKeys.CUSTOM_DNS_RULES_JSON] ?: ""
         )
     }.flowOn(Dispatchers.Default)
     
@@ -672,7 +682,23 @@ class SettingsRepository(private val context: Context) {
     suspend fun setAutoCheckUpdate(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.AUTO_CHECK_UPDATE] = value }
     }
-    
+
+    // 自定义配置 JSON
+    suspend fun setCustomOutboundsJson(value: String) {
+        context.dataStore.edit { it[PreferencesKeys.CUSTOM_OUTBOUNDS_JSON] = value }
+        notifyRestartRequired()
+    }
+
+    suspend fun setCustomRouteRulesJson(value: String) {
+        context.dataStore.edit { it[PreferencesKeys.CUSTOM_ROUTE_RULES_JSON] = value }
+        notifyRestartRequired()
+    }
+
+    suspend fun setCustomDnsRulesJson(value: String) {
+        context.dataStore.edit { it[PreferencesKeys.CUSTOM_DNS_RULES_JSON] = value }
+        notifyRestartRequired()
+    }
+
     suspend fun setNodeFilter(value: NodeFilter) {
         context.dataStore.edit { it[PreferencesKeys.NODE_FILTER] = gson.toJson(value) }
     }

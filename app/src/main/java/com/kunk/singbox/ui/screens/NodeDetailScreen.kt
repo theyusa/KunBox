@@ -76,22 +76,32 @@ import com.kunk.singbox.ui.components.StandardCard
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NodeDetailScreen(navController: NavController, nodeId: String) {
+fun NodeDetailScreen(
+    navController: NavController,
+    nodeId: String,
+    createProtocol: String = ""
+) {
     val context = LocalContext.current
     val configRepository = remember { ConfigRepository.getInstance(context) }
-    
+
+    val isCreateMode = nodeId.isEmpty() && createProtocol.isNotEmpty()
+
     // Watch for node changes
     val nodes by configRepository.nodes.collectAsState(initial = emptyList())
-    val node = nodes.find { it.id == nodeId }
-    
+    val node = if (!isCreateMode) nodes.find { it.id == nodeId } else null
+
     // Initial load
     var editingOutbound by remember { mutableStateOf<Outbound?>(null) }
-    
-    LaunchedEffect(nodeId) {
+
+    LaunchedEffect(nodeId, createProtocol) {
         if (editingOutbound == null) {
-            val original = configRepository.getOutboundByNodeId(nodeId)
-            if (original != null) {
-                editingOutbound = original
+            if (isCreateMode) {
+                editingOutbound = createEmptyOutbound(createProtocol)
+            } else {
+                val original = configRepository.getOutboundByNodeId(nodeId)
+                if (original != null) {
+                    editingOutbound = original
+                }
             }
         }
     }
@@ -100,7 +110,13 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.node_detail_title), color = MaterialTheme.colorScheme.onBackground) },
+                title = {
+                    Text(
+                        if (isCreateMode) stringResource(R.string.node_create_title)
+                        else stringResource(R.string.node_detail_title),
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.onBackground)
@@ -108,10 +124,16 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                 },
                 actions = {
                     val savedMsg = stringResource(R.string.node_detail_saved)
+                    val createdMsg = stringResource(R.string.node_created)
                     IconButton(onClick = {
                         if (editingOutbound != null) {
-                            configRepository.updateNode(nodeId, editingOutbound!!)
-                            Toast.makeText(context, savedMsg, Toast.LENGTH_SHORT).show()
+                            if (isCreateMode) {
+                                configRepository.createNode(editingOutbound!!)
+                                Toast.makeText(context, createdMsg, Toast.LENGTH_SHORT).show()
+                            } else {
+                                configRepository.updateNode(nodeId, editingOutbound!!)
+                                Toast.makeText(context, savedMsg, Toast.LENGTH_SHORT).show()
+                            }
                             navController.popBackStack()
                         }
                     }) {
@@ -918,5 +940,31 @@ fun SectionHeader(title: String) {
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(bottom = 8.dp, start = 8.dp)
+    )
+}
+
+private fun createEmptyOutbound(protocol: String): Outbound {
+    val defaultPort = when (protocol) {
+        "shadowsocks" -> 8388
+        "vmess", "vless" -> 443
+        "trojan" -> 443
+        "hysteria2", "hysteria" -> 443
+        "tuic" -> 443
+        "anytls" -> 443
+        "ssh" -> 22
+        "socks" -> 1080
+        "http" -> 8080
+        "wireguard" -> 51820
+        else -> 443
+    }
+
+    val needsTls = protocol in listOf("vless", "trojan", "hysteria2", "hysteria", "tuic", "anytls")
+
+    return Outbound(
+        type = protocol,
+        tag = "New-${protocol.uppercase()}",
+        server = "",
+        serverPort = defaultPort,
+        tls = if (needsTls) TlsConfig(enabled = true) else null
     )
 }

@@ -34,6 +34,7 @@ import com.kunk.singbox.ui.screens.RuleSetsScreen
 import com.kunk.singbox.ui.screens.CustomRulesScreen
 import com.kunk.singbox.ui.screens.AppRoutingScreen
 import com.kunk.singbox.ui.screens.RuleSetHubScreen
+import com.kunk.singbox.ui.screens.CustomConfigScreen
 import com.kunk.singbox.ui.screens.DomainRulesScreen
 
 sealed class Screen(val route: String) {
@@ -47,6 +48,9 @@ sealed class Screen(val route: String) {
     object NodeDetail : Screen("node_detail/{nodeId}") {
         fun createRoute(nodeId: String) = "node_detail/$nodeId"
     }
+    object NodeCreate : Screen("node_create/{protocol}") {
+        fun createRoute(protocol: String) = "node_create/$protocol"
+    }
     object RoutingSettings : Screen("routing_settings")
     object DnsSettings : Screen("dns_settings")
     object TunSettings : Screen("tun_settings")
@@ -58,6 +62,7 @@ sealed class Screen(val route: String) {
     object DomainRules : Screen("domain_rules")
     object AppRules : Screen("app_rules")
     object RuleSetHub : Screen("rule_set_hub")
+    object CustomConfig : Screen("custom_config")
 }
 
 const val NAV_ANIMATION_DURATION = 450
@@ -82,6 +87,7 @@ fun getTabForRoute(route: String?): String {
         
         route == Screen.Nodes.route -> Screen.Nodes.route
         route.startsWith("node_detail") -> Screen.Nodes.route
+        route.startsWith("node_create") -> Screen.Nodes.route
         
         route == Screen.Profiles.route -> Screen.Profiles.route
         route == Screen.ProfileEditor.route -> Screen.Profiles.route
@@ -96,6 +102,7 @@ fun getTabForRoute(route: String?): String {
         route == Screen.DomainRules.route -> Screen.Settings.route
         route == Screen.AppRules.route -> Screen.Settings.route
         route == Screen.RuleSetHub.route -> Screen.Settings.route
+        route == Screen.CustomConfig.route -> Screen.Settings.route
         
         else -> Screen.Dashboard.route
     }
@@ -190,6 +197,19 @@ fun AppNavigation(navController: NavHostController) {
             NodeDetailScreen(navController = navController, nodeId = nodeId)
         }
         composable(
+            route = Screen.NodeCreate.route,
+            arguments = listOf(
+                androidx.navigation.navArgument("protocol") { type = androidx.navigation.NavType.StringType }
+            ),
+            enterTransition = enterTransition,
+            exitTransition = exitTransition,
+            popEnterTransition = popEnterTransition,
+            popExitTransition = popExitTransition
+        ) { backStackEntry ->
+            val protocol = backStackEntry.arguments?.getString("protocol") ?: "vmess"
+            NodeDetailScreen(navController = navController, nodeId = "", createProtocol = protocol)
+        }
+        composable(
             route = Screen.RoutingSettings.route,
             enterTransition = enterTransition,
             exitTransition = exitTransition,
@@ -266,5 +286,12 @@ fun AppNavigation(navController: NavHostController) {
             popEnterTransition = popEnterTransition,
             popExitTransition = popExitTransition
         ) { RuleSetHubScreen(navController) }
+        composable(
+            route = Screen.CustomConfig.route,
+            enterTransition = enterTransition,
+            exitTransition = exitTransition,
+            popEnterTransition = popEnterTransition,
+            popExitTransition = popExitTransition
+        ) { CustomConfigScreen(navController) }
     }
 }

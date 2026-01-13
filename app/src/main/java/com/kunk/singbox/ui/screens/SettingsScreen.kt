@@ -251,6 +251,12 @@ fun SettingsScreen(
                 onClick = { navController.navigate(Screen.DnsSettings.route) }
             )
             SettingItem(
+                title = stringResource(R.string.custom_config_title),
+                value = stringResource(R.string.custom_config_subtitle),
+                icon = Icons.Rounded.Layers,
+                onClick = { navController.navigate(Screen.CustomConfig.route) }
+            )
+            SettingItem(
                 title = stringResource(R.string.settings_tun_vpn),
                 subtitle = stringResource(R.string.settings_tun_vpn_subtitle),
                 icon = Icons.Rounded.VpnKey,

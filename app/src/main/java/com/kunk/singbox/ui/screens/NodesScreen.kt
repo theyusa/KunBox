@@ -44,6 +44,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FilterAlt
 import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material.icons.rounded.Search
@@ -182,6 +183,7 @@ fun NodesScreen(
 
     var showSortDialog by remember { mutableStateOf(false) }
     var showFilterDialog by remember { mutableStateOf(false) }
+    var showProtocolSelectDialog by remember { mutableStateOf(false) }
     var exportLink by remember { mutableStateOf<String?>(null) }
     var isFabExpanded by remember { mutableStateOf(false) }
     var showAddNodeDialog by remember { mutableStateOf(false) }
@@ -228,6 +230,28 @@ fun NodesScreen(
                 showFilterDialog = false
             },
             onDismiss = { showFilterDialog = false }
+        )
+    }
+
+    // 协议选择对话框（手动创建节点）
+    if (showProtocolSelectDialog) {
+        val protocolOptions = listOf(
+            "VMess", "VLESS", "Trojan", "Shadowsocks", "Hysteria2", "Hysteria",
+            "TUIC", "WireGuard", "SSH", "AnyTLS", "SOCKS", "HTTP"
+        )
+        val protocolValues = listOf(
+            "vmess", "vless", "trojan", "shadowsocks", "hysteria2", "hysteria",
+            "tuic", "wireguard", "ssh", "anytls", "socks", "http"
+        )
+        SingleSelectDialog(
+            title = stringResource(R.string.nodes_select_protocol),
+            options = protocolOptions,
+            selectedIndex = -1,
+            onSelect = { index ->
+                navController.navigate(Screen.NodeCreate.createRoute(protocolValues[index]))
+                showProtocolSelectDialog = false
+            },
+            onDismiss = { showProtocolSelectDialog = false }
         )
     }
 
@@ -305,6 +329,26 @@ fun NodesScreen(
                                 contentColor = MaterialTheme.colorScheme.onPrimary
                             ) {
                                 Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.nodes_add))
+                            }
+                        }
+
+                        // Manual Create Node
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = stringResource(R.string.nodes_manual_create),
+                                color = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.padding(end = 8.dp),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                            SmallFloatingActionButton(
+                                onClick = {
+                                    showProtocolSelectDialog = true
+                                    isFabExpanded = false
+                                },
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ) {
+                                Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.nodes_manual_create))
                             }
                         }
                         
