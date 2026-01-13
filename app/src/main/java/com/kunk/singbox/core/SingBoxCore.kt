@@ -218,38 +218,57 @@ class SingBoxCore private constructor(private val context: Context) {
             listen = "127.0.0.1",
             listenPort = port
         )
+
+        // 关键修复: 在 VPN 未运行时,将进程绑定到默认网络
+        // 这样 sing-box 创建的所有 socket 都会使用物理网络,而不是尝试 auto-detect
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val vpnRunning = com.kunk.singbox.service.SingBoxService.instance != null
+        var previousNetwork: Network? = null
+
+        if (!vpnRunning) {
+            try {
+                val activeNetwork = connectivityManager.activeNetwork
+                if (activeNetwork != null) {
+                    previousNetwork = connectivityManager.boundNetworkForProcess
+                    val bound = connectivityManager.bindProcessToNetwork(activeNetwork)
+                    Log.d(TAG, "bindProcessToNetwork: bound=$bound, network=$activeNetwork")
+                } else {
+                    Log.w(TAG, "No active network available for binding")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "bindProcessToNetwork failed: ${e.message}")
+            }
+        }
+
         return try {
             val direct = com.kunk.singbox.model.Outbound(type = "direct", tag = "direct")
-
-            val settings = SettingsRepository.getInstance(context).settings.first()
 
             // 为测试服务生成唯一的临时数据库路径,避免与 VPN 服务的数据库冲突
             // 使用 UUID 确保绝对唯一性,防止高并发时时间戳重复导致路径冲突
             val testDbPath = File(tempDir, "test_${UUID.randomUUID()}.db").absolutePath
 
             val config = SingBoxConfig(
-                log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true),
+                log = com.kunk.singbox.model.LogConfig(level = "debug", timestamp = true),  // 使用 debug 级别诊断问题
+                // 测速服务使用纯 IP DNS，避免 DoH 请求被 VPN 拦截
+                // 添加多个 DNS 服务器作为备份，提高可靠性
+                // 关键: 必须设置 finalServer，否则 sing-box 不知道使用哪个 DNS 服务器
                 dns = com.kunk.singbox.model.DnsConfig(
                     servers = listOf(
                         com.kunk.singbox.model.DnsServer(
-                            tag = "dns-bootstrap",
+                            tag = "dns-direct",
                             address = "223.5.5.5",
                             detour = "direct",
                             strategy = "ipv4_only"
                         ),
                         com.kunk.singbox.model.DnsServer(
-                            tag = "local",
-                            address = settings.localDns.ifBlank { "https://dns.alidns.com/dns-query" },
+                            tag = "dns-backup",
+                            address = "119.29.29.29",
                             detour = "direct",
-                            addressResolver = "dns-bootstrap"
-                        ),
-                        com.kunk.singbox.model.DnsServer(
-                            tag = "remote",
-                            address = settings.remoteDns.ifBlank { "https://dns.google/dns-query" },
-                            detour = "direct",
-                            addressResolver = "dns-bootstrap"
+                            strategy = "ipv4_only"
                         )
-                    )
+                    ),
+                    finalServer = "dns-direct",  // 指定默认 DNS 服务器
+                    strategy = "ipv4_only"       // 全局 DNS 策略
                 ),
                 inbounds = listOf(inbound),
                 outbounds = listOf(outbound, direct),
@@ -259,6 +278,8 @@ class SingBoxCore private constructor(private val context: Context) {
                         com.kunk.singbox.model.RouteRule(inbound = listOf("test-in"), outbound = outbound.tag)
                     ),
                     finalOutbound = "direct",
+                    // 关键修复: 不设置 defaultInterface，因为测速服务没有权限绑定到特定接口
+                    // 只启用 autoDetectInterface，通过 autoDetectInterfaceControl 回调来保护 socket
                     autoDetectInterface = true
                 ),
                 // 完全禁用测试服务的缓存,避免数据库冲突
@@ -281,8 +302,10 @@ class SingBoxCore private constructor(private val context: Context) {
                 service = Libbox.newService(configJson, platformInterface)
                 service.start()
 
-                // 减少服务启动等待时间以提高测速效率
-                val deadline = System.currentTimeMillis() + 500L
+                // 服务启动等待：增加等待时间以确保服务完全就绪
+                // 参考 v2rayNG: 服务启动后直接调用内核API，无需等待
+                // 但我们使用 HTTP 代理方式，需要等待端口就绪
+                val deadline = System.currentTimeMillis() + 1500L
                 while (System.currentTimeMillis() < deadline) {
                     try {
                         Socket().use { s ->
@@ -291,18 +314,31 @@ class SingBoxCore private constructor(private val context: Context) {
                         }
                         break
                     } catch (_: Exception) {
-                        delay(20)
+                        delay(30)
                     }
                 }
 
-                delay(80)
+                delay(200) // 额外缓冲，增加到200ms确保服务完全就绪
 
+                // 优化超时配置：
+                // - connectTimeout: 用于建立到本地代理的连接，应该很快
+                // - callTimeout: 整个请求的总超时，包括代理连接到远程服务器的时间
                 val client = OkHttpClient.Builder()
                     .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port)))
-                    .connectTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                    .connectTimeout(2000L, TimeUnit.MILLISECONDS) // 本地代理连接超时
                     .readTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
                     .writeTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                    .callTimeout(timeoutMs.toLong() + 2000L, TimeUnit.MILLISECONDS) // 整体超时多预留2秒
                     .build()
+
+                // 判断是否为可重试的连接错误
+                fun isRetryableError(e: Exception): Boolean {
+                    val msg = e.message ?: ""
+                    return msg.contains("Connection reset", ignoreCase = true) ||
+                           msg.contains("connection closed", ignoreCase = true) ||
+                           msg.contains("Connection refused", ignoreCase = true) ||
+                           msg.contains("broken pipe", ignoreCase = true)
+                }
 
                 suspend fun runOnce(url: String): Long {
                     // Use Dispatchers.IO to prevent NetworkOnMainThreadException even if called from Main
@@ -321,22 +357,32 @@ class SingBoxCore private constructor(private val context: Context) {
                     }
                 }
 
-                try {
-                    try {
-                        runOnce(targetUrl)
-                    } catch (e: Exception) {
-                        if ((e.message ?: "").contains("Connection reset", ignoreCase = true)) {
-                            delay(50)
-                            runOnce(targetUrl)
-                        } else {
-                            throw e
+                // 带重试的请求执行
+                suspend fun runWithRetry(url: String, maxRetries: Int = 2): Long {
+                    var lastException: Exception? = null
+                    repeat(maxRetries) { attempt ->
+                        try {
+                            return runOnce(url)
+                        } catch (e: Exception) {
+                            lastException = e
+                            if (isRetryableError(e) && attempt < maxRetries - 1) {
+                                // 可重试错误，等待后重试
+                                delay(100L * (attempt + 1)) // 递增等待时间
+                            } else {
+                                throw e
+                            }
                         }
                     }
+                    throw lastException ?: java.io.IOException("Unknown error after retries")
+                }
+
+                try {
+                    runWithRetry(targetUrl)
                 } catch (e: Exception) {
                     val fb = fallbackUrl
                     if (!fb.isNullOrBlank() && fb != targetUrl) {
                         try {
-                            runOnce(fb)
+                            runWithRetry(fb)
                         } catch (e2: Exception) {
                             Log.w(TAG, "HTTP proxy native test error: primary=${e.message}, fallback=${e2.message}")
                             -1L
@@ -358,6 +404,14 @@ class SingBoxCore private constructor(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Local HTTP proxy setup failed", e)
             -1L
+        } finally {
+            // 恢复进程网络绑定状态
+            if (!vpnRunning) {
+                try {
+                    connectivityManager.bindProcessToNetwork(previousNetwork)
+                    Log.d(TAG, "Restored process network binding")
+                } catch (_: Exception) {}
+            }
         }
     }
 
@@ -441,6 +495,26 @@ class SingBoxCore private constructor(private val context: Context) {
     ) {
         // 使用 Mutex 确保同一时间只有一个测试服务在运行
         libboxMutex.withLock {
+            // 关键修复: 在 VPN 未运行时,将进程绑定到默认网络
+            val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val vpnRunning = com.kunk.singbox.service.SingBoxService.instance != null
+            var previousNetwork: Network? = null
+
+            if (!vpnRunning) {
+                try {
+                    val activeNetwork = connectivityManager.activeNetwork
+                    if (activeNetwork != null) {
+                        previousNetwork = connectivityManager.boundNetworkForProcess
+                        val bound = connectivityManager.bindProcessToNetwork(activeNetwork)
+                        Log.d(TAG, "Batch test bindProcessToNetwork: bound=$bound, network=$activeNetwork")
+                    } else {
+                        Log.w(TAG, "Batch test: No active network available for binding")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Batch test bindProcessToNetwork failed: ${e.message}")
+                }
+            }
+
             // 1. 分配端口池
             // 我们为批次中的每个节点分配一个独立的本地端口
             // 这样就可以通过连接不同的端口来区分不同的节点，完全避开鉴权问题
@@ -449,6 +523,10 @@ class SingBoxCore private constructor(private val context: Context) {
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to allocate ports for batch test", e)
                 batchOutbounds.forEach { onResult(it.tag, -1L) }
+                // 恢复网络绑定后返回
+                if (!vpnRunning) {
+                    try { connectivityManager.bindProcessToNetwork(previousNetwork) } catch (_: Exception) {}
+                }
                 return
             }
             
@@ -479,13 +557,16 @@ class SingBoxCore private constructor(private val context: Context) {
                 ))
             }
 
-            val settings = SettingsRepository.getInstance(context).settings.first()
+            // 测速服务使用纯 IP DNS，避免 DoH 请求被 VPN 拦截
+            // 添加多个 DNS 服务器作为备份，提高可靠性
+            // 关键: 必须设置 finalServer，否则 sing-box 不知道使用哪个 DNS 服务器
             val dnsConfig = com.kunk.singbox.model.DnsConfig(
                 servers = listOf(
-                    com.kunk.singbox.model.DnsServer(tag = "dns-bootstrap", address = "223.5.5.5", detour = "direct", strategy = "ipv4_only"),
-                    com.kunk.singbox.model.DnsServer(tag = "local", address = settings.localDns.ifBlank { "https://dns.alidns.com/dns-query" }, detour = "direct", addressResolver = "dns-bootstrap"),
-                    com.kunk.singbox.model.DnsServer(tag = "remote", address = settings.remoteDns.ifBlank { "https://dns.google/dns-query" }, detour = "direct", addressResolver = "dns-bootstrap")
-                )
+                    com.kunk.singbox.model.DnsServer(tag = "dns-direct", address = "223.5.5.5", detour = "direct", strategy = "ipv4_only"),
+                    com.kunk.singbox.model.DnsServer(tag = "dns-backup", address = "119.29.29.29", detour = "direct", strategy = "ipv4_only")
+                ),
+                finalServer = "dns-direct",  // 指定默认 DNS 服务器
+                strategy = "ipv4_only"       // 全局 DNS 策略
             )
 
             // 确保有 direct 和 block
@@ -499,7 +580,7 @@ class SingBoxCore private constructor(private val context: Context) {
             val batchTestDbPath = File(tempDir, "batch_test_${UUID.randomUUID()}.db").absolutePath
 
             val config = SingBoxConfig(
-                log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true),
+                log = com.kunk.singbox.model.LogConfig(level = "debug", timestamp = true),  // 使用 debug 级别诊断问题
                 dns = dnsConfig,
                 inbounds = inbounds,
                 outbounds = safeOutbounds,
@@ -508,6 +589,8 @@ class SingBoxCore private constructor(private val context: Context) {
                         com.kunk.singbox.model.RouteRule(protocolRaw = listOf("dns"), outbound = "direct")
                     ) + rules,
                     finalOutbound = "direct",
+                    // 关键修复: 不设置 defaultInterface，因为测速服务没有权限绑定到特定接口
+                    // 只启用 autoDetectInterface，通过 autoDetectInterfaceControl 回调来保护 socket
                     autoDetectInterface = true
                 ),
                 // 完全禁用测试服务的缓存,避免数据库冲突
@@ -524,39 +607,70 @@ class SingBoxCore private constructor(private val context: Context) {
 
             // 3. 启动服务
             val configJson = gson.toJson(config)
+            // 诊断：打印第一个节点的配置（仅调试用）
+            Log.d(TAG, "Batch test config: outbounds count=${safeOutbounds.size}, first node type=${batchOutbounds.firstOrNull()?.type}")
+            if (batchOutbounds.isNotEmpty()) {
+                val firstNode = batchOutbounds.first()
+                Log.d(TAG, "First node: tag=${firstNode.tag}, type=${firstNode.type}, server=${firstNode.server}, port=${firstNode.serverPort}")
+                Log.d(TAG, "First node TLS: enabled=${firstNode.tls?.enabled}, sni=${firstNode.tls?.serverName}, reality=${firstNode.tls?.reality?.enabled}")
+                // 打印完整的第一个节点配置 JSON（仅调试）
+                Log.d(TAG, "First node full config: ${gson.toJson(firstNode)}")
+            }
             var service: BoxService? = null
-            
+
             try {
                 ensureLibboxSetup(context)
                 val platformInterface = TestPlatformInterface(context)
                 service = Libbox.newService(configJson, platformInterface)
                 service.start()
+                Log.d(TAG, "Batch test: service started, waiting for port ${ports.first()}")
 
                 // 等待第一个端口就绪 (通常这就代表服务启动了)
+                // 增加等待时间以确保服务完全就绪，特别是对于大批量节点
                 val firstPort = ports.first()
-                val deadline = System.currentTimeMillis() + 2000L
+                val deadline = System.currentTimeMillis() + 3000L
+                var portReady = false
                 while (System.currentTimeMillis() < deadline) {
                     try {
                         Socket().use { s ->
                             s.soTimeout = 100
                             s.connect(InetSocketAddress("127.0.0.1", firstPort), 100)
                         }
+                        portReady = true
                         break
                     } catch (_: Exception) {
                         delay(50)
                     }
                 }
-                delay(200) // 额外缓冲，确保所有端口都就绪
+                if (!portReady) {
+                    Log.e(TAG, "Batch test: port $firstPort not ready after 3s, aborting")
+                    batchOutbounds.forEach { onResult(it.tag, -1L) }
+                    return
+                }
+                Log.d(TAG, "Batch test: port ready, starting tests for ${batchOutbounds.size} nodes")
+                delay(500) // 额外缓冲，增加到500ms确保所有端口都就绪
 
                 // 4. 并发测试
                 val semaphore = Semaphore(concurrency)
-                
-                // 基础 Client，不含 Proxy，因为每个请求的 Proxy 不同
+
+                // 优化超时配置（参考 v2rayNG 的实现）：
+                // - connectTimeout: 本地代理连接，应该很快
+                // - callTimeout: 整个请求的总超时
                 val baseClient = OkHttpClient.Builder()
-                    .connectTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                    .connectTimeout(2000L, TimeUnit.MILLISECONDS) // 本地代理连接超时
                     .readTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
                     .writeTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                    .callTimeout(timeoutMs.toLong() + 2000L, TimeUnit.MILLISECONDS) // 整体超时多预留2秒
                     .build()
+
+                // 判断是否为可重试的连接错误
+                fun isRetryableError(e: Exception): Boolean {
+                    val msg = e.message ?: ""
+                    return msg.contains("Connection reset", ignoreCase = true) ||
+                           msg.contains("connection closed", ignoreCase = true) ||
+                           msg.contains("Connection refused", ignoreCase = true) ||
+                           msg.contains("broken pipe", ignoreCase = true)
+                }
 
                 coroutineScope {
                     val jobs = portToTagMap.map { (port, originalTag) ->
@@ -565,43 +679,60 @@ class SingBoxCore private constructor(private val context: Context) {
                                 val client = baseClient.newBuilder()
                                     .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port)))
                                     .build()
-                                
-                                val latency = try {
+
+                                // 单次请求执行
+                                suspend fun runOnce(url: String): Long {
                                     val t0 = System.nanoTime()
-                                    val req = Request.Builder().url(targetUrl).get().build()
+                                    val req = Request.Builder().url(url).get().build()
 
                                     client.newCall(req).execute().use { resp ->
-                                        // 严格检查状态码：任何 >= 400 的响应都视为测速失败
-                                        // 这可以过滤掉代理服务器返回的错误 (400/403/407/502/503/504)
-                                        // 也可以过滤掉目标服务器的错误 (404/500)，确保只有真正有效连通的节点才显示延迟
                                         if (resp.code >= 400) {
                                             throw java.io.IOException("Request failed with code ${resp.code}")
                                         }
                                         resp.body?.close()
                                     }
                                     val elapsed = (System.nanoTime() - t0) / 1_000_000
-                                    // 如果实际耗时超过用户设置的超时时间，视为超时
-                                    if (elapsed > timeoutMs) -1L else elapsed
+                                    return if (elapsed > timeoutMs) -1L else elapsed
+                                }
+
+                                // 带重试的请求执行
+                                suspend fun runWithRetry(url: String, maxRetries: Int = 2): Long {
+                                    var lastException: Exception? = null
+                                    for (attempt in 0 until maxRetries) {
+                                        try {
+                                            return runOnce(url)
+                                        } catch (e: Exception) {
+                                            lastException = e
+                                            if (isRetryableError(e) && attempt < maxRetries - 1) {
+                                                delay(100L * (attempt + 1))
+                                            } else {
+                                                throw e
+                                            }
+                                        }
+                                    }
+                                    throw lastException ?: java.io.IOException("Unknown error after retries")
+                                }
+
+                                val latency = try {
+                                    runWithRetry(targetUrl)
                                 } catch (e: Exception) {
+                                    Log.w(TAG, "Batch test node $originalTag failed: ${e.message}")
                                     // 尝试 fallback
                                     if (fallbackUrl != null && fallbackUrl != targetUrl) {
                                         try {
-                                            val t0 = System.nanoTime()
-                                            val req = Request.Builder().url(fallbackUrl).get().build()
-                                            client.newCall(req).execute().use { resp ->
-                                                resp.body?.close()
-                                            }
-                                            val elapsed = (System.nanoTime() - t0) / 1_000_000
-                                            // 如果实际耗时超过用户设置的超时时间，视为超时
-                                            if (elapsed > timeoutMs) -1L else elapsed
-                                        } catch (_: Exception) {
+                                            runWithRetry(fallbackUrl)
+                                        } catch (e2: Exception) {
+                                            Log.w(TAG, "Batch test node $originalTag fallback also failed: ${e2.message}")
                                             -1L
                                         }
                                     } else {
                                         -1L
                                     }
                                 }
-                                
+
+                                if (latency > 0) {
+                                    Log.d(TAG, "Batch test node $originalTag: ${latency}ms")
+                                }
                                 onResult(originalTag, latency)
                             }
                         }
@@ -620,6 +751,13 @@ class SingBoxCore private constructor(private val context: Context) {
                     File("$batchTestDbPath-shm").delete() // SQLite WAL 模式的共享内存文件
                     File("$batchTestDbPath-wal").delete() // SQLite WAL 日志文件
                 } catch (_: Exception) {}
+                // 恢复进程网络绑定状态
+                if (!vpnRunning) {
+                    try {
+                        connectivityManager.bindProcessToNetwork(previousNetwork)
+                        Log.d(TAG, "Batch test: Restored process network binding")
+                    } catch (_: Exception) {}
+                }
             }
         }
     }
@@ -773,6 +911,41 @@ class SingBoxCore private constructor(private val context: Context) {
         }
     }
 
+    /**
+     * 获取当前活动的物理网络接口名称（非 VPN）
+     * 用于测速服务显式绑定到物理网络，避免流量被 VPN 拦截
+     */
+    private fun getPhysicalNetworkInterface(): String? {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return null
+
+        // 获取活动网络
+        val activeNetwork = cm.activeNetwork ?: return null
+        val caps = cm.getNetworkCapabilities(activeNetwork) ?: return null
+
+        // 如果活动网络是 VPN，需要找到底层物理网络
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+            // 遍历所有网络，找到非 VPN 的物理网络
+            cm.allNetworks.forEach { network ->
+                val netCaps = cm.getNetworkCapabilities(network) ?: return@forEach
+                if (!netCaps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                    netCaps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                    val linkProps = cm.getLinkProperties(network)
+                    val ifaceName = linkProps?.interfaceName
+                    if (!ifaceName.isNullOrEmpty()) {
+                        Log.d(TAG, "Found physical network interface: $ifaceName")
+                        return ifaceName
+                    }
+                }
+            }
+            return null
+        }
+
+        // 活动网络不是 VPN，直接获取其接口名
+        val linkProps = cm.getLinkProperties(activeNetwork)
+        return linkProps?.interfaceName
+    }
+
 
     /**
      * 验证配置是否有效
@@ -803,26 +976,43 @@ class SingBoxCore private constructor(private val context: Context) {
 
     private class TestPlatformInterface(private val context: Context) : PlatformInterface {
         private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        private var networkCallback: ConnectivityManager.NetworkCallback? = null
-        private var currentInterfaceListener: InterfaceUpdateListener? = null
-        private var defaultInterfaceName: String = ""
 
         override fun autoDetectInterfaceControl(fd: Int) {
-            // 重要：如果 VPN 正在运行，必须 protect 测速 socket，否则流量会被 VPN 拦截
-            try {
-                val service = com.kunk.singbox.service.SingBoxService.instance
-                if (service == null) {
-                    Log.w(TAG, "VPN service not available for socket protection fd=$fd")
-                    throw java.io.IOException("VPN service unavailable")
+            // 如果 VPN 正在运行，必须 protect 测速 socket，否则流量会被 VPN 拦截
+            val service = com.kunk.singbox.service.SingBoxService.instance
+            if (service != null) {
+                try {
+                    val protected = service.protect(fd)
+                    if (!protected) {
+                        Log.w(TAG, "Failed to protect socket fd=$fd, continuing anyway")
+                    } else {
+                        Log.d(TAG, "autoDetectInterfaceControl: protected fd=$fd")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Socket protection error for fd=$fd: ${e.message}")
                 }
-                val protected = service.protect(fd)
-                if (!protected) {
-                    Log.e(TAG, "Failed to protect socket fd=$fd")
-                    throw java.io.IOException("Socket protection failed")
+                return
+            }
+
+            // VPN 未运行时，需要将 socket 绑定到默认网络
+            // 否则 sing-box 无法确定使用哪个网络接口，报错 "no available network interface"
+            try {
+                val network = connectivityManager.activeNetwork
+                if (network != null) {
+                    // 使用 ParcelFileDescriptor 包装 fd，然后绑定到网络
+                    val pfd = android.os.ParcelFileDescriptor.adoptFd(fd)
+                    try {
+                        network.bindSocket(pfd.fileDescriptor)
+                        Log.d(TAG, "autoDetectInterfaceControl: bound fd=$fd to network")
+                    } finally {
+                        // detachFd 防止 ParcelFileDescriptor.close() 关闭原始 fd
+                        pfd.detachFd()
+                    }
+                } else {
+                    Log.w(TAG, "autoDetectInterfaceControl: no active network for fd=$fd")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Socket protection error for fd=$fd", e)
-                throw e  // 重新抛出异常，让 libbox 知道此 socket 无法使用
+                Log.w(TAG, "autoDetectInterfaceControl: bind network error for fd=$fd: ${e.message}")
             }
         }
 
@@ -833,56 +1023,38 @@ class SingBoxCore private constructor(private val context: Context) {
         }
 
         override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener?) {
-            currentInterfaceListener = listener
-            networkCallback = object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) {
-                    updateDefaultInterface(network)
-                }
-                override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                    updateDefaultInterface(network)
-                }
-                override fun onLost(network: Network) {
-                    currentInterfaceListener?.updateDefaultInterface("", 0, false, false)
-                }
-            }
-            val request = NetworkRequest.Builder()
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .build()
+            // 关键修复: 必须立即通知 sing-box 当前的默认网络接口
+            // 否则 sing-box 会报 "no available network interface" 错误
+            // 注意: 不能在 cgo 回调中注册 NetworkCallback，会导致 Go runtime 栈溢出崩溃
+            // 但我们可以同步获取当前网络状态并立即通知
+            if (listener == null) return
+            
             try {
-                connectivityManager.registerNetworkCallback(request, networkCallback!!)
-                connectivityManager.activeNetwork?.let { updateDefaultInterface(it) }
+                val activeNetwork = connectivityManager.activeNetwork
+                if (activeNetwork != null) {
+                    val linkProperties = connectivityManager.getLinkProperties(activeNetwork)
+                    val interfaceName = linkProperties?.interfaceName ?: ""
+                    if (interfaceName.isNotEmpty()) {
+                        val index = try {
+                            java.net.NetworkInterface.getByName(interfaceName)?.index ?: 0
+                        } catch (e: Exception) { 0 }
+                        val caps = connectivityManager.getNetworkCapabilities(activeNetwork)
+                        val isExpensive = caps?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
+                        listener.updateDefaultInterface(interfaceName, index, isExpensive, false)
+                        Log.d(TAG, "TestPlatformInterface: initialized default interface: $interfaceName (index=$index)")
+                    } else {
+                        Log.w(TAG, "TestPlatformInterface: no interface name for active network")
+                    }
+                } else {
+                    Log.w(TAG, "TestPlatformInterface: no active network available")
+                }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start interface monitor", e)
+                Log.w(TAG, "TestPlatformInterface: failed to get default interface: ${e.message}")
             }
         }
 
         override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener?) {
-            networkCallback?.let { 
-                try {
-                    connectivityManager.unregisterNetworkCallback(it) 
-                } catch (e: Exception) {}
-            }
-            networkCallback = null
-            currentInterfaceListener = null
-        }
-
-        private fun updateDefaultInterface(network: Network) {
-            try {
-                val linkProperties = connectivityManager.getLinkProperties(network)
-                val interfaceName = linkProperties?.interfaceName ?: ""
-                if (interfaceName.isNotEmpty() && interfaceName != defaultInterfaceName) {
-                    defaultInterfaceName = interfaceName
-                    val index = try {
-                        NetworkInterface.getByName(interfaceName)?.index ?: 0
-                    } catch (e: Exception) { 0 }
-                    val caps = connectivityManager.getNetworkCapabilities(network)
-                    val isExpensive = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
-                    val isConstrained = false // Simple assumption
-                    currentInterfaceListener?.updateDefaultInterface(interfaceName, index, isExpensive, isConstrained)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to update default interface", e)
-            }
+            // 测速服务是短暂的，无需清理网络监听
         }
 
         override fun getInterfaces(): NetworkInterfaceIterator? {
@@ -917,7 +1089,9 @@ class SingBoxCore private constructor(private val context: Context) {
             } catch (e: Exception) { null }
         }
 
-        override fun usePlatformAutoDetectInterfaceControl(): Boolean = false
+        // 关键: 必须返回 true，否则 sing-box 不会调用 autoDetectInterfaceControl 来 protect socket
+        // 这会导致 VPN 运行时测速流量被拦截，形成回环，返回 502 错误
+        override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
         override fun useProcFS(): Boolean = false
         override fun findConnectionOwner(p0: Int, p1: String?, p2: Int, p3: String?, p4: Int): Int = 0
         override fun packageNameByUid(p0: Int): String = ""
@@ -932,9 +1106,12 @@ class SingBoxCore private constructor(private val context: Context) {
         }
         override fun systemCertificates(): StringIterator? = null
         override fun writeLog(message: String?) {
-            // 仅在必要时记录,避免大量日志输出
-            message?.takeIf { it.contains("error", ignoreCase = true) || it.contains("warn", ignoreCase = true) }?.let {
-                com.kunk.singbox.repository.LogRepository.getInstance().addLog("[Test] $it")
+            // 临时：记录所有日志以便诊断 502 问题
+            message?.let {
+                Log.d(TAG, "[libbox] $it")
+                if (it.contains("error", ignoreCase = true) || it.contains("warn", ignoreCase = true)) {
+                    com.kunk.singbox.repository.LogRepository.getInstance().addLog("[Test] $it")
+                }
             }
         }
     }
