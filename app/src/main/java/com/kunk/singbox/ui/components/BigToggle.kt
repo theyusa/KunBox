@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.components
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
@@ -170,22 +171,28 @@ fun BigToggle(
                         )
                 )
 
-                // 动态表情逻辑
                 val imageRes = if (isRunning) R.drawable.gengar_awake else R.drawable.gengar_sleep
-
-                // 表情层 (允许超出圆形边界)
                 val imageSize = if (isRunning) 560.dp else 640.dp
 
-                Image(
-                    painter = painterResource(id = imageRes),
-                    contentDescription = if (isRunning) "Running" else "Idle",
-                    modifier = Modifier
-                        .size(imageSize)
-                        .offset(x = 0.dp, y = 32.dp)
-                        .graphicsLayer {
-                            rotationZ = rotation.value
-                        }
-                )
+                Crossfade(
+                    targetState = isRunning,
+                    animationSpec = tween(400),
+                    label = "IconCrossfade"
+                ) { running ->
+                    val res = if (running) R.drawable.gengar_awake else R.drawable.gengar_sleep
+                    val size = if (running) 560.dp else 640.dp
+                    
+                    Image(
+                        painter = painterResource(id = res),
+                        contentDescription = if (running) "Running" else "Idle",
+                        modifier = Modifier
+                            .size(size)
+                            .offset(x = 0.dp, y = 32.dp)
+                            .graphicsLayer {
+                                rotationZ = rotation.value
+                            }
+                    )
+                }
             }
         }
     }
