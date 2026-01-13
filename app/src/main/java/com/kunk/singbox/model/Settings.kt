@@ -17,7 +17,7 @@ data class AppSettings(
     
     // TUN/VPN 设置
     @SerializedName("tunEnabled") val tunEnabled: Boolean = true,
-    @SerializedName("tunStack") val tunStack: TunStack = TunStack.SYSTEM,
+    @SerializedName("tunStack") val tunStack: TunStack = TunStack.MIXED,
     @SerializedName("tunMtu") val tunMtu: Int = 1280,  // 与 SettingsRepository 默认值保持一致
     @SerializedName("tunInterfaceName") val tunInterfaceName: String = "tun0",
     @SerializedName("autoRoute") val autoRoute: Boolean = false,
@@ -59,7 +59,7 @@ data class AppSettings(
     
     // 延迟测试设置
     @SerializedName("latencyTestMethod") val latencyTestMethod: LatencyTestMethod = LatencyTestMethod.REAL_RTT,
-    @SerializedName("latencyTestUrl") val latencyTestUrl: String = "https://www.gstatic.com/generate_204",
+    @SerializedName("latencyTestUrl") val latencyTestUrl: String = "https://www.google.com/generate_204",
     @SerializedName("latencyTestTimeout") val latencyTestTimeout: Int = 5000, // 默认 5000ms (参考 v2rayNG/sing-box 的超时设置)
     @SerializedName("latencyTestConcurrency") val latencyTestConcurrency: Int = 10, // 批量测试并发数/每批大小
     
