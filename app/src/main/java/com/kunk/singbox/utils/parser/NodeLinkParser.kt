@@ -16,7 +16,19 @@ import com.google.gson.Gson
  * 各种节点链接解析器集合
  */
 class NodeLinkParser(private val gson: Gson) {
-    
+
+    /**
+     * 预处理 URI 字符串，对 fragment 中的空格进行 URL 编码
+     * 解决 java.net.URI 无法解析包含未编码空格的 URI 问题
+     */
+    private fun sanitizeUri(link: String): String {
+        val hashIndex = link.indexOf('#')
+        if (hashIndex == -1) return link
+        val base = link.substring(0, hashIndex + 1)
+        val fragment = link.substring(hashIndex + 1)
+        return base + fragment.replace(" ", "%20")
+    }
+
     fun parse(link: String): Outbound? {
         return when {
             link.startsWith("ss://") -> parseShadowsocksLink(link)
@@ -288,7 +300,7 @@ class NodeLinkParser(private val gson: Gson) {
 
     private fun parseVLessLink(link: String): Outbound? {
         try {
-            val uri = java.net.URI(link)
+            val uri = java.net.URI(sanitizeUri(link))
             val name = java.net.URLDecoder.decode(uri.fragment ?: "VLESS Node", "UTF-8")
             val uuid = uri.userInfo
             val server = uri.host
@@ -372,7 +384,7 @@ class NodeLinkParser(private val gson: Gson) {
 
     private fun parseTrojanLink(link: String): Outbound? {
         try {
-            val uri = java.net.URI(link)
+            val uri = java.net.URI(sanitizeUri(link))
             val name = java.net.URLDecoder.decode(uri.fragment ?: "Trojan Node", "UTF-8")
             val password = uri.userInfo
             val server = uri.host
@@ -405,7 +417,7 @@ class NodeLinkParser(private val gson: Gson) {
 
     private fun parseHysteria2Link(link: String): Outbound? {
         try {
-            val uri = java.net.URI(link.replace("hy2://", "hysteria2://"))
+            val uri = java.net.URI(sanitizeUri(link.replace("hy2://", "hysteria2://")))
             val name = java.net.URLDecoder.decode(uri.fragment ?: "Hysteria2 Node", "UTF-8")
             val password = uri.userInfo
             val server = uri.host
@@ -441,7 +453,7 @@ class NodeLinkParser(private val gson: Gson) {
 
     private fun parseHysteriaLink(link: String): Outbound? {
         try {
-            val uri = java.net.URI(link)
+            val uri = java.net.URI(sanitizeUri(link))
             val name = java.net.URLDecoder.decode(uri.fragment ?: "Hysteria Node", "UTF-8")
             val server = uri.host
             val port = if (uri.port == -1) 443 else uri.port
@@ -475,7 +487,7 @@ class NodeLinkParser(private val gson: Gson) {
 
     private fun parseAnyTLSLink(link: String): Outbound? {
         try {
-            val uri = java.net.URI(link)
+            val uri = java.net.URI(sanitizeUri(link))
             val name = java.net.URLDecoder.decode(uri.fragment ?: "AnyTLS Node", "UTF-8")
             val password = uri.userInfo
             val server = uri.host
@@ -529,7 +541,7 @@ class NodeLinkParser(private val gson: Gson) {
 
     private fun parseTuicLink(link: String): Outbound? {
         try {
-            val uri = java.net.URI(link)
+            val uri = java.net.URI(sanitizeUri(link))
             val name = java.net.URLDecoder.decode(uri.fragment ?: "TUIC Node", "UTF-8")
             val server = uri.host
             val port = if (uri.port > 0) uri.port else 443
@@ -594,7 +606,7 @@ class NodeLinkParser(private val gson: Gson) {
 
     private fun parseWireGuardLink(link: String): Outbound? {
         try {
-            val uri = java.net.URI(link)
+            val uri = java.net.URI(sanitizeUri(link))
             val name = java.net.URLDecoder.decode(uri.fragment ?: "WireGuard Node", "UTF-8")
             val privateKey = uri.userInfo
             val server = uri.host
@@ -628,7 +640,7 @@ class NodeLinkParser(private val gson: Gson) {
 
     private fun parseSSHLink(link: String): Outbound? {
         try {
-            val uri = java.net.URI(link)
+            val uri = java.net.URI(sanitizeUri(link))
             val name = java.net.URLDecoder.decode(uri.fragment ?: "SSH Node", "UTF-8")
             val userInfo = uri.userInfo ?: ""
             val parts = userInfo.split(":")
@@ -654,7 +666,7 @@ class NodeLinkParser(private val gson: Gson) {
      */
     private fun parseHttpLink(link: String, useTls: Boolean): Outbound? {
         try {
-            val uri = java.net.URI(link)
+            val uri = java.net.URI(sanitizeUri(link))
             val name = java.net.URLDecoder.decode(
                 uri.fragment ?: if (useTls) "HTTPS Proxy" else "HTTP Proxy",
                 "UTF-8"
@@ -698,7 +710,7 @@ class NodeLinkParser(private val gson: Gson) {
             // 统一转换为标准 URI 格式
             val normalizedLink = link
                 .replace("socks5://", "socks://")
-            val uri = java.net.URI(normalizedLink)
+            val uri = java.net.URI(sanitizeUri(normalizedLink))
             val name = java.net.URLDecoder.decode(uri.fragment ?: "SOCKS5 Proxy", "UTF-8")
             val server = uri.host ?: return null
             val port = if (uri.port > 0) uri.port else 1080

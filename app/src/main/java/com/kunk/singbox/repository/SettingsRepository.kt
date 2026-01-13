@@ -381,7 +381,7 @@ class SettingsRepository(private val context: Context) {
             blockQuic = preferences[PreferencesKeys.BLOCK_QUIC] ?: true,
             debugLoggingEnabled = preferences[PreferencesKeys.DEBUG_LOGGING_ENABLED] ?: false,
             latencyTestMethod = LatencyTestMethod.valueOf(preferences[PreferencesKeys.LATENCY_TEST_METHOD] ?: LatencyTestMethod.REAL_RTT.name),
-            latencyTestUrl = preferences[PreferencesKeys.LATENCY_TEST_URL] ?: "https://cp.cloudflare.com/generate_204",
+            latencyTestUrl = preferences[PreferencesKeys.LATENCY_TEST_URL] ?: "https://www.gstatic.com/generate_204",
             latencyTestTimeout = preferences[PreferencesKeys.LATENCY_TEST_TIMEOUT] ?: 2000,
             latencyTestConcurrency = preferences[PreferencesKeys.LATENCY_TEST_CONCURRENCY] ?: 10,
             bypassLan = preferences[PreferencesKeys.BYPASS_LAN] ?: true,

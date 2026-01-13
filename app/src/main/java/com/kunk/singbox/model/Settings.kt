@@ -55,8 +55,8 @@ data class AppSettings(
     
     // 延迟测试设置
     @SerializedName("latencyTestMethod") val latencyTestMethod: LatencyTestMethod = LatencyTestMethod.REAL_RTT,
-    @SerializedName("latencyTestUrl") val latencyTestUrl: String = "https://cp.cloudflare.com/generate_204",
-    @SerializedName("latencyTestTimeout") val latencyTestTimeout: Int = 2000, // 默认 2000ms
+    @SerializedName("latencyTestUrl") val latencyTestUrl: String = "https://www.gstatic.com/generate_204",
+    @SerializedName("latencyTestTimeout") val latencyTestTimeout: Int = 5000, // 默认 5000ms (参考 v2rayNG/sing-box 的超时设置)
     @SerializedName("latencyTestConcurrency") val latencyTestConcurrency: Int = 10, // 批量测试并发数/每批大小
     
     // 镜像设置

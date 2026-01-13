@@ -85,7 +85,7 @@ fun RoutingSettingsScreen(
         InputDialog(
             title = stringResource(R.string.routing_settings_latency_test_url),
             initialValue = settings.latencyTestUrl,
-            placeholder = "e.g. https://cp.cloudflare.com/generate_204",
+            placeholder = "e.g. https://www.gstatic.com/generate_204",
             onConfirm = { url ->
                 settingsViewModel.setLatencyTestUrl(url.trim())
                 showLatencyUrlDialog = false

@@ -1245,11 +1245,16 @@ class ConfigRepository(private val context: Context) {
                     }
                     headers["User-Agent"] = userAgent
 
+                    val rawPath = json.path ?: "/"
+                    val edMatch = Regex("""[?&]ed=(\d+)""").find(rawPath)
+                    val maxEarlyData = edMatch?.groupValues?.get(1)?.toIntOrNull() ?: 2048
+                    val cleanPath = rawPath.replace(Regex("""[?&]ed=\d+"""), "").ifEmpty { "/" }
+
                     TransportConfig(
                         type = "ws",
-                        path = json.path ?: "/",
+                        path = cleanPath,
                         headers = headers,
-                        maxEarlyData = 2048,
+                        maxEarlyData = maxEarlyData,
                         earlyDataHeaderName = "Sec-WebSocket-Protocol"
                     )
                 }
@@ -1434,8 +1439,41 @@ class ConfigRepository(private val context: Context) {
             
             val sni = params["sni"] ?: server
             val insecure = params["allowInsecure"] == "1" || params["insecure"] == "1"
-            val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
             val fingerprint = params["fp"]
+            val transportType = params["type"] ?: "tcp"
+            
+            val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
+            val finalAlpnList = if (transportType == "ws" && alpnList.isNullOrEmpty()) {
+                listOf("http/1.1")
+            } else {
+                alpnList
+            }
+            
+            val transport = when (transportType) {
+                "ws" -> {
+                    val wsHost = params["host"] ?: sni
+                    val rawPath = params["path"] ?: "/"
+                    val edMatch = Regex("""[?&]ed=(\d+)""").find(rawPath)
+                    val maxEarlyData = params["ed"]?.toIntOrNull() ?: edMatch?.groupValues?.get(1)?.toIntOrNull() ?: 2048
+                    val cleanPath = rawPath.replace(Regex("""[?&]ed=\d+"""), "").ifEmpty { "/" }
+                    
+                    val ua = if (fingerprint?.contains("chrome", true) == true) {
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+                    } else {
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
+                    }
+                    
+                    TransportConfig(
+                        type = "ws",
+                        path = cleanPath,
+                        headers = mapOf("Host" to wsHost, "User-Agent" to ua),
+                        maxEarlyData = maxEarlyData,
+                        earlyDataHeaderName = "Sec-WebSocket-Protocol"
+                    )
+                }
+                "grpc" -> TransportConfig(type = "grpc", serviceName = params["serviceName"] ?: "")
+                else -> null
+            }
             
             return Outbound(
                 type = "trojan",
@@ -1447,9 +1485,10 @@ class ConfigRepository(private val context: Context) {
                     enabled = true,
                     serverName = sni,
                     insecure = insecure,
-                    alpn = alpnList,
+                    alpn = finalAlpnList,
                     utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
-                )
+                ),
+                transport = transport
             )
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse trojan link", e)
