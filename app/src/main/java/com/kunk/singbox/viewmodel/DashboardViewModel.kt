@@ -491,54 +491,38 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
-     * 2025-fix: 刷新 VPN 状态
-     * 在 Activity resume 时调用，确保 UI 与服务端状态同步
-     * 解决通过快捷方式操作后返回 App 时 UI 不更新的问题
-     *
-     * 参考 NekoBox 的 SagerConnection 实现：
-     * - 使用 rebind() 强制重新同步状态
-     * - 增加重试机制确保绑定成功
+     * 2025-fix-v4: 刷新 VPN 状态 (v2rayNG + NekoBox 混合策略)
+     * 
+     * v2rayNG 风格: 主动查询服务状态 (MSG_REGISTER_CLIENT)
+     * NekoBox 风格: 系统 VPN 状态作为备用验证
      */
     fun refreshState() {
         viewModelScope.launch {
-            // 2025-fix: 使用 rebind() 强制重新同步状态
-            // rebind() 会检查连接有效性并同步最新状态
-            runCatching { SingBoxRemote.rebind(getApplication()) }
-
-            // 等待 IPC 绑定完成，增加重试次数和间隔
-            var retries = 0
-            while (!SingBoxRemote.isBound() && retries < 20) {
-                delay(100)
-                retries++
-            }
-
-            // 如果绑定成功，状态已经在 rebind() 中同步了
-            // 这里再次读取以确保 UI 更新
-            if (SingBoxRemote.isBound()) {
-                val state = SingBoxRemote.state.value
-                Log.i(TAG, "refreshState: IPC bound, state=$state")
-                when (state) {
-                    SingBoxService.ServiceState.RUNNING -> setConnectionState(ConnectionState.Connected)
-                    SingBoxService.ServiceState.STARTING -> setConnectionState(ConnectionState.Connecting)
-                    SingBoxService.ServiceState.STOPPING -> setConnectionState(ConnectionState.Disconnecting)
-                    SingBoxService.ServiceState.STOPPED -> setConnectionState(ConnectionState.Idle)
-                }
-            } else {
-                // IPC 绑定失败，检查系统 VPN 状态作为后备
-                Log.w(TAG, "refreshState: IPC bind failed, checking system VPN")
-                val context = getApplication<Application>()
-                val hasSystemVpn = checkSystemVpn(context)
-                if (hasSystemVpn) {
-                    // 系统有 VPN，保持当前状态或设为 Connected
-                    if (_connectionState.value == ConnectionState.Idle) {
-                        setConnectionState(ConnectionState.Connected)
-                    }
-                } else {
-                    setConnectionState(ConnectionState.Idle)
+            val context = getApplication<Application>()
+            
+            // v2rayNG 风格: 主动查询并同步状态
+            val synced = runCatching { SingBoxRemote.queryAndSyncState(context) }.getOrDefault(false)
+            
+            if (synced) {
+                // 等待 IPC 绑定完成
+                var retries = 0
+                while (!SingBoxRemote.isBound() && retries < 15) {
+                    delay(100)
+                    retries++
                 }
             }
 
-            // 确保状态监听器已启动
+            // 根据 SingBoxRemote 的状态更新 UI
+            val state = SingBoxRemote.state.value
+            Log.i(TAG, "refreshState: state=$state, bound=${SingBoxRemote.isBound()}")
+            
+            when (state) {
+                SingBoxService.ServiceState.RUNNING -> setConnectionState(ConnectionState.Connected)
+                SingBoxService.ServiceState.STARTING -> setConnectionState(ConnectionState.Connecting)
+                SingBoxService.ServiceState.STOPPING -> setConnectionState(ConnectionState.Disconnecting)
+                SingBoxService.ServiceState.STOPPED -> setConnectionState(ConnectionState.Idle)
+            }
+
             startStateCollector()
         }
     }

@@ -959,60 +959,40 @@ class SingBoxService : VpnService() {
                             }
                         }
                         PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> {
-                            // 2025-fix: 简化 Doze 模式处理，参考 NekoBox 的简洁实现
-                            // NekoBox 只在进入 Doze 时调用 sleep()，退出时调用 wake() + 可选的 resetAllConnections()
-                            // 不需要额外的 resetNetwork() 调用，因为这会导致不必要的网络震荡
+                            // 2025-fix-v4: 参考 NekoBox 的极简 Doze 处理
+                            // NekoBox 只在进入 Doze 时调用 sleep()，退出时只调用 wake()
+                            // 不调用 resetConnectionsOptimal()，避免触发网络变化广播
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                                 val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
                                 val isIdleMode = powerManager?.isDeviceIdleMode == true
 
                                 if (isIdleMode) {
-                                    // 进入 Doze 模式：调用 sleep()/pause() 通知核心进入省电模式
                                     Log.i(TAG, "[Doze Enter] Device entering idle mode")
                                     serviceScope.launch {
                                         try {
                                             if (BoxWrapperManager.isAvailable()) {
                                                 BoxWrapperManager.pause()
-                                                Log.i(TAG, "[Doze Enter] Called BoxWrapperManager.pause()")
                                             } else {
                                                 boxService?.pause()
-                                                Log.i(TAG, "[Doze Enter] Called boxService.pause()")
                                             }
+                                            Log.i(TAG, "[Doze Enter] Called pause()")
                                         } catch (e: Exception) {
                                             Log.w(TAG, "[Doze Enter] pause() failed: ${e.message}")
                                         }
                                     }
                                 } else {
-                                    // 退出 Doze 模式：简化恢复逻辑
-                                    // 只调用 wake()/resume()，不做额外的网络重置
+                                    // 2025-fix-v4: 只调用 wake()，不做任何连接重置
                                     Log.i(TAG, "[Doze Exit] Device exiting idle mode")
                                     serviceScope.launch {
                                         try {
-                                            // Step 1: 唤醒核心
                                             if (BoxWrapperManager.isAvailable()) {
                                                 BoxWrapperManager.resume()
-                                                Log.i(TAG, "[Doze Exit] Called BoxWrapperManager.resume()")
                                             } else {
                                                 boxService?.wake()
-                                                Log.i(TAG, "[Doze Exit] Called boxService.wake()")
                                             }
-
-                                            // Step 2: 可选的连接重置（根据用户设置）
-                                            val settings = currentSettings
-                                            if (settings?.wakeResetConnections == true) {
-                                                // 短暂延迟确保核心已唤醒
-                                                delay(100)
-                                                resetConnectionsOptimal(reason = "doze_exit", skipDebounce = true)
-                                                Log.i(TAG, "[Doze Exit] Called resetConnectionsOptimal()")
-                                            }
-
-                                            // 2025-fix: 移除 resetNetwork() 调用
-                                            // 原因: resetNetwork() 会导致 sing-box 重新初始化网络栈，
-                                            // 向系统发送网络变化信号，导致 Telegram 等应用感知到网络变化并重新加载
-                                            // NekoBox 的做法是只调用 wake()，不做额外的网络重置
-
+                                            Log.i(TAG, "[Doze Exit] Called wake() - no connection reset")
                                         } catch (e: Exception) {
-                                            Log.w(TAG, "[Doze Exit] Recovery failed: ${e.message}")
+                                            Log.w(TAG, "[Doze Exit] wake() failed: ${e.message}")
                                         }
                                     }
                                 }
@@ -1120,16 +1100,19 @@ class SingBoxService : VpnService() {
 
     /**
      * 屏幕唤醒时的健康检查
-     * 这是修复 Telegram 等应用切换回来后无法连接的核心逻辑
-     *
-     * 参考实现：
-     * - NekoBox 使用类似的屏幕监听 + Wake() 调用机制
-     * - libbox 提供了专门的 Wake() 和 ResetNetwork() API
-     *
-     * ⭐ 2025-fix: 优化延迟，加快连接恢复速度
-     * - wake() 后的 delay 从 150ms 减少到 50ms
-     * - closeConnections 后的 delay 从 100ms 减少到 30ms
-     * - 网络震荡的 delay 从 150ms 减少到 60ms
+     * 
+     * 2025-fix-v4: 参考 NekoBox 的极简实现
+     * NekoBox 在屏幕解锁时几乎不做任何操作，只依赖 Doze 退出时的 wake() 调用
+     * 
+     * 根因分析：
+     * - 之前的实现在屏幕解锁时调用 resetNetwork()，这会触发系统网络变化广播
+     * - Telegram 等应用监听网络变化，收到广播后会重新加载
+     * - NekoBox 不在屏幕解锁时做任何网络操作，所以没有这个问题
+     * 
+     * 修复策略：
+     * - 只做基本的健康检查（VPN 接口和 boxService 是否有效）
+     * - 只调用 wake() 通知核心设备唤醒，不做任何网络重置
+     * - 移除 resetNetwork() 调用，避免触发网络变化广播
      */
     private suspend fun performScreenOnHealthCheck() {
         if (!isRunning) {
@@ -1137,12 +1120,12 @@ class SingBoxService : VpnService() {
         }
 
         try {
-            Log.i(TAG, "🔍 Performing screen-on health check...")
+            Log.i(TAG, "[ScreenOn] Performing health check...")
 
             // 检查 1: VPN 接口是否有效
             val vpnInterfaceValid = vpnInterface?.fileDescriptor?.valid() == true
             if (!vpnInterfaceValid) {
-                Log.e(TAG, "❌ VPN interface invalid after screen on, triggering recovery")
+                Log.e(TAG, "[ScreenOn] VPN interface invalid, triggering recovery")
                 handleHealthCheckFailure("VPN interface invalid after screen on")
                 return
             }
@@ -1150,51 +1133,36 @@ class SingBoxService : VpnService() {
             // 检查 2: boxService 是否响应
             val service = boxService
             if (service == null) {
-                Log.e(TAG, "❌ boxService is null after screen on")
+                Log.e(TAG, "[ScreenOn] boxService is null")
                 handleHealthCheckFailure("boxService is null after screen on")
                 return
             }
 
-            // === NekoBox-style: 简化唤醒逻辑 ===
-            // NekoBox 只在 Doze 退出时调用 resetAllConnections，不在屏幕解锁时重复调用
-            // 这样可以避免多次连接重置导致 Telegram 反复加载
+            // 2025-fix-v4: NekoBox 风格 - 只调用 wake()，不做任何网络重置
+            // 原因：resetNetwork() 会触发系统网络变化广播，导致 Telegram 等应用重新加载
             withContext(Dispatchers.IO) {
                 try {
-                    // Step 1: 调用 libbox wake() 通知核心设备唤醒
                     service.wake()
-                    Log.i(TAG, "[ScreenOn Step 1/2] Called boxService.wake()")
-
-                    // Step 2: 触发核心网络重置 (不关闭连接，让 Doze 退出处理)
-                    boxService?.resetNetwork()
-                    Log.i(TAG, "[ScreenOn Step 2/2] Called resetNetwork()")
-
+                    Log.i(TAG, "[ScreenOn] Called boxService.wake() - no network reset")
                 } catch (e: Exception) {
-                    Log.w(TAG, "Screen-on wake/reset failed: ${e.message}")
+                    Log.w(TAG, "[ScreenOn] wake() failed: ${e.message}")
                 }
             }
 
-            Log.i(TAG, "Screen-on health check passed (NekoBox-style, no network oscillation)")
+            Log.i(TAG, "[ScreenOn] Health check passed (NekoBox-style)")
             consecutiveHealthCheckFailures = 0
 
         } catch (e: Exception) {
-            Log.e(TAG, "Screen-on health check failed", e)
+            Log.e(TAG, "[ScreenOn] Health check failed", e)
             handleHealthCheckFailure("Screen-on check exception: ${e.message}")
         }
     }
 
     /**
-     * ⭐ P0修复3: 应用返回前台时的健康检查
-     *
-     * 场景: 用户从 Telegram 切换到其他 app 再切回来（屏幕一直亮着）
-     * 与 performScreenOnHealthCheck 的区别:
-     * - 延迟更短 - 应用切换不涉及锁屏，系统响应更快
-     * - 更轻量级 - 不需要等待系统完全 ready
-     * - 优先级更高 - 用户正在主动使用应用
-     *
-     * ⭐ 2025-fix: 进一步减少延迟，让 Telegram 等应用更快恢复连接
-     * - wake() 后的 delay 从 80ms 减少到 20ms
-     * - closeConnections 后的 delay 从 80ms 减少到 20ms
-     * - 网络震荡的 delay 从 100ms 减少到 40ms
+     * 应用返回前台时的健康检查
+     * 
+     * 2025-fix-v4: 参考 NekoBox - 只调用 wake()，不做网络重置
+     * 避免触发网络变化广播导致 Telegram 等应用重新加载
      */
     private suspend fun performAppForegroundHealthCheck() {
         if (!isRunning) {
@@ -1202,9 +1170,8 @@ class SingBoxService : VpnService() {
         }
 
         try {
-            Log.i(TAG, "[App Foreground] Performing health check...")
+            Log.i(TAG, "[AppForeground] Performing health check...")
 
-            // 检查 1: VPN 接口是否有效
             val vpnInterfaceValid = vpnInterface?.fileDescriptor?.valid() == true
             if (!vpnInterfaceValid) {
                 Log.e(TAG, "[App Foreground] VPN interface invalid, triggering recovery")
@@ -1215,39 +1182,27 @@ class SingBoxService : VpnService() {
             // 检查 2: boxService 是否响应
             val service = boxService
             if (service == null) {
-                Log.e(TAG, "[App Foreground] boxService is null")
+                Log.e(TAG, "[AppForeground] boxService is null")
                 handleHealthCheckFailure("boxService is null after app foreground")
                 return
             }
 
-            // 计算后台时长
-            val now = SystemClock.elapsedRealtime()
-            val backgroundDuration = if (lastAppBackgroundAtMs > 0) now - lastAppBackgroundAtMs else 0L
-            val needConnectionReset = backgroundDuration > backgroundThresholdForConnectionResetMs
-
+            // 2025-fix-v4: NekoBox 风格 - 只调用 wake()，不做连接重置
+            // 移除 resetConnectionsOptimal 调用，避免触发网络变化
             withContext(Dispatchers.IO) {
                 try {
-                    // Step 1: 调用 libbox wake() 确保核心处于活跃状态
                     service.wake()
-
-                    // Step 2: NekoBox-style - 长时间后台后清理旧连接
-                    // 类似 NekoBox 的 wakeResetConnections 逻辑
-                    if (needConnectionReset) {
-                        Log.i(TAG, "[AppForeground] Background duration ${backgroundDuration}ms > threshold, resetting connections")
-                        resetConnectionsOptimal(reason = "app_foreground", skipDebounce = true)
-                    } else {
-                        Log.i(TAG, "[AppForeground] Called wake() - short background (${backgroundDuration}ms), no connection reset")
-                    }
+                    Log.i(TAG, "[AppForeground] Called wake() - no connection reset")
                 } catch (e: Exception) {
-                    Log.w(TAG, "[AppForeground] wake/reset failed: ${e.message}")
+                    Log.w(TAG, "[AppForeground] wake() failed: ${e.message}")
                 }
             }
 
-            Log.i(TAG, "App foreground health check passed")
+            Log.i(TAG, "[AppForeground] Health check passed (NekoBox-style)")
             consecutiveHealthCheckFailures = 0
 
         } catch (e: Exception) {
-            Log.e(TAG, "[App Foreground] Health check failed", e)
+            Log.e(TAG, "[AppForeground] Health check failed", e)
             handleHealthCheckFailure("App foreground check exception: ${e.message}")
         }
     }
@@ -2865,11 +2820,12 @@ private val platformInterface = object : PlatformInterface {
                 boxService?.start()
                 Log.i(TAG, "BoxService started")
 
-                // Wait for VPN link validation before resetting network
-                // This prevents connection leaks during VPN startup window
+                // 2025-fix-v4: 移除启动时的 resetNetwork() 调用
+                // 参考 NekoBox: 不在 VPN 启动时调用 resetNetwork()
+                // resetNetwork() 会触发系统网络变化广播，导致 Telegram 等应用重新加载
                 serviceScope.launch {
                     try {
-                        // Wait up to 2s for VPN link to be validated (reduced from 3s)
+                        // 等待 VPN 链路验证
                         var waited = 0L
                         while (!vpnLinkValidated && waited < 2000L) {
                             delay(100)
@@ -2877,16 +2833,16 @@ private val platformInterface = object : PlatformInterface {
                         }
 
                         if (vpnLinkValidated) {
-                            Log.i(TAG, "VPN link validated, calling resetNetwork() after ${waited}ms")
+                            Log.i(TAG, "VPN link validated after ${waited}ms")
                         } else {
-                            Log.w(TAG, "VPN link validation timeout after ${waited}ms, calling resetNetwork() anyway")
+                            Log.w(TAG, "VPN link validation timeout after ${waited}ms")
                         }
 
-                        boxService?.resetNetwork()
-                        Log.i(TAG, "Initial boxService.resetNetwork() called")
+                        // 2025-fix-v4: 移除 resetNetwork() 调用
+                        // boxService?.resetNetwork()
+                        Log.i(TAG, "Skipped resetNetwork() to avoid network broadcast (NekoBox-style)")
 
-                        // 关键修复:等待 sing-box 核心完全初始化
-                        // 条件就绪触发 + 最大超时兜底，尽量缩短重启耗时
+                        // 等待核心就绪
                         Log.i(TAG, "Waiting for sing-box core readiness (max 2.5s)...")
                         val coreWaitDeadlineMs = 2500L
                         var coreWaitedMs = 0L
@@ -2903,46 +2859,26 @@ private val platformInterface = object : PlatformInterface {
                             Log.w(TAG, "Core readiness timeout after ${coreWaitedMs}ms, proceeding anyway")
                         }
 
-                        // === 核心就绪后确认底层网络设置 ===
-                        // 2025-fix: 不再重复设置底层网络，因为 openTun() 已经设置过了
-                        // 重复调用 setUnderlyingNetworks 会导致已建立的 UDP 连接被关闭
-                        // (如 Hysteria2 的 QUIC 连接)，造成 Telegram 等应用连接中断
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                             val currentNetwork = lastKnownNetwork ?: findBestPhysicalNetwork()
                             if (currentNetwork != null) {
-                                // 只记录日志，不重复设置
-                                Log.i(TAG, "Underlying network confirmed (network=$currentNetwork, already set in openTun)")
-                                LogRepository.getInstance().addLog("INFO: VPN 底层网络已确认,开始路由流量")
+                                Log.i(TAG, "Underlying network confirmed (network=$currentNetwork)")
+                                LogRepository.getInstance().addLog("INFO: VPN ready")
                             } else {
                                 Log.w(TAG, "No physical network found after core ready")
-                                LogRepository.getInstance().addLog("WARN: 未找到物理网络,VPN 可能无法正常工作")
                             }
-                        } else {
-                            Log.i(TAG, "Skipping underlying network configuration (Android < 5.1)")
                         }
 
-                        // DNS 预热: 预解析常见域名,避免首次查询超时导致用户感知延迟
                         try {
                             warmupDnsCache()
                         } catch (e: Exception) {
                             Log.w(TAG, "DNS warmup failed", e)
                         }
 
-                        // === VPN 启动后简化处理 ===
-                        // 2025-fix: 学习 NekoBox 的做法，不进行网络震荡
-                        // 网络震荡会导致 CONNECTIVITY_CHANGE 广播多次，造成 Telegram 等应用
-                        // 收到多次"网络中断/恢复"通知，触发重复的"加载中-加载完成"循环
-                        //
-                        // NekoBox 的做法: 只在 Builder 中设置一次 underlying network，
-                        // 后续网络变化由独立的 DefaultNetworkListener 异步处理
-                        Log.i(TAG, "VPN startup: skipping network oscillation (NekoBox-style)")
-
-                        LogRepository.getInstance().addLog("INFO: VPN 已就绪")
-
-                        Log.i(TAG, "Sing-box core initialization complete, VPN is now fully ready")
-                        LogRepository.getInstance().addLog("INFO: VPN 核心已完全就绪,网络连接可用")
+                        Log.i(TAG, "VPN startup complete (NekoBox-style, no network oscillation)")
+                        LogRepository.getInstance().addLog("INFO: VPN fully ready")
                     } catch (e: Exception) {
-                        Log.w(TAG, "Failed to call initial resetNetwork", e)
+                        Log.w(TAG, "VPN startup post-processing failed", e)
                     }
                 }
 
