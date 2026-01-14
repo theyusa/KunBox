@@ -545,14 +545,16 @@ fun MultiAppSelectorDialog(
     var searchQuery by remember { mutableStateOf("") }
     var showSystemApps by remember { mutableStateOf(false) }
 
-    val filteredApps = remember(installedApps, searchQuery, showSystemApps) {
-        installedApps.filter { app ->
+    val filteredApps = remember(installedApps, searchQuery, showSystemApps, tempSelected) {
+        val filtered = installedApps.filter { app ->
             val matchesSearch = searchQuery.isBlank() ||
                 app.appName.contains(searchQuery, ignoreCase = true) ||
                 app.packageName.contains(searchQuery, ignoreCase = true)
             val matchesFilter = showSystemApps || !app.isSystemApp
             matchesSearch && matchesFilter
         }
+        val selectedPackages = tempSelected.map { it.packageName }.toSet()
+        filtered.sortedByDescending { it.packageName in selectedPackages }
     }
 
     AlertDialog(
