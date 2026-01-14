@@ -64,7 +64,7 @@ class TrafficMonitor(
         lastStallTrafficBytes = 0L
         lastStallCheckAtMs = 0L
 
-        monitorJob = scope.launch(Dispatchers.Default) {
+        monitorJob = scope.launch(Dispatchers.IO) {
             while (true) {
                 delay(SAMPLE_INTERVAL_MS)
 

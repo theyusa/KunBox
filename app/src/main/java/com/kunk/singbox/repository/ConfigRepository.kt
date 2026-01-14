@@ -3260,6 +3260,7 @@ class ConfigRepository(private val context: Context) {
                     // 自动降级到 gvisor 模式。UI 仍显示用户选择的模式。
                     stack = getEffectiveTunStack(settings.tunStack).name.lowercase(),
                     endpointIndependentNat = settings.endpointIndependentNat,
+                    gso = true, // GSO 优化，需要 libbox 1.11+
                     sniff = true,
                     sniffOverrideDestination = true,
                     sniffTimeout = "300ms"

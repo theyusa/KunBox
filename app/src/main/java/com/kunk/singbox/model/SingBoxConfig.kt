@@ -91,6 +91,7 @@ data class Inbound(
     @SerializedName("sniff_timeout") val sniffTimeout: String? = null,
     @SerializedName("tcp_fast_open") val tcpFastOpen: Boolean? = null,
     @SerializedName("endpoint_independent_nat") val endpointIndependentNat: Boolean? = null,
+    @SerializedName("gso") val gso: Boolean? = null,
     @SerializedName("users") val users: List<InboundUser>? = null
 ) {
     val inet4Address: List<String>?

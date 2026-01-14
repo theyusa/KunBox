@@ -23,31 +23,31 @@ object VpnStateStore {
     fun getActive(context: Context): Boolean = prefs(context).getBoolean(KEY_VPN_ACTIVE, false)
 
     fun setActive(context: Context, active: Boolean) {
-        prefs(context).edit().putBoolean(KEY_VPN_ACTIVE, active).commit()
+        prefs(context).edit().putBoolean(KEY_VPN_ACTIVE, active).apply()
     }
 
     fun getPending(context: Context): String = prefs(context).getString(KEY_VPN_PENDING, "").orEmpty()
 
     fun setPending(context: Context, pending: String?) {
-        prefs(context).edit().putString(KEY_VPN_PENDING, pending.orEmpty()).commit()
+        prefs(context).edit().putString(KEY_VPN_PENDING, pending.orEmpty()).apply()
     }
 
     fun getActiveLabel(context: Context): String = prefs(context).getString(KEY_VPN_ACTIVE_LABEL, "").orEmpty()
 
     fun setActiveLabel(context: Context, label: String?) {
-        prefs(context).edit().putString(KEY_VPN_ACTIVE_LABEL, label.orEmpty()).commit()
+        prefs(context).edit().putString(KEY_VPN_ACTIVE_LABEL, label.orEmpty()).apply()
     }
 
     fun getLastError(context: Context): String = prefs(context).getString(KEY_VPN_LAST_ERROR, "").orEmpty()
 
     fun setLastError(context: Context, message: String?) {
-        prefs(context).edit().putString(KEY_VPN_LAST_ERROR, message.orEmpty()).commit()
+        prefs(context).edit().putString(KEY_VPN_LAST_ERROR, message.orEmpty()).apply()
     }
 
     fun isManuallyStopped(context: Context): Boolean = prefs(context).getBoolean(KEY_VPN_MANUALLY_STOPPED, false)
 
     fun setManuallyStopped(context: Context, value: Boolean) {
-        prefs(context).edit().putBoolean(KEY_VPN_MANUALLY_STOPPED, value).commit()
+        prefs(context).edit().putBoolean(KEY_VPN_MANUALLY_STOPPED, value).apply()
     }
 
     fun getMode(context: Context): CoreMode {
@@ -56,6 +56,6 @@ object VpnStateStore {
     }
 
     fun setMode(context: Context, mode: CoreMode) {
-        prefs(context).edit().putString(KEY_CORE_MODE, mode.name).commit()
+        prefs(context).edit().putString(KEY_CORE_MODE, mode.name).apply()
     }
 }

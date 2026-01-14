@@ -12,7 +12,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.channels.actor
-import kotlinx.coroutines.runBlocking
 import java.lang.ref.WeakReference
 
 /**
@@ -104,11 +103,11 @@ object DefaultNetworkListener {
         override fun onAvailable(network: Network) {
             Log.d(TAG, "Network available: $network")
             underlyingNetwork = network
-            runBlocking { networkActor.send(NetworkMessage.Put(network)) }
+            networkActor.trySend(NetworkMessage.Put(network))
         }
 
         override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
-            runBlocking { networkActor.send(NetworkMessage.Update(network)) }
+            networkActor.trySend(NetworkMessage.Update(network))
         }
 
         override fun onLost(network: Network) {
@@ -116,7 +115,7 @@ object DefaultNetworkListener {
             if (underlyingNetwork == network) {
                 underlyingNetwork = null
             }
-            runBlocking { networkActor.send(NetworkMessage.Lost(network)) }
+            networkActor.trySend(NetworkMessage.Lost(network))
         }
     }
 
