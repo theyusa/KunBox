@@ -231,7 +231,7 @@ fun ProfileCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(2f, fill = false)
+                            modifier = Modifier.weight(1f, fill = false)
                         )
                     }
 
@@ -251,9 +251,7 @@ fun ProfileCard(
                             text = formatDate(expireDate),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
+                            maxLines = 1
                         )
                     }
                 }
