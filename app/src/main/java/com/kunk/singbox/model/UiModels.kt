@@ -181,7 +181,8 @@ enum class ConnectionState(@StringRes val displayNameRes: Int) {
 data class SavedProfilesData(
     @SerializedName("profiles") val profiles: List<ProfileUi>,
     @SerializedName("activeProfileId") val activeProfileId: String?,
-    @SerializedName("activeNodeId") val activeNodeId: String?
+    @SerializedName("activeNodeId") val activeNodeId: String?,
+    @SerializedName("nodeLatencies") val nodeLatencies: Map<String, Long> = emptyMap()
 )
 
 /**

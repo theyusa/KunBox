@@ -214,10 +214,17 @@ class ConfigRepository(private val context: Context) {
 
     private fun saveProfiles() {
         try {
+            // 收集所有节点的延迟数据
+            val latencies = mutableMapOf<String, Long>()
+            profileNodes.values.flatten().forEach { node ->
+                node.latencyMs?.let { latencies[node.id] = it }
+            }
+
             val data = SavedProfilesData(
                 profiles = _profiles.value,
                 activeProfileId = _activeProfileId.value,
-                activeNodeId = _activeNodeId.value
+                activeNodeId = _activeNodeId.value,
+                nodeLatencies = latencies
             )
 
             val json = gson.toJson(data)
@@ -357,7 +364,12 @@ class ConfigRepository(private val context: Context) {
                             val configJson = configFile.readText()
                             val config = gson.fromJson(configJson, SingBoxConfig::class.java)
                             val nodes = extractNodesFromConfig(config, profile.id)
-                            profileNodes[profile.id] = nodes
+                            // 恢复延迟数据
+                            val nodesWithLatency = nodes.map { node ->
+                                val latency = savedData.nodeLatencies[node.id]
+                                if (latency != null) node.copy(latencyMs = latency) else node
+                            }
+                            profileNodes[profile.id] = nodesWithLatency
                             cacheConfig(profile.id, config)
                         } catch (e: Exception) {
                             Log.e(TAG, "Failed to load config for profile: ${profile.id}", e)
@@ -2218,6 +2230,7 @@ class ConfigRepository(private val context: Context) {
                         if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else -1L) else it
                     } ?: emptyList()
                     updateLatencyInAllNodes(nodeId, latency)
+                    saveProfiles()
 
                     latency
                 } catch (e: Exception) {
@@ -2309,6 +2322,7 @@ class ConfigRepository(private val context: Context) {
             onNodeComplete?.invoke(info.nodeId)
         }
 
+        saveProfiles()
     }
 
     suspend fun updateAllProfiles(): BatchUpdateResult {
