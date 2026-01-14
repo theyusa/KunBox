@@ -322,7 +322,6 @@
     <string name="rulesets_select_outbound">选择出站模式</string>
     <string name="rulesets_select_profile">选择配置</string>
     <string name="rulesets_select_node">选择节点</string>
-    <string name="rulesets_select_group">选择节点组</string>
     <string name="rulesets_select_inbound">选择入站</string>
     <string name="rulesets_type">类型</string>
     <string name="rulesets_format">格式</string>
@@ -357,7 +356,6 @@
     <string name="app_rules_delete_confirm">确定要删除 \"%s\" 的分流规则吗？</string>
     <string name="app_rules_not_selected">未选择</string>
     <string name="app_rules_unknown_profile">未知配置</string>
-    <string name="app_rules_unknown_group">未知组</string>
     <string name="app_rules_tabs_groups">应用分组</string>
     <string name="app_rules_tabs_individual">独立规则</string>
     <string name="app_rules_empty_groups">暂无应用分组</string>
@@ -586,7 +584,6 @@
     <string name="ruleset_outbound_proxy">代理</string>
     <string name="ruleset_outbound_node">单节点</string>
     <string name="ruleset_outbound_profile">配置</string>
-    <string name="ruleset_outbound_group">节点组</string>
 
     <!-- Update Status Messages -->
     <string name="update_status_no_subscription">没有可更新的订阅</string>

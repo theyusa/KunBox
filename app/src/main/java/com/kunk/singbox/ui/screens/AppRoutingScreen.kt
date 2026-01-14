@@ -52,7 +52,6 @@ fun AppRoutingScreen(
 
     val allNodes by nodesViewModel.allNodes.collectAsState()
     val nodesForSelection by nodesViewModel.filteredAllNodes.collectAsState()
-    val availableGroups by nodesViewModel.allNodeGroups.collectAsState()
     val profiles by profilesViewModel.profiles.collectAsState()
 
     DisposableEffect(Unit) {
@@ -81,7 +80,6 @@ fun AppRoutingScreen(
             nodes = allNodes,
             nodesForSelection = nodesForSelection,
             profiles = profiles,
-            groups = availableGroups,
             onDismiss = { showAddGroupDialog = false },
             onConfirm = { group ->
                 settingsViewModel.addAppGroup(group)
@@ -97,7 +95,6 @@ fun AppRoutingScreen(
             nodes = allNodes,
             nodesForSelection = nodesForSelection,
             profiles = profiles,
-            groups = availableGroups,
             onDismiss = { editingGroup = null },
             onConfirm = { group ->
                 settingsViewModel.updateAppGroup(group)
@@ -126,7 +123,6 @@ fun AppRoutingScreen(
             nodes = allNodes,
             nodesForSelection = nodesForSelection,
             profiles = profiles,
-            groups = availableGroups,
             onDismiss = { showAddRuleDialog = false },
             onConfirm = { rule ->
                 settingsViewModel.addAppRule(rule)
@@ -143,7 +139,6 @@ fun AppRoutingScreen(
             nodes = allNodes,
             nodesForSelection = nodesForSelection,
             profiles = profiles,
-            groups = availableGroups,
             onDismiss = { editingRule = null },
             onConfirm = { rule ->
                 settingsViewModel.updateAppRule(rule)
@@ -309,6 +304,5 @@ private fun resolveOutboundText(
             if (node != null && profileName != null) "${node.name} ($profileName)" else stringResource(R.string.app_rules_not_selected)
         }
         RuleSetOutboundMode.PROFILE -> profiles.find { it.id == value }?.name ?: stringResource(R.string.app_rules_unknown_profile)
-        RuleSetOutboundMode.GROUP -> value ?: stringResource(R.string.app_rules_unknown_group)
     }
 }

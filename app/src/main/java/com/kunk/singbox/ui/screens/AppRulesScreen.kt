@@ -48,7 +48,6 @@ fun AppRulesScreen(
 
     val allNodes by nodesViewModel.allNodes.collectAsState()
     val nodesForSelection by nodesViewModel.filteredAllNodes.collectAsState()
-    val groups by nodesViewModel.allNodeGroups.collectAsState()
     val profiles by profilesViewModel.profiles.collectAsState()
 
     DisposableEffect(Unit) {
@@ -78,7 +77,6 @@ fun AppRulesScreen(
             nodes = allNodes,
             nodesForSelection = nodesForSelection,
             profiles = profiles,
-            groups = groups,
             onDismiss = { showAddDialog = false },
             onConfirm = { rule ->
                 settingsViewModel.addAppRule(rule)
@@ -95,7 +93,6 @@ fun AppRulesScreen(
             nodes = allNodes,
             nodesForSelection = nodesForSelection,
             profiles = profiles,
-            groups = groups,
             onDismiss = { editingRule = null },
             onConfirm = { rule ->
                 settingsViewModel.updateAppRule(rule)
@@ -195,7 +192,6 @@ fun AppRulesScreen(
                                 if (node != null && profileName != null) "${node.name} ($profileName)" else stringResource(R.string.app_rules_not_selected)
                             }
                             RuleSetOutboundMode.PROFILE -> profiles.find { it.id == rule.outboundValue }?.name ?: stringResource(R.string.app_rules_unknown_profile)
-                            RuleSetOutboundMode.GROUP -> rule.outboundValue ?: stringResource(R.string.app_rules_unknown_group)
                         }
                         AppRuleItem(
                             rule = rule,
@@ -214,7 +210,7 @@ fun AppRulesScreen(
 @Composable
 fun OutboundChip(mode: RuleSetOutboundMode, label: String) {
     val (icon, color) = when (mode) {
-        RuleSetOutboundMode.PROXY, RuleSetOutboundMode.NODE, RuleSetOutboundMode.PROFILE, RuleSetOutboundMode.GROUP -> Icons.Rounded.Shield to Color(0xFF4CAF50)
+        RuleSetOutboundMode.PROXY, RuleSetOutboundMode.NODE, RuleSetOutboundMode.PROFILE -> Icons.Rounded.Shield to Color(0xFF4CAF50)
         RuleSetOutboundMode.DIRECT -> Icons.Rounded.Public to Color(0xFF2196F3)
         RuleSetOutboundMode.BLOCK -> Icons.Rounded.Block to Color(0xFFFF5252)
     }

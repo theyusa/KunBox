@@ -82,7 +82,6 @@ private fun resolveOutboundText(
             if (node != null && profileName != null) "${node.name} ($profileName)" else stringResource(R.string.app_rules_not_selected)
         }
         RuleSetOutboundMode.PROFILE -> profiles.find { it.id == value }?.name ?: stringResource(R.string.app_rules_unknown_profile)
-        RuleSetOutboundMode.GROUP -> value ?: stringResource(R.string.app_rules_unknown_group)
     }
 }
 
@@ -138,7 +137,6 @@ fun DomainRulesScreen(
     val settings by settingsViewModel.settings.collectAsState()
     val allNodes by nodesViewModel.allNodes.collectAsState()
     val nodesForSelection by nodesViewModel.filteredAllNodes.collectAsState()
-    val groups by nodesViewModel.allNodeGroups.collectAsState()
     val profiles by profilesViewModel.profiles.collectAsState()
 
     DisposableEffect(Unit) {
@@ -162,7 +160,6 @@ fun DomainRulesScreen(
             nodes = allNodes,
             nodesForSelection = nodesForSelection,
             profiles = profiles,
-            groups = groups,
             onDismiss = { showAddDialog = false },
             onConfirm = { rule ->
                 settingsViewModel.addCustomRule(rule)
@@ -177,7 +174,6 @@ fun DomainRulesScreen(
             nodes = allNodes,
             nodesForSelection = nodesForSelection,
             profiles = profiles,
-            groups = groups,
             onDismiss = { editingRule = null },
             onConfirm = { rule ->
                 settingsViewModel.updateCustomRule(rule)
@@ -252,7 +248,6 @@ private fun DomainRuleEditorDialog(
     nodes: List<com.kunk.singbox.model.NodeUi>,
     nodesForSelection: List<com.kunk.singbox.model.NodeUi>? = null,
     profiles: List<com.kunk.singbox.model.ProfileUi>,
-    groups: List<String>,
     onDismiss: () -> Unit,
     onConfirm: (CustomRule) -> Unit,
     onDelete: (() -> Unit)? = null
@@ -334,8 +329,7 @@ private fun DomainRuleEditorDialog(
                 showOutboundDialog = false
 
                 if (selectedMode == RuleSetOutboundMode.NODE ||
-                    selectedMode == RuleSetOutboundMode.PROFILE ||
-                    selectedMode == RuleSetOutboundMode.GROUP) {
+                    selectedMode == RuleSetOutboundMode.PROFILE) {
                     when (selectedMode) {
                         RuleSetOutboundMode.NODE -> {
                             showNodeSelectionDialog = true
@@ -343,10 +337,6 @@ private fun DomainRuleEditorDialog(
                         RuleSetOutboundMode.PROFILE -> {
                             targetSelectionTitle = context.getString(R.string.rulesets_select_profile)
                             targetOptions = profiles.map { it.name to it.id }
-                        }
-                        RuleSetOutboundMode.GROUP -> {
-                            targetSelectionTitle = context.getString(R.string.rulesets_select_group)
-                            targetOptions = groups.map { it to it }
                         }
                         else -> {}
                     }
@@ -443,8 +433,7 @@ private fun DomainRuleEditorDialog(
                 }
 
                 if (outboundMode == RuleSetOutboundMode.NODE ||
-                    outboundMode == RuleSetOutboundMode.PROFILE ||
-                    outboundMode == RuleSetOutboundMode.GROUP) {
+                    outboundMode == RuleSetOutboundMode.PROFILE) {
                     val targetName = when (outboundMode) {
                         RuleSetOutboundMode.NODE -> {
                             val node = resolveNodeByStoredValue(outboundValue)
@@ -452,7 +441,6 @@ private fun DomainRuleEditorDialog(
                             if (node != null && profileName != null) "${node.name} ($profileName)" else node?.name
                         }
                         RuleSetOutboundMode.PROFILE -> profiles.find { it.id == outboundValue }?.name
-                        RuleSetOutboundMode.GROUP -> outboundValue
                         else -> null
                     } ?: "点击选择..."
                     Row(
@@ -466,10 +454,6 @@ private fun DomainRuleEditorDialog(
                                     RuleSetOutboundMode.PROFILE -> {
                                         targetSelectionTitle = context.getString(R.string.rulesets_select_profile)
                                         targetOptions = profiles.map { it.name to it.id }
-                                    }
-                                    RuleSetOutboundMode.GROUP -> {
-                                        targetSelectionTitle = context.getString(R.string.rulesets_select_group)
-                                        targetOptions = groups.map { it to it }
                                     }
                                     else -> {}
                                 }
@@ -503,8 +487,7 @@ private fun DomainRuleEditorDialog(
                     if (finalName.isEmpty()) return@TextButton
 
                     if ((outboundMode == RuleSetOutboundMode.NODE ||
-                            outboundMode == RuleSetOutboundMode.PROFILE ||
-                            outboundMode == RuleSetOutboundMode.GROUP) && outboundValue.isNullOrBlank()) {
+                            outboundMode == RuleSetOutboundMode.PROFILE) && outboundValue.isNullOrBlank()) {
                         return@TextButton
                     }
 

@@ -49,8 +49,7 @@ enum class RuleSetOutboundMode(@StringRes val displayNameRes: Int) {
     @SerializedName("BLOCK") BLOCK(R.string.ruleset_outbound_block),
     @SerializedName("PROXY") PROXY(R.string.ruleset_outbound_proxy),
     @SerializedName("NODE") NODE(R.string.ruleset_outbound_node),
-    @SerializedName("PROFILE") PROFILE(R.string.ruleset_outbound_profile),
-    @SerializedName("GROUP") GROUP(R.string.ruleset_outbound_group)
+    @SerializedName("PROFILE") PROFILE(R.string.ruleset_outbound_profile)
 }
 
 @Keep

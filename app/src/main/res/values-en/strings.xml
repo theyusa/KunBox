@@ -313,7 +313,6 @@
     <string name="rulesets_select_outbound">Select Outbound Mode</string>
     <string name="rulesets_select_profile">Select Profile</string>
     <string name="rulesets_select_node">Select Node</string>
-    <string name="rulesets_select_group">Select Node Group</string>
     <string name="rulesets_select_inbound">Select Inbound</string>
     <string name="rulesets_type">Type</string>
     <string name="rulesets_format">Format</string>
@@ -349,7 +348,6 @@
     <string name="app_rules_delete_confirm">Are you sure you want to delete the routing rule for \"%s\"?</string>
     <string name="app_rules_not_selected">Not Selected</string>
     <string name="app_rules_unknown_profile">Unknown Profile</string>
-    <string name="app_rules_unknown_group">Unknown Group</string>
     <string name="app_rules_tabs_groups">App Groups</string>
     <string name="app_rules_tabs_individual">Individual Rules</string>
     <string name="app_rules_empty_groups">No app groups</string>
@@ -575,7 +573,6 @@
     <string name="ruleset_outbound_proxy">Proxy</string>
     <string name="ruleset_outbound_node">Single Node</string>
     <string name="ruleset_outbound_profile">Profile</string>
-    <string name="ruleset_outbound_group">Node Group</string>
 
     <!-- Update Status Messages -->
     <string name="update_status_no_subscription">No subscription to update</string>

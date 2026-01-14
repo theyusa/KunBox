@@ -26,9 +26,6 @@ object FakeRepository {
     private val _nodes = MutableStateFlow<List<NodeUi>>(emptyList())
     val nodes: StateFlow<List<NodeUi>> = _nodes.asStateFlow()
 
-    private val _nodeGroups = MutableStateFlow<List<String>>(emptyList())
-    val nodeGroups: StateFlow<List<String>> = _nodeGroups.asStateFlow()
-
     private val _activeProfileId = MutableStateFlow<String?>(null)
     val activeProfileId: StateFlow<String?> = _activeProfileId.asStateFlow()
 
@@ -57,14 +54,7 @@ object FakeRepository {
             NodeUi("n5", "新加坡-直连 [Hysteria2]", "hysteria2", "SG", "🇸🇬", 60, false, "p1")
         )
         _nodes.value = mockNodes
-        updateNodeGroups(mockNodes)
         _activeNodeId.value = "n1"
-    }
-    
-    private fun updateNodeGroups(nodes: List<NodeUi>) {
-        // Extract unique groups from nodes, excluding special ones if any, and add "全部" at start
-        val groups = nodes.map { it.group }.distinct().sorted()
-        _nodeGroups.value = listOf("全部") + groups
     }
 
     suspend fun toggleConnection() {
@@ -142,7 +132,6 @@ object FakeRepository {
                 NodeUi("n7", "手动-美国", "vmess", "手动选择", "🇺🇸", 190, false, "p2")
             )
             _nodes.value = newNodes
-            updateNodeGroups(newNodes)
             _activeNodeId.value = "n3"
         } else {
             val newNodes = listOf(
@@ -152,7 +141,6 @@ object FakeRepository {
                 NodeUi("n5", "新加坡-直连 [Hysteria2]", "hysteria2", "SG", "🇸🇬", 60, false, "p1")
             )
             _nodes.value = newNodes
-            updateNodeGroups(newNodes)
             _activeNodeId.value = "n1"
         }
     }

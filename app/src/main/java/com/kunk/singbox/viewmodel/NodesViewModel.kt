@@ -207,21 +207,7 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = emptyList()
     )
 
-    val nodeGroups: StateFlow<List<String>> = configRepository.nodeGroups
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = listOf("全部")
-        )
-
     val allNodes: StateFlow<List<NodeUi>> = configRepository.allNodes
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
-
-    val allNodeGroups: StateFlow<List<String>> = configRepository.allNodeGroups
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),

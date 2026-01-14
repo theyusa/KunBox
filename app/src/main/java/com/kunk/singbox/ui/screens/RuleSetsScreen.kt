@@ -87,7 +87,6 @@ fun RuleSetsScreen(
     val defaultRuleSetDownloadState by settingsViewModel.defaultRuleSetDownloadState.collectAsState()
     val allNodes by nodesViewModel.allNodes.collectAsState()
     val nodesForSelection by nodesViewModel.filteredAllNodes.collectAsState()
-    val groups by nodesViewModel.allNodeGroups.collectAsState()
     val profiles by profilesViewModel.profiles.collectAsState()
 
     DisposableEffect(Unit) {
@@ -231,7 +230,6 @@ fun RuleSetsScreen(
     // Pre-load string resources for use in callbacks
     val profilesDeletedMsg = stringResource(R.string.profiles_deleted)
     val selectProfileMsg = stringResource(R.string.rulesets_select_profile)
-    val selectGroupMsg = stringResource(R.string.rulesets_select_group)
     
     if (showDeleteConfirmDialog) {
         val selectedCount = selectedItems.count { it.value }
@@ -265,8 +263,7 @@ fun RuleSetsScreen(
                 val updatedRuleSet = outboundEditingRuleSet!!.copy(outboundMode = selectedMode, outboundValue = null)
 
                 if (selectedMode == RuleSetOutboundMode.NODE ||
-                    selectedMode == RuleSetOutboundMode.PROFILE ||
-                    selectedMode == RuleSetOutboundMode.GROUP
+                    selectedMode == RuleSetOutboundMode.PROFILE
                 ) {
                     outboundEditingRuleSet = updatedRuleSet
                     showOutboundModeDialog = false
@@ -278,10 +275,6 @@ fun RuleSetsScreen(
                         RuleSetOutboundMode.PROFILE -> {
                             targetSelectionTitle = selectProfileMsg
                             targetOptions = profiles.map { it.name to it.id }
-                        }
-                        RuleSetOutboundMode.GROUP -> {
-                            targetSelectionTitle = selectGroupMsg
-                            targetOptions = groups.map { it to it }
                         }
                         else -> {}
                     }
@@ -745,7 +738,6 @@ fun RuleSetItem(
                         RuleSetOutboundMode.PROXY -> Color(0xFF7B1FA2) // 紫色
                         RuleSetOutboundMode.NODE -> Color(0xFFE65100) // 橙色
                         RuleSetOutboundMode.PROFILE -> Color(0xFF00838F) // 青色
-                        RuleSetOutboundMode.GROUP -> Color(0xFF6A1B9A) // 深紫色
                     }
                     Surface(
                         color = outboundColor.copy(alpha = 0.8f),

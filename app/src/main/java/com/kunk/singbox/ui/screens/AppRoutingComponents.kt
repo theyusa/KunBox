@@ -49,7 +49,7 @@ fun AppRuleItem(
     val context = LocalContext.current
     val mode = rule.outboundMode ?: RuleSetOutboundMode.DIRECT
     val (outboundIcon, color) = when (mode) {
-        RuleSetOutboundMode.PROXY, RuleSetOutboundMode.NODE, RuleSetOutboundMode.PROFILE, RuleSetOutboundMode.GROUP -> Icons.Rounded.Shield to MaterialTheme.colorScheme.primary
+        RuleSetOutboundMode.PROXY, RuleSetOutboundMode.NODE, RuleSetOutboundMode.PROFILE -> Icons.Rounded.Shield to MaterialTheme.colorScheme.primary
         RuleSetOutboundMode.DIRECT -> Icons.Rounded.Public to MaterialTheme.colorScheme.tertiary
         RuleSetOutboundMode.BLOCK -> Icons.Rounded.Block to MaterialTheme.colorScheme.error
     }
@@ -102,7 +102,6 @@ fun AppRuleEditorDialog(
     nodes: List<NodeUi>,
     nodesForSelection: List<NodeUi>? = null,
     profiles: List<ProfileUi>,
-    groups: List<String>,
     onDismiss: () -> Unit,
     onConfirm: (AppRule) -> Unit
 ) {
@@ -143,13 +142,12 @@ fun AppRuleEditorDialog(
             outboundMode = selectedMode
             if (selectedMode != initialRule?.outboundMode) outboundValue = null
             showOutboundModeDialog = false
-            if (selectedMode == RuleSetOutboundMode.NODE || selectedMode == RuleSetOutboundMode.PROFILE || selectedMode == RuleSetOutboundMode.GROUP) {
+            if (selectedMode == RuleSetOutboundMode.NODE || selectedMode == RuleSetOutboundMode.PROFILE) {
                 when (selectedMode) {
                     RuleSetOutboundMode.NODE -> {
                         showNodeSelectionDialog = true
                     }
                     RuleSetOutboundMode.PROFILE -> { targetSelectionTitle = "选择配置"; targetOptions = profiles.map { it.name to it.id } }
-                    RuleSetOutboundMode.GROUP -> { targetSelectionTitle = "选择节点组"; targetOptions = groups.map { it to it } }
                     else -> {}
                 }
                 if (selectedMode != RuleSetOutboundMode.NODE) {
@@ -185,7 +183,7 @@ fun AppRuleEditorDialog(
             Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 ClickableDropdownField(label = stringResource(R.string.app_rules_select_app), value = selectedApp?.appName ?: stringResource(R.string.app_rules_click_to_select), onClick = { showAppPicker = true })
                 ClickableDropdownField(label = stringResource(R.string.common_outbound), value = stringResource(outboundMode.displayNameRes), onClick = { showOutboundModeDialog = true })
-                if (outboundMode == RuleSetOutboundMode.NODE || outboundMode == RuleSetOutboundMode.PROFILE || outboundMode == RuleSetOutboundMode.GROUP) {
+                if (outboundMode == RuleSetOutboundMode.NODE || outboundMode == RuleSetOutboundMode.PROFILE) {
                     val targetName = when (outboundMode) {
                         RuleSetOutboundMode.NODE -> {
                             val node = resolveNodeByStoredValue(outboundValue)
@@ -193,7 +191,6 @@ fun AppRuleEditorDialog(
                             if (node != null && profileName != null) "${node.name} ($profileName)" else node?.name
                         }
                         RuleSetOutboundMode.PROFILE -> profiles.find { it.id == outboundValue }?.name
-                        RuleSetOutboundMode.GROUP -> outboundValue
                         else -> null
                     } ?: "点击选择..."
                     ClickableDropdownField(label = "选择目标", value = targetName, onClick = {
@@ -202,7 +199,6 @@ fun AppRuleEditorDialog(
                                 showNodeSelectionDialog = true
                             }
                             RuleSetOutboundMode.PROFILE -> { targetSelectionTitle = context.getString(R.string.rulesets_select_profile); targetOptions = profiles.map { it.name to it.id } }
-                            RuleSetOutboundMode.GROUP -> { targetSelectionTitle = context.getString(R.string.rulesets_select_group); targetOptions = groups.map { it to it } }
                             else -> {}
                         }
                         if (outboundMode != RuleSetOutboundMode.NODE) {
@@ -373,7 +369,7 @@ fun AppGroupCard(
 ) {
     val mode = group.outboundMode ?: RuleSetOutboundMode.DIRECT
     val (outboundIcon, color) = when (mode) {
-        RuleSetOutboundMode.PROXY, RuleSetOutboundMode.NODE, RuleSetOutboundMode.PROFILE, RuleSetOutboundMode.GROUP -> Icons.Rounded.Shield to MaterialTheme.colorScheme.primary
+        RuleSetOutboundMode.PROXY, RuleSetOutboundMode.NODE, RuleSetOutboundMode.PROFILE -> Icons.Rounded.Shield to MaterialTheme.colorScheme.primary
         RuleSetOutboundMode.DIRECT -> Icons.Rounded.Public to MaterialTheme.colorScheme.tertiary
         RuleSetOutboundMode.BLOCK -> Icons.Rounded.Block to MaterialTheme.colorScheme.error
     }
@@ -665,7 +661,6 @@ fun AppGroupEditorDialog(
     nodes: List<NodeUi>,
     nodesForSelection: List<NodeUi>? = null,
     profiles: List<ProfileUi>,
-    groups: List<String>,
     onDismiss: () -> Unit,
     onConfirm: (AppGroup) -> Unit
 ) {
@@ -726,8 +721,7 @@ fun AppGroupEditorDialog(
                 }
                 showOutboundModeDialog = false
                 if (selectedMode == RuleSetOutboundMode.NODE ||
-                    selectedMode == RuleSetOutboundMode.PROFILE ||
-                    selectedMode == RuleSetOutboundMode.GROUP) {
+                    selectedMode == RuleSetOutboundMode.PROFILE) {
                     when (selectedMode) {
                         RuleSetOutboundMode.NODE -> {
                             showNodeSelectionDialog = true
@@ -735,10 +729,6 @@ fun AppGroupEditorDialog(
                         RuleSetOutboundMode.PROFILE -> {
                             targetSelectionTitle = context.getString(R.string.rulesets_select_profile)
                             targetOptions = profiles.map { it.name to it.id }
-                        }
-                        RuleSetOutboundMode.GROUP -> {
-                            targetSelectionTitle = context.getString(R.string.rulesets_select_group)
-                            targetOptions = groups.map { it to it }
                         }
                         else -> {}
                     }
@@ -807,9 +797,8 @@ fun AppGroupEditorDialog(
                 )
 
                 if (outboundMode == RuleSetOutboundMode.NODE ||
-                    outboundMode == RuleSetOutboundMode.PROFILE ||
-                    outboundMode == RuleSetOutboundMode.GROUP) {
-                    
+                    outboundMode == RuleSetOutboundMode.PROFILE) {
+
                     val targetName = when (outboundMode) {
                         RuleSetOutboundMode.NODE -> {
                             val node = resolveNodeByStoredValue(outboundValue)
@@ -817,10 +806,9 @@ fun AppGroupEditorDialog(
                             if (node != null && profileName != null) "${node.name} ($profileName)" else node?.name
                         }
                         RuleSetOutboundMode.PROFILE -> profiles.find { it.id == outboundValue }?.name
-                        RuleSetOutboundMode.GROUP -> outboundValue
                         else -> null
                     } ?: stringResource(R.string.app_rules_click_to_select)
-                    
+
                     ClickableDropdownField(
                         label = stringResource(R.string.app_rules_select_target),
                         value = targetName,
@@ -832,10 +820,6 @@ fun AppGroupEditorDialog(
                                 RuleSetOutboundMode.PROFILE -> {
                                     targetSelectionTitle = context.getString(R.string.rulesets_select_profile)
                                     targetOptions = profiles.map { it.name to it.id }
-                                }
-                                RuleSetOutboundMode.GROUP -> {
-                                    targetSelectionTitle = context.getString(R.string.rulesets_select_group)
-                                    targetOptions = groups.map { it to it }
                                 }
                                 else -> {}
                             }

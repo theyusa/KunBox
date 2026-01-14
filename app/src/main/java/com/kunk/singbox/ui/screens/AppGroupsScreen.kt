@@ -43,7 +43,6 @@ fun AppGroupsScreen(
 
     val allNodes by nodesViewModel.allNodes.collectAsState()
     val nodesForSelection by nodesViewModel.filteredAllNodes.collectAsState()
-    val availableGroups by nodesViewModel.allNodeGroups.collectAsState()
     val profiles by profilesViewModel.profiles.collectAsState()
 
     DisposableEffect(Unit) {
@@ -72,7 +71,6 @@ fun AppGroupsScreen(
             nodes = allNodes,
             nodesForSelection = nodesForSelection,
             profiles = profiles,
-            groups = availableGroups,
             onDismiss = { showAddDialog = false },
             onConfirm = { group ->
                 settingsViewModel.addAppGroup(group)
@@ -88,7 +86,6 @@ fun AppGroupsScreen(
             nodes = allNodes,
             nodesForSelection = nodesForSelection,
             profiles = profiles,
-            groups = availableGroups,
             onDismiss = { editingGroup = null },
             onConfirm = { group ->
                 settingsViewModel.updateAppGroup(group)
@@ -201,7 +198,6 @@ fun AppGroupsScreen(
                                 }
                             }
                             RuleSetOutboundMode.PROFILE -> profiles.find { it.id == group.outboundValue }?.name ?: stringResource(R.string.app_rules_unknown_profile)
-                            RuleSetOutboundMode.GROUP -> group.outboundValue ?: stringResource(R.string.app_rules_unknown_group)
                         }
                         AppGroupCard(
                             group = group,

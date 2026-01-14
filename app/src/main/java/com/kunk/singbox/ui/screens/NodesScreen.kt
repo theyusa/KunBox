@@ -141,12 +141,15 @@ fun NodesScreen(
 
     val nodes by viewModel.nodes.collectAsState()
     val activeNodeId by viewModel.activeNodeId.collectAsState()
-    val groups by viewModel.nodeGroups.collectAsState()
     val testingNodeIds by viewModel.testingNodeIds.collectAsState()
     val nodeFilter by viewModel.nodeFilter.collectAsState()
     val sortType by viewModel.sortType.collectAsState()
     val testProgress by viewModel.testProgress.collectAsState()
-    
+
+    val groups = remember(nodes) {
+        listOf("全部") + nodes.map { it.group }.distinct().sorted()
+    }
+
     var selectedGroupIndex by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchExpanded by remember { mutableStateOf(false) }
