@@ -84,16 +84,14 @@ fun getTabForRoute(route: String?): String {
     if (route == null) return Screen.Dashboard.route
     return when {
         route == Screen.Dashboard.route -> Screen.Dashboard.route
-        route == Screen.Diagnostics.route -> Screen.Dashboard.route
-        route == Screen.Logs.route -> Screen.Dashboard.route
-        
+
         route == Screen.Nodes.route -> Screen.Nodes.route
         route.startsWith("node_detail") -> Screen.Nodes.route
         route.startsWith("node_create") -> Screen.Nodes.route
-        
+
         route == Screen.Profiles.route -> Screen.Profiles.route
         route == Screen.ProfileEditor.route -> Screen.Profiles.route
-        
+
         route == Screen.Settings.route -> Screen.Settings.route
         route == Screen.RoutingSettings.route -> Screen.Settings.route
         route == Screen.DnsSettings.route -> Screen.Settings.route
@@ -105,7 +103,9 @@ fun getTabForRoute(route: String?): String {
         route == Screen.AppRules.route -> Screen.Settings.route
         route == Screen.RuleSetHub.route -> Screen.Settings.route
         route == Screen.CustomConfig.route -> Screen.Settings.route
-        
+        route == Screen.Diagnostics.route -> Screen.Settings.route
+        route == Screen.Logs.route -> Screen.Settings.route
+
         else -> Screen.Dashboard.route
     }
 }

@@ -85,10 +85,10 @@ fun AppRuleItem(
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(text = "${stringResource(mode.displayNameRes)} → $outboundText", style = MaterialTheme.typography.bodySmall, color = color, maxLines = 1)
             }
-            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.common_delete), tint = Color(0xFFFF5252), modifier = Modifier.size(20.dp))
-            }
-            Switch(checked = rule.enabled, onCheckedChange = { onToggle() }, colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.onPrimary, checkedTrackColor = color, uncheckedThumbColor = Neutral500, uncheckedTrackColor = Neutral700))
+        IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.common_delete), tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+        }
+        Switch(checked = rule.enabled, onCheckedChange = { onToggle() }, colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.onPrimary, checkedTrackColor = MaterialTheme.colorScheme.primary, uncheckedThumbColor = Neutral500, uncheckedTrackColor = Neutral700))
         }
     }
 }
@@ -222,21 +222,120 @@ fun AppRuleEditorDialog(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppPickerDialog(apps: List<InstalledApp>, existingPackages: Set<String>, onSelect: (InstalledApp) -> Unit, onDismiss: () -> Unit) {
-    var searchQuery by remember { mutableStateOf("") }; var showSystemApps by remember { mutableStateOf(false) }
-    val filteredApps = remember(apps, searchQuery, showSystemApps, existingPackages) { apps.filter { app -> val matchesSearch = searchQuery.isBlank() || app.appName.contains(searchQuery, ignoreCase = true) || app.packageName.contains(searchQuery, ignoreCase = true); val matchesFilter = showSystemApps || !app.isSystemApp; val notExisting = app.packageName !in existingPackages; matchesSearch && matchesFilter && notExisting } }
-    AlertDialog(onDismissRequest = onDismiss, shape = RoundedCornerShape(24.dp), containerColor = MaterialTheme.colorScheme.surface, title = { Text(text = stringResource(R.string.app_rules_select_app), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) }, text = {
-        Column(modifier = Modifier.fillMaxWidth().height(400.dp)) {
-            OutlinedTextField(value = searchQuery, onValueChange = { searchQuery = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text(stringResource(R.string.common_search), color = Neutral500) }, leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = stringResource(R.string.common_search), tint = Neutral500) }, singleLine = true, shape = RoundedCornerShape(16.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = MaterialTheme.colorScheme.onSurface, unfocusedTextColor = MaterialTheme.colorScheme.onSurface, focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), unfocusedBorderColor = MaterialTheme.colorScheme.outline, cursorColor = MaterialTheme.colorScheme.primary))
-            Spacer(modifier = Modifier.height(8.dp)); Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text(stringResource(R.string.app_list_show_system), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant); Switch(checked = showSystemApps, onCheckedChange = { showSystemApps = it }, colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.onPrimary, checkedTrackColor = Color(0xFF4CAF50), uncheckedThumbColor = Neutral500, uncheckedTrackColor = Neutral700)) }
-            Spacer(modifier = Modifier.height(8.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) { items(filteredApps) { app -> AppListItem(app = app, onClick = { onSelect(app) }) } }
+    var searchQuery by remember { mutableStateOf("") }
+    var showSystemApps by remember { mutableStateOf(false) }
+    val filteredApps = remember(apps, searchQuery, showSystemApps, existingPackages) {
+        apps.filter { app ->
+            val matchesSearch = searchQuery.isBlank() || app.appName.contains(searchQuery, ignoreCase = true) || app.packageName.contains(searchQuery, ignoreCase = true)
+            val matchesFilter = showSystemApps || !app.isSystemApp
+            val notExisting = app.packageName !in existingPackages
+            matchesSearch && matchesFilter && notExisting
         }
-    }, confirmButton = {}, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant) } })
+    }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(20.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        title = null,
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.8f)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text(stringResource(R.string.common_search), color = Neutral500, fontSize = 14.sp) },
+                        leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Neutral500, modifier = Modifier.size(20.dp)) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                            cursorColor = MaterialTheme.colorScheme.primary
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { showSystemApps = !showSystemApps }
+                            .padding(4.dp)
+                    ) {
+                        Checkbox(
+                            checked = showSystemApps,
+                            onCheckedChange = { showSystemApps = it },
+                            modifier = Modifier.size(20.dp),
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = MaterialTheme.colorScheme.primary,
+                                uncheckedColor = Neutral500
+                            )
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(stringResource(R.string.common_system), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    items(filteredApps) { app ->
+                        AppListItem(app = app, onClick = { onSelect(app) })
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.common_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    )
 }
 
 @Composable
 fun AppListItem(app: InstalledApp, onClick: () -> Unit) {
-    val context = LocalContext.current; val appIcon = remember(app.packageName) { try { context.packageManager.getApplicationIcon(app.packageName).toBitmap(144, 144).asImageBitmap() } catch (e: Exception) { null } }
-    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(12.dp), verticalAlignment = Alignment.CenterVertically) { if (appIcon != null) Image(bitmap = appIcon, contentDescription = app.appName, modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp))) else Icon(Icons.Rounded.Apps, contentDescription = null, tint = Neutral500, modifier = Modifier.size(36.dp)); Spacer(modifier = Modifier.width(12.dp)); Column(modifier = Modifier.weight(1f)) { Text(text = app.appName, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium); Text(text = app.packageName, fontSize = 11.sp, color = Neutral500, maxLines = 1) }; if (app.isSystemApp) Text(stringResource(R.string.common_system), fontSize = 10.sp, color = Neutral500) }
+    val context = LocalContext.current
+    val appIcon = remember(app.packageName) {
+        try {
+            context.packageManager.getApplicationIcon(app.packageName).toBitmap(96, 96).asImageBitmap()
+        } catch (e: Exception) { null }
+    }
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (appIcon != null) {
+            Image(bitmap = appIcon, contentDescription = app.appName, modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)))
+        } else {
+            Box(modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).background(Neutral700), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Apps, contentDescription = null, tint = Neutral500, modifier = Modifier.size(20.dp))
+            }
+        }
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = app.appName, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(text = app.packageName, fontSize = 11.sp, color = Neutral500, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (app.isSystemApp) {
+            Text(stringResource(R.string.common_system), fontSize = 10.sp, color = Neutral500)
+        }
+    }
 }
 
 @Composable
@@ -274,9 +373,9 @@ fun AppGroupCard(
 ) {
     val mode = group.outboundMode ?: RuleSetOutboundMode.DIRECT
     val (outboundIcon, color) = when (mode) {
-        RuleSetOutboundMode.PROXY, RuleSetOutboundMode.NODE, RuleSetOutboundMode.PROFILE, RuleSetOutboundMode.GROUP -> Icons.Rounded.Shield to Color(0xFF4CAF50)
-        RuleSetOutboundMode.DIRECT -> Icons.Rounded.Public to Color(0xFF2196F3)
-        RuleSetOutboundMode.BLOCK -> Icons.Rounded.Block to Color(0xFFFF5252)
+        RuleSetOutboundMode.PROXY, RuleSetOutboundMode.NODE, RuleSetOutboundMode.PROFILE, RuleSetOutboundMode.GROUP -> Icons.Rounded.Shield to MaterialTheme.colorScheme.primary
+        RuleSetOutboundMode.DIRECT -> Icons.Rounded.Public to MaterialTheme.colorScheme.tertiary
+        RuleSetOutboundMode.BLOCK -> Icons.Rounded.Block to MaterialTheme.colorScheme.error
     }
 
     StandardCard {
@@ -311,14 +410,14 @@ fun AppGroupCard(
                     )
                 }
                 IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.common_delete), tint = Color(0xFFFF5252), modifier = Modifier.size(18.dp))
+                    Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.common_delete), tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                 }
                 Switch(
                     checked = group.enabled,
                     onCheckedChange = { onToggle() },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                        checkedTrackColor = color,
+                        checkedTrackColor = MaterialTheme.colorScheme.primary,
                         uncheckedThumbColor = Neutral500,
                         uncheckedTrackColor = Neutral700
                     )
@@ -392,45 +491,44 @@ fun SelectableAppItem(
     val context = LocalContext.current
     val appIcon = remember(app.packageName) {
         try {
-            context.packageManager.getApplicationIcon(app.packageName).toBitmap(144, 144).asImageBitmap()
+            context.packageManager.getApplicationIcon(app.packageName).toBitmap(96, 96).asImageBitmap()
         } catch (e: Exception) { null }
     }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (isSelected) Color(0xFF4CAF50).copy(alpha = 0.15f) else Color.Transparent)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
             .clickable(onClick = onClick)
-            .padding(12.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Checkbox(
             checked = isSelected,
             onCheckedChange = { onClick() },
+            modifier = Modifier.size(20.dp),
             colors = CheckboxDefaults.colors(
-                checkedColor = Color(0xFF4CAF50),
+                checkedColor = MaterialTheme.colorScheme.primary,
                 uncheckedColor = Neutral500,
                 checkmarkColor = MaterialTheme.colorScheme.onPrimary
             )
         )
         Spacer(modifier = Modifier.width(8.dp))
         if (appIcon != null) {
-            Image(
-                bitmap = appIcon,
-                contentDescription = app.appName,
-                modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp))
-            )
+            Image(bitmap = appIcon, contentDescription = app.appName, modifier = Modifier.size(32.dp).clip(RoundedCornerShape(6.dp)))
         } else {
-            Icon(Icons.Rounded.Apps, contentDescription = null, tint = Neutral500, modifier = Modifier.size(36.dp))
+            Box(modifier = Modifier.size(32.dp).clip(RoundedCornerShape(6.dp)).background(Neutral700), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Apps, contentDescription = null, tint = Neutral500, modifier = Modifier.size(18.dp))
+            }
         }
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(app.appName, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
-            Text(app.packageName, fontSize = 11.sp, color = Neutral500, maxLines = 1)
+            Text(text = app.appName, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(text = app.packageName, fontSize = 10.sp, color = Neutral500, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (app.isSystemApp) {
-            Text(stringResource(R.string.common_system), fontSize = 10.sp, color = Neutral500)
+            Text(stringResource(R.string.common_system), fontSize = 9.sp, color = Neutral500)
         }
     }
 }
@@ -459,57 +557,68 @@ fun MultiAppSelectorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(20.dp),
         containerColor = MaterialTheme.colorScheme.surface,
-        title = {
-            Column {
-                Text(stringResource(R.string.app_rules_select_app), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(stringResource(R.string.import_count_items, tempSelected.size), fontSize = 12.sp, color = Neutral500)
-            }
-        },
+        title = null,
         text = {
-            Column(modifier = Modifier.fillMaxWidth().height(400.dp)) {
+            Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.8f)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = stringResource(R.string.import_count_items, tempSelected.size),
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { showSystemApps = !showSystemApps }
+                            .padding(4.dp)
+                    ) {
+                        Checkbox(
+                            checked = showSystemApps,
+                            onCheckedChange = { showSystemApps = it },
+                            modifier = Modifier.size(18.dp),
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = MaterialTheme.colorScheme.primary,
+                                uncheckedColor = Neutral500
+                            )
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(stringResource(R.string.common_system), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text(stringResource(R.string.common_search), color = Neutral500) },
-                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Neutral500) },
+                    placeholder = { Text(stringResource(R.string.common_search), color = Neutral500, fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Neutral500, modifier = Modifier.size(18.dp)) },
                     singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(10.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = MaterialTheme.colorScheme.onSurface,
                         unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
                         focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
                         cursorColor = MaterialTheme.colorScheme.primary
                     )
                 )
                 
                 Spacer(modifier = Modifier.height(8.dp))
                 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    Text(stringResource(R.string.app_list_show_system), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Switch(
-                        checked = showSystemApps,
-                        onCheckedChange = { showSystemApps = it },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                            checkedTrackColor = Color(0xFF4CAF50),
-                            uncheckedThumbColor = Neutral500,
-                            uncheckedTrackColor = Neutral700
-                        )
-                    )
-                }
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     items(filteredApps) { app ->
                         val appInfo = AppInfo(app.packageName, app.appName)
                         val isSelected = tempSelected.any { it.packageName == app.packageName }
@@ -531,14 +640,17 @@ fun MultiAppSelectorDialog(
         confirmButton = {
             Button(
                 onClick = { onConfirm(tempSelected) },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50), contentColor = MaterialTheme.colorScheme.onPrimary),
-                shape = RoundedCornerShape(12.dp)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                shape = RoundedCornerShape(10.dp)
             ) {
-                Text(stringResource(R.string.common_ok) + " (${tempSelected.size})", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.common_ok) + " (${tempSelected.size})", fontWeight = FontWeight.Medium, fontSize = 13.sp)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp) }
         }
     )
 }
@@ -784,7 +896,7 @@ fun AppGroupEditorDialog(
                     onConfirm(group)
                 },
                 enabled = groupName.isNotBlank() && selectedApps.isNotEmpty(),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50), contentColor = MaterialTheme.colorScheme.onPrimary),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text(stringResource(R.string.common_save), fontWeight = FontWeight.Bold)
