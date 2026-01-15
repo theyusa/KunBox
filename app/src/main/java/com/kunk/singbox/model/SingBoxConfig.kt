@@ -240,6 +240,8 @@ data class TlsConfig(
     @SerializedName("server_name") val serverName: String? = null,
     @SerializedName("insecure") val insecure: Boolean? = null,
     @SerializedName("alpn") val alpn: List<String>? = null,
+    @SerializedName("min_version") val minVersion: String? = null,  // TLS 版本限制: "1.2" 或 "1.3"
+    @SerializedName("max_version") val maxVersion: String? = null,
     @SerializedName("utls") val utls: UtlsConfig? = null,
     @SerializedName("reality") val reality: RealityConfig? = null,
     @SerializedName("ech") val ech: EchConfig? = null,

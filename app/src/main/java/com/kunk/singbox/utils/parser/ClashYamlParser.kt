@@ -1,5 +1,6 @@
 package com.kunk.singbox.utils.parser
 
+import com.kunk.singbox.model.MultiplexConfig
 import com.kunk.singbox.model.Outbound
 import com.kunk.singbox.model.SingBoxConfig
 import com.kunk.singbox.model.TlsConfig
@@ -41,13 +42,21 @@ class ClashYamlParser : SubscriptionParser {
         val rootMap = (root as? Map<*, *>) ?: return null
         val proxiesRaw = rootMap["proxies"] as? List<*> ?: return null
 
+        // 读取全局客户端指纹 (Clash Meta 特性)
+        val globalClientFingerprint = asString(rootMap["global-client-fingerprint"])
+
+        // 读取全局 TLS 版本限制 (Clash Meta 特性)
+        // 格式: tls-version: "1.3" 或 min-tls-version: "1.3"
+        val globalTlsMinVersion = asString(rootMap["tls-version"])
+            ?: asString(rootMap["min-tls-version"])
+
         val outbounds = mutableListOf<Outbound>()
         var skippedCount = 0
 
         for (p in proxiesRaw) {
             val m = p as? Map<*, *> ?: continue
 
-            val ob = parseProxy(m)
+            val ob = parseProxy(m, globalClientFingerprint, globalTlsMinVersion)
             if (ob != null) {
                 outbounds.add(ob)
             } else {
@@ -107,7 +116,7 @@ class ClashYamlParser : SubscriptionParser {
         return SingBoxConfig(outbounds = outbounds)
     }
 
-    private fun parseProxy(proxyMap: Map<*, *>): Outbound? {
+    private fun parseProxy(proxyMap: Map<*, *>, globalFingerprint: String? = null, globalTlsMinVersion: String? = null): Outbound? {
         val name = asString(proxyMap["name"]) ?: run {
             android.util.Log.w("ClashYamlParser", "Proxy missing name field: ${proxyMap.keys}")
             return null
@@ -121,46 +130,50 @@ class ClashYamlParser : SubscriptionParser {
         val port = asInt(proxyMap["port"])
 
         val outbound = when (type) {
-            "vless" -> parseVLess(proxyMap, name, server, port)
-            "vmess" -> parseVMess(proxyMap, name, server, port)
+            "vless" -> parseVLess(proxyMap, name, server, port, globalFingerprint, globalTlsMinVersion)
+            "vmess" -> parseVMess(proxyMap, name, server, port, globalFingerprint, globalTlsMinVersion)
             "ss", "shadowsocks" -> parseShadowsocks(proxyMap, name, server, port)
-            "trojan" -> parseTrojan(proxyMap, name, server, port)
-            "hysteria2", "hy2" -> parseHysteria2(proxyMap, name, server, port)
-            "hysteria" -> parseHysteria(proxyMap, name, server, port)
-            "tuic", "tuic-v5" -> parseTuic(proxyMap, name, server, port)
-            "anytls" -> parseAnyTLS(proxyMap, name, server, port)
+            "trojan" -> parseTrojan(proxyMap, name, server, port, globalFingerprint, globalTlsMinVersion)
+            "hysteria2", "hy2" -> parseHysteria2(proxyMap, name, server, port, globalFingerprint, globalTlsMinVersion)
+            "hysteria" -> parseHysteria(proxyMap, name, server, port, globalFingerprint, globalTlsMinVersion)
+            "tuic", "tuic-v5" -> parseTuic(proxyMap, name, server, port, globalFingerprint, globalTlsMinVersion)
+            "anytls" -> parseAnyTLS(proxyMap, name, server, port, globalFingerprint, globalTlsMinVersion)
             "ssh" -> parseSSH(proxyMap, name, server, port)
             "wireguard" -> parseWireGuard(proxyMap, name, server, port)
-            "http" -> parseHttp(proxyMap, name, server, port)
+            "http" -> parseHttp(proxyMap, name, server, port, globalFingerprint, globalTlsMinVersion)
             "socks5" -> parseSocks(proxyMap, name, server, port)
             "shadowtls" -> parseShadowTLS(proxyMap, name, server, port)
             else -> null
         }
-        
+
         if (outbound == null && (type.contains("tuic") || type.contains("anytls"))) {
             android.util.Log.w("ClashYamlParser", "Failed to parse $type node '$name'. Server: $server, Port: $port, Map: $proxyMap")
         }
-        
+
         return outbound
     }
 
-    private fun parseVLess(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
+    private fun parseVLess(map: Map<*, *>, name: String, server: String?, port: Int?, globalFingerprint: String? = null, globalTlsMinVersion: String? = null): Outbound? {
         if (server == null || port == null) return null
         val uuid = asString(map["uuid"]) ?: return null
         val network = asString(map["network"])?.lowercase()
         val tlsEnabled = asBool(map["tls"]) == true
         val serverName = asString(map["servername"]) ?: asString(map["sni"]) ?: server
-        val fingerprint = asString(map["client-fingerprint"])
+        // 优先使用节点配置的指纹，否则使用全局指纹
+        val fingerprint = asString(map["client-fingerprint"]) ?: globalFingerprint
         val insecure = asBool(map["skip-cert-verify"]) == true
         val alpn = asStringList(map["alpn"])
         val flow = asString(map["flow"])
         val packetEncoding = asString(map["packet-encoding"]) ?: "xudp"
-        
+
+        // TLS 版本限制
+        val tlsMinVersion = asString(map["tls-version"]) ?: asString(map["min-tls-version"]) ?: globalTlsMinVersion
+
         // Reality support
         val realityOpts = map["reality-opts"] as? Map<*, *>
         val realityPublicKey = asString(realityOpts?.get("public-key"))
         val realityShortId = asString(realityOpts?.get("short-id"))
-        
+
         // 自动补充 ALPN
         val finalAlpn = if (tlsEnabled && network == "ws" && (alpn == null || alpn.isEmpty())) listOf("http/1.1") else alpn
 
@@ -170,6 +183,7 @@ class ClashYamlParser : SubscriptionParser {
                 serverName = serverName,
                 insecure = insecure,
                 alpn = finalAlpn,
+                minVersion = tlsMinVersion,
                 utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) },
                 reality = if (realityPublicKey != null) {
                     com.kunk.singbox.model.RealityConfig(
@@ -192,11 +206,11 @@ class ClashYamlParser : SubscriptionParser {
                     val vs = asString(v) ?: return@forEach
                     headers[ks] = vs
                 }
-                
+
                 // 自动补充 Host 和 User-Agent
                 val host = headers["Host"] ?: headers["host"] ?: serverName
                 if (!host.isNullOrBlank()) headers["Host"] = host
-                
+
                 if (!headers.containsKey("User-Agent")) {
                     headers["User-Agent"] = getUserAgent(fingerprint)
                 }
@@ -205,12 +219,15 @@ class ClashYamlParser : SubscriptionParser {
                 val maxEarlyData = asInt(wsOpts?.get("max-early-data")) ?: 2048
                 val earlyDataHeaderName = asString(wsOpts?.get("early-data-header-name")) ?: "Sec-WebSocket-Protocol"
 
+                // 检测 httpupgrade (v2ray-http-upgrade)
+                val isHttpUpgrade = asBool(wsOpts?.get("v2ray-http-upgrade")) == true
+
                 TransportConfig(
-                    type = "ws",
+                    type = if (isHttpUpgrade) "httpupgrade" else "ws",
                     path = path,
                     headers = headers,
-                    maxEarlyData = maxEarlyData,
-                    earlyDataHeaderName = earlyDataHeaderName
+                    maxEarlyData = if (isHttpUpgrade) null else maxEarlyData,
+                    earlyDataHeaderName = if (isHttpUpgrade) null else earlyDataHeaderName
                 )
             }
             "grpc" -> {
@@ -230,6 +247,9 @@ class ClashYamlParser : SubscriptionParser {
             else -> null
         }
 
+        // 解析 smux 多路复用配置
+        val multiplex = parseSmux(map)
+
         return Outbound(
             type = "vless",
             tag = name,
@@ -239,11 +259,12 @@ class ClashYamlParser : SubscriptionParser {
             flow = flow,
             tls = tlsConfig,
             transport = transport,
-            packetEncoding = packetEncoding
+            packetEncoding = packetEncoding,
+            multiplex = multiplex
         )
     }
 
-    private fun parseVMess(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
+    private fun parseVMess(map: Map<*, *>, name: String, server: String?, port: Int?, globalFingerprint: String? = null, globalTlsMinVersion: String? = null): Outbound? {
         if (server == null || port == null) return null
         val uuid = asString(map["uuid"]) ?: return null
         // 注意：sing-box 不支持 alter_id，只支持 AEAD 加密的 VMess (alterId=0)
@@ -255,11 +276,15 @@ class ClashYamlParser : SubscriptionParser {
         val network = asString(map["network"])?.lowercase()
         val tlsEnabled = asBool(map["tls"]) == true
         val serverName = asString(map["servername"]) ?: asString(map["sni"]) ?: server
-        val fingerprint = asString(map["client-fingerprint"])
+        // 优先使用节点配置的指纹，否则使用全局指纹
+        val fingerprint = asString(map["client-fingerprint"]) ?: globalFingerprint
         val insecure = asBool(map["skip-cert-verify"]) == true
         val alpn = asStringList(map["alpn"])
         val packetEncoding = asString(map["packet-encoding"]) ?: "xudp"
-        
+
+        // TLS 版本限制
+        val tlsMinVersion = asString(map["tls-version"]) ?: asString(map["min-tls-version"]) ?: globalTlsMinVersion
+
         val finalAlpn = if (tlsEnabled && network == "ws" && (alpn == null || alpn.isEmpty())) listOf("http/1.1") else alpn
 
         val tlsConfig = if (tlsEnabled) {
@@ -268,10 +293,11 @@ class ClashYamlParser : SubscriptionParser {
                 serverName = serverName,
                 insecure = insecure,
                 alpn = finalAlpn,
+                minVersion = tlsMinVersion,
                 utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
             )
         } else null
-        
+
         val transport = when (network) {
             "ws" -> {
                 val wsOpts = map["ws-opts"] as? Map<*, *>
@@ -285,16 +311,23 @@ class ClashYamlParser : SubscriptionParser {
                 }
                 val host = headers["Host"] ?: headers["host"] ?: serverName
                 if (!host.isNullOrBlank()) headers["Host"] = host
-                 if (!headers.containsKey("User-Agent")) {
+                if (!headers.containsKey("User-Agent")) {
                     headers["User-Agent"] = getUserAgent(fingerprint)
                 }
-                
+
+                // 处理 max-early-data
+                val maxEarlyData = asInt(wsOpts?.get("max-early-data")) ?: 2048
+                val earlyDataHeaderName = asString(wsOpts?.get("early-data-header-name")) ?: "Sec-WebSocket-Protocol"
+
+                // 检测 httpupgrade (v2ray-http-upgrade)
+                val isHttpUpgrade = asBool(wsOpts?.get("v2ray-http-upgrade")) == true
+
                 TransportConfig(
-                    type = "ws",
+                    type = if (isHttpUpgrade) "httpupgrade" else "ws",
                     path = path,
                     headers = headers,
-                    maxEarlyData = 2048,
-                    earlyDataHeaderName = "Sec-WebSocket-Protocol"
+                    maxEarlyData = if (isHttpUpgrade) null else maxEarlyData,
+                    earlyDataHeaderName = if (isHttpUpgrade) null else earlyDataHeaderName
                 )
             }
             "grpc" -> {
@@ -302,7 +335,7 @@ class ClashYamlParser : SubscriptionParser {
                 val serviceName = asString(grpcOpts?.get("grpc-service-name")) ?: ""
                 TransportConfig(type = "grpc", serviceName = serviceName)
             }
-             "h2", "http" -> {
+            "h2", "http" -> {
                 val h2Opts = map["h2-opts"] as? Map<*, *>
                 val path = asString(h2Opts?.get("path"))
                 val host = asStringList(h2Opts?.get("host"))
@@ -310,6 +343,9 @@ class ClashYamlParser : SubscriptionParser {
             }
             else -> null
         }
+
+        // 解析 smux 多路复用配置
+        val multiplex = parseSmux(map)
 
         return Outbound(
             type = "vmess",
@@ -321,7 +357,8 @@ class ClashYamlParser : SubscriptionParser {
             security = cipher,
             tls = tlsConfig,
             transport = transport,
-            packetEncoding = packetEncoding
+            packetEncoding = packetEncoding,
+            multiplex = multiplex
         )
     }
 
@@ -346,23 +383,28 @@ class ClashYamlParser : SubscriptionParser {
         )
     }
 
-    private fun parseTrojan(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
+    private fun parseTrojan(map: Map<*, *>, name: String, server: String?, port: Int?, globalFingerprint: String? = null, globalTlsMinVersion: String? = null): Outbound? {
         if (server == null || port == null) return null
         val password = asString(map["password"]) ?: return null
         val network = asString(map["network"])?.lowercase()
         val sni = asString(map["sni"]) ?: server
-        val fingerprint = asString(map["client-fingerprint"])
+        // 优先使用节点配置的指纹，否则使用全局指纹
+        val fingerprint = asString(map["client-fingerprint"]) ?: globalFingerprint
         val insecure = asBool(map["skip-cert-verify"]) == true
         val alpn = asStringList(map["alpn"])
+
+        // TLS 版本限制
+        val tlsMinVersion = asString(map["tls-version"]) ?: asString(map["min-tls-version"]) ?: globalTlsMinVersion
 
         val tlsConfig = TlsConfig(
             enabled = true,
             serverName = sni,
             insecure = insecure,
             alpn = alpn,
+            minVersion = tlsMinVersion,
             utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
         )
-        
+
         val transport = when (network) {
             "ws" -> {
                 val wsOpts = map["ws-opts"] as? Map<*, *>
@@ -371,14 +413,23 @@ class ClashYamlParser : SubscriptionParser {
                 val headers = mutableMapOf<String, String>()
                 headersRaw?.forEach { (k, v) -> headers[asString(k) ?: ""] = asString(v) ?: "" }
                 if (!headers.containsKey("Host")) headers["Host"] = sni
-                 if (!headers.containsKey("User-Agent")) {
+                if (!headers.containsKey("User-Agent")) {
                     headers["User-Agent"] = getUserAgent(fingerprint)
                 }
-                
+
+                // 处理 max-early-data
+                val maxEarlyData = asInt(wsOpts?.get("max-early-data")) ?: 2048
+                val earlyDataHeaderName = asString(wsOpts?.get("early-data-header-name")) ?: "Sec-WebSocket-Protocol"
+
+                // 检测 httpupgrade (v2ray-http-upgrade)
+                val isHttpUpgrade = asBool(wsOpts?.get("v2ray-http-upgrade")) == true
+
                 TransportConfig(
-                    type = "ws",
+                    type = if (isHttpUpgrade) "httpupgrade" else "ws",
                     path = path,
-                    headers = headers
+                    headers = headers,
+                    maxEarlyData = if (isHttpUpgrade) null else maxEarlyData,
+                    earlyDataHeaderName = if (isHttpUpgrade) null else earlyDataHeaderName
                 )
             }
             "grpc" -> {
@@ -389,6 +440,9 @@ class ClashYamlParser : SubscriptionParser {
             else -> null
         }
 
+        // 解析 smux 多路复用配置
+        val multiplex = parseSmux(map)
+
         return Outbound(
             type = "trojan",
             tag = name,
@@ -396,19 +450,35 @@ class ClashYamlParser : SubscriptionParser {
             serverPort = port,
             password = password,
             tls = tlsConfig,
-            transport = transport
+            transport = transport,
+            multiplex = multiplex
         )
     }
 
-    private fun parseHysteria2(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
+    private fun parseHysteria2(map: Map<*, *>, name: String, server: String?, port: Int?, globalFingerprint: String? = null, globalTlsMinVersion: String? = null): Outbound? {
         if (server == null || port == null) return null
         val password = asString(map["password"]) ?: return null
         val sni = asString(map["sni"]) ?: server
         val insecure = asBool(map["skip-cert-verify"]) == true
         val alpn = asStringList(map["alpn"])
-        val fingerprint = asString(map["client-fingerprint"])
+        // 优先使用节点配置的指纹，否则使用全局指纹
+        val fingerprint = asString(map["client-fingerprint"]) ?: globalFingerprint
         val obfs = asString(map["obfs"])
         val obfsPassword = asString(map["obfs-password"])
+
+        // TLS 版本限制
+        val tlsMinVersion = asString(map["tls-version"]) ?: asString(map["min-tls-version"]) ?: globalTlsMinVersion
+
+        // 网络协议 (tcp/udp)，Hysteria2 默认支持两者
+        val network = asString(map["network"])
+
+        // 带宽限制
+        val upMbps = asInt(map["up"]) ?: asInt(map["up-mbps"])
+        val downMbps = asInt(map["down"]) ?: asInt(map["down-mbps"])
+
+        // 端口跳跃
+        val ports = asString(map["ports"])
+        val hopInterval = asString(map["hop-interval"])
 
         return Outbound(
             type = "hysteria2",
@@ -416,31 +486,41 @@ class ClashYamlParser : SubscriptionParser {
             server = server,
             serverPort = port,
             password = password,
+            network = network,
+            upMbps = upMbps,
+            downMbps = downMbps,
+            ports = ports,
+            hopInterval = hopInterval,
             tls = TlsConfig(
                 enabled = true,
                 serverName = sni,
                 insecure = insecure,
                 alpn = alpn,
+                minVersion = tlsMinVersion,
                 utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
             ),
             obfs = if (obfs != null) com.kunk.singbox.model.ObfsConfig(type = obfs, password = obfsPassword) else null
         )
     }
-    
-    private fun parseTuic(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
+
+    private fun parseTuic(map: Map<*, *>, name: String, server: String?, port: Int?, globalFingerprint: String? = null, globalTlsMinVersion: String? = null): Outbound? {
         if (server == null || port == null) return null
         val uuid = asString(map["uuid"]) ?: return null
-        
+
         // 密码可能是 password 或 token，如果都为空则使用 uuid
         val password = asString(map["password"]) ?: asString(map["token"]) ?: uuid
-        
+
         val sni = asString(map["sni"]) ?: asString(map["servername"]) ?: server
         val insecure = asBool(map["skip-cert-verify"]) == true || asBool(map["allow-insecure"]) == true || asBool(map["insecure"]) == true
         val alpn = asStringList(map["alpn"])
-        val fingerprint = asString(map["client-fingerprint"]) ?: asString(map["fingerprint"])
+        // 优先使用节点配置的指纹，否则使用全局指纹
+        val fingerprint = asString(map["client-fingerprint"]) ?: asString(map["fingerprint"]) ?: globalFingerprint
         val congestion = asString(map["congestion-controller"]) ?: asString(map["congestion"]) ?: "bbr"
         val udpRelayMode = asString(map["udp-relay-mode"]) ?: "native"
         val zeroRtt = asBool(map["reduce-rtt"]) == true || asBool(map["zero-rtt-handshake"]) == true
+
+        // TLS 版本限制
+        val tlsMinVersion = asString(map["tls-version"]) ?: asString(map["min-tls-version"]) ?: globalTlsMinVersion
 
         return Outbound(
             type = "tuic",
@@ -457,6 +537,7 @@ class ClashYamlParser : SubscriptionParser {
                 serverName = sni,
                 insecure = insecure,
                 alpn = alpn,
+                minVersion = tlsMinVersion,
                 utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
             )
         )
@@ -504,20 +585,24 @@ class ClashYamlParser : SubscriptionParser {
         )
     }
 
-    private fun parseAnyTLS(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
+    private fun parseAnyTLS(map: Map<*, *>, name: String, server: String?, port: Int?, globalFingerprint: String? = null, globalTlsMinVersion: String? = null): Outbound? {
         if (server == null || port == null) return null
-        
+
         // 尝试从 password, uuid, token 读取密码
         val password = asString(map["password"])
             ?: asString(map["uuid"])
             ?: asString(map["token"])
             ?: return null
-        
+
         val sni = asString(map["sni"]) ?: asString(map["servername"]) ?: server
         val insecure = asBool(map["skip-cert-verify"]) == true || asBool(map["allow-insecure"]) == true || asBool(map["insecure"]) == true
         val alpn = asStringList(map["alpn"])
-        val fingerprint = asString(map["client-fingerprint"]) ?: asString(map["fingerprint"])
-        
+        // 优先使用节点配置的指纹，否则使用全局指纹
+        val fingerprint = asString(map["client-fingerprint"]) ?: asString(map["fingerprint"]) ?: globalFingerprint
+
+        // TLS 版本限制
+        val tlsMinVersion = asString(map["tls-version"]) ?: asString(map["min-tls-version"]) ?: globalTlsMinVersion
+
         val idleSessionCheckInterval = asString(map["idle-session-check-interval"])
         val idleSessionTimeout = asString(map["idle-session-timeout"])
         val minIdleSession = asInt(map["min-idle-session"])
@@ -536,12 +621,13 @@ class ClashYamlParser : SubscriptionParser {
                 serverName = sni,
                 insecure = insecure,
                 alpn = alpn,
+                minVersion = tlsMinVersion,
                 utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
             )
         )
     }
 
-    private fun parseHysteria(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
+    private fun parseHysteria(map: Map<*, *>, name: String, server: String?, port: Int?, globalFingerprint: String? = null, globalTlsMinVersion: String? = null): Outbound? {
         if (server == null || port == null) return null
         val authStr = asString(map["auth-str"]) ?: asString(map["auth_str"]) ?: asString(map["auth"])
         val upMbps = asInt(map["up"]) ?: asInt(map["up-mbps"])
@@ -549,8 +635,12 @@ class ClashYamlParser : SubscriptionParser {
         val sni = asString(map["sni"]) ?: server
         val insecure = asBool(map["skip-cert-verify"]) == true
         val alpn = asStringList(map["alpn"])
-        val fingerprint = asString(map["client-fingerprint"])
+        // 优先使用节点配置的指纹，否则使用全局指纹
+        val fingerprint = asString(map["client-fingerprint"]) ?: globalFingerprint
         val obfs = asString(map["obfs"])
+
+        // TLS 版本限制
+        val tlsMinVersion = asString(map["tls-version"]) ?: asString(map["min-tls-version"]) ?: globalTlsMinVersion
 
         return Outbound(
             type = "hysteria",
@@ -565,13 +655,14 @@ class ClashYamlParser : SubscriptionParser {
                 serverName = sni,
                 insecure = insecure,
                 alpn = alpn,
+                minVersion = tlsMinVersion,
                 utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
             ),
             obfs = if (obfs != null) com.kunk.singbox.model.ObfsConfig(type = obfs) else null
         )
     }
 
-    private fun parseHttp(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
+    private fun parseHttp(map: Map<*, *>, name: String, server: String?, port: Int?, globalFingerprint: String? = null, globalTlsMinVersion: String? = null): Outbound? {
         if (server == null || port == null) return null
 
         val username = asString(map["username"])
@@ -579,7 +670,8 @@ class ClashYamlParser : SubscriptionParser {
 
         // sing-box HTTP outbound 支持 TLS
         val tlsEnabled = asBool(map["tls"]) == true
-        val fingerprint = asString(map["client-fingerprint"]) ?: asString(map["fingerprint"])
+        // 优先使用节点配置的指纹，否则使用全局指纹
+        val fingerprint = asString(map["client-fingerprint"]) ?: asString(map["fingerprint"]) ?: globalFingerprint
         val tlsConfig = if (tlsEnabled) {
             val sni = asString(map["sni"]) ?: asString(map["servername"]) ?: server
             // 对于 HTTP+TLS 代理，默认跳过证书验证（许多代理服务使用自签名证书）
@@ -587,11 +679,14 @@ class ClashYamlParser : SubscriptionParser {
             val skipCertVerify = map["skip-cert-verify"]
             val insecure = if (skipCertVerify == null) true else asBool(skipCertVerify) == true
             val alpn = asStringList(map["alpn"])
+            // TLS 版本限制
+            val tlsMinVersion = asString(map["tls-version"]) ?: asString(map["min-tls-version"]) ?: globalTlsMinVersion
             TlsConfig(
                 enabled = true,
                 serverName = sni,
                 insecure = insecure,
                 alpn = alpn,
+                minVersion = tlsMinVersion,
                 utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
             )
         } else null
@@ -664,6 +759,32 @@ class ClashYamlParser : SubscriptionParser {
     }
 
     // --- Helpers ---
+
+    /**
+     * 解析 smux 多路复用配置
+     * Clash Meta 格式:
+     * smux:
+     *   enabled: true
+     *   protocol: smux  # smux/yamux/h2mux
+     *   max-connections: 4
+     *   min-streams: 4
+     *   max-streams: 0
+     *   padding: false
+     */
+    private fun parseSmux(map: Map<*, *>): MultiplexConfig? {
+        val smuxOpts = map["smux"] as? Map<*, *> ?: return null
+        val enabled = asBool(smuxOpts["enabled"]) == true
+        if (!enabled) return null
+
+        return MultiplexConfig(
+            enabled = true,
+            protocol = asString(smuxOpts["protocol"]) ?: "smux",
+            maxConnections = asInt(smuxOpts["max-connections"]),
+            minStreams = asInt(smuxOpts["min-streams"]),
+            maxStreams = asInt(smuxOpts["max-streams"]),
+            padding = asBool(smuxOpts["padding"])
+        )
+    }
 
     private fun getUserAgent(fingerprint: String?): String {
         return if (fingerprint?.contains("chrome", ignoreCase = true) == true) {
