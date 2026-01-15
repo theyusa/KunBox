@@ -6,7 +6,7 @@
 [![Compose](https://img.shields.io/badge/Jetpack%20Compose-Material3-4285F4.svg?style=flat&logo=android)](https://developer.android.com/jetpack/compose)
 [![Sing-box](https://img.shields.io/badge/Core-Sing--box-success.svg?style=flat)](https://github.com/SagerNet/sing-box)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat)](LICENSE)
-[![Telegram](https://img.shields.io/badge/Telegram-Chat-blue?style=flat&logo=telegram)](https://t.me/+978J0WfmJLk4ZmQ1)
+[![Telegram](https://img.shields.io/badge/Telegram-Chat-blue?style=flat&logo=telegram)](https://t.me/+EKxpszVkOBc1MGJl)
 
 > **OLED Hyper-Minimalist**
 >
