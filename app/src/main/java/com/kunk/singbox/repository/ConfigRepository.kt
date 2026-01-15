@@ -19,6 +19,8 @@ import com.kunk.singbox.service.ProxyOnlyService
 import com.kunk.singbox.utils.parser.Base64Parser
 import com.kunk.singbox.utils.parser.NodeLinkParser
 import com.kunk.singbox.utils.parser.SingBoxParser
+import com.kunk.singbox.repository.config.OutboundFixer
+import com.kunk.singbox.repository.config.InboundBuilder
 import com.kunk.singbox.utils.parser.SubscriptionManager
 import com.kunk.singbox.utils.KryoSerializer
 import com.kunk.singbox.repository.TrafficRepository
@@ -193,11 +195,14 @@ class ConfigRepository(private val context: Context) {
     }
     
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    
+
+    // 节点链接解析器 - 复用实例避免重复创建
+    private val nodeLinkParser = NodeLinkParser(gson)
+
     private val subscriptionManager = SubscriptionManager(listOf(
         SingBoxParser(gson),
         com.kunk.singbox.utils.parser.ClashYamlParser(),
-        Base64Parser { NodeLinkParser(gson).parse(it) }
+        Base64Parser { nodeLinkParser.parse(it) }
     ))
 
     private val _profiles = MutableStateFlow<List<ProfileUi>>(emptyList())
@@ -227,6 +232,9 @@ class ConfigRepository(private val context: Context) {
     private val profileNodes = ConcurrentHashMap<String, List<NodeUi>>()
     private val profileResetJobs = ConcurrentHashMap<String, kotlinx.coroutines.Job>()
     private val inFlightLatencyTests = ConcurrentHashMap<String, Deferred<Long>>()
+
+    // 保存从持久化存储加载的延时数据，用于在 setAllNodesUiActive 时恢复
+    private val savedNodeLatencies = ConcurrentHashMap<String, Long>()
 
     // saveProfiles 防抖
     @Volatile private var saveProfilesJob: kotlinx.coroutines.Job? = null
@@ -271,7 +279,34 @@ class ConfigRepository(private val context: Context) {
         get() = if (profilesFileKryo.exists()) profilesFileKryo else profilesFileJson
     
     init {
+        // 注册 Kryo 版本迁移器
+        registerKryoMigrators()
         loadSavedProfiles()
+    }
+
+    /**
+     * 注册 Kryo 数据版本迁移器
+     * 当 SavedProfilesData 结构发生变化时，在此添加迁移逻辑
+     *
+     * 使用方法:
+     * 1. 修改 SavedProfilesData 结构后，递增 KryoSerializer.CURRENT_VERSION
+     * 2. 在此注册从旧版本到新版本的迁移器
+     */
+    private fun registerKryoMigrators() {
+        // 版本 0 -> 1: 旧格式(无魔数)迁移到新格式
+        // 当前数据结构不变，仅添加文件头，无需特殊处理
+        KryoSerializer.registerMigrator(0) { data -> data }
+
+        // 未来版本迁移示例:
+        // KryoSerializer.registerMigrator(1) { data ->
+        //     when (data) {
+        //         is SavedProfilesData -> {
+        //             // 例如: 添加新字段 newField
+        //             data.copy(newField = "defaultValue")
+        //         }
+        //         else -> data
+        //     }
+        // }
     }
     
     private fun loadConfig(profileId: String): SingBoxConfig? {
@@ -397,7 +432,13 @@ class ConfigRepository(private val context: Context) {
                     val profiles = _profiles.value
                     for (p in profiles) {
                         val cfg = loadConfig(p.id) ?: continue
-                        profileNodes[p.id] = extractNodesFromConfig(cfg, p.id)
+                        val nodes = extractNodesFromConfig(cfg, p.id)
+                        // 恢复已保存的延时数据
+                        val nodesWithLatency = nodes.map { node ->
+                            val latency = savedNodeLatencies[node.id]
+                            if (latency != null) node.copy(latencyMs = latency) else node
+                        }
+                        profileNodes[p.id] = nodesWithLatency
                     }
                     updateAllNodesAndGroups()
                     allNodesLoadedForUi = true
@@ -423,6 +464,12 @@ class ConfigRepository(private val context: Context) {
     }
 
     private fun updateLatencyInAllNodes(nodeId: String, latency: Long) {
+        // 同步更新 savedNodeLatencies，确保退出节点页面再进入时延时数据仍然可用
+        if (latency > 0) {
+            savedNodeLatencies[nodeId] = latency
+        } else {
+            savedNodeLatencies[nodeId] = -1L
+        }
         _allNodes.update { list ->
             list.map {
                 if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else -1L) else it
@@ -460,6 +507,10 @@ class ConfigRepository(private val context: Context) {
                     it.copy(updateStatus = UpdateStatus.Idle)
                 }
                 _activeProfileId.value = savedData.activeProfileId
+
+                // 保存延时数据到成员变量，供后续 setAllNodesUiActive 使用
+                savedNodeLatencies.clear()
+                savedNodeLatencies.putAll(savedData.nodeLatencies)
 
                 // 加载活跃配置的节点
                 savedData.profiles.forEach { profile ->
@@ -1189,650 +1240,10 @@ class ConfigRepository(private val context: Context) {
     }
 
     /**
-     * 解析单个节点链接
+     * 解析单个节点链接 - 委托给 NodeLinkParser
      */
     private fun parseNodeLink(link: String): Outbound? {
-        return when {
-            link.startsWith("ss://") -> parseShadowsocksLink(link)
-            link.startsWith("vmess://") -> parseVMessLink(link)
-            link.startsWith("vless://") -> parseVLessLink(link)
-            link.startsWith("trojan://") -> parseTrojanLink(link)
-            link.startsWith("hysteria2://") || link.startsWith("hy2://") -> parseHysteria2Link(link)
-            link.startsWith("hysteria://") -> parseHysteriaLink(link)
-            link.startsWith("anytls://") -> parseAnyTLSLink(link)
-            link.startsWith("tuic://") -> parseTuicLink(link)
-            link.startsWith("wireguard://") -> parseWireGuardLink(link)
-            link.startsWith("ssh://") -> parseSSHLink(link)
-            else -> null
-        }
-    }
-    
-    private fun parseShadowsocksLink(link: String): Outbound? {
-        try {
-            // ss://BASE64(method:password)@server:port#name
-            // 或 ss://BASE64(method:password@server:port)#name
-            val uri = link.removePrefix("ss://")
-            val nameIndex = uri.lastIndexOf('#')
-            val name = if (nameIndex > 0) java.net.URLDecoder.decode(uri.substring(nameIndex + 1), "UTF-8") else "SS Node"
-            val mainPart = if (nameIndex > 0) uri.substring(0, nameIndex) else uri
-            
-            val atIndex = mainPart.lastIndexOf('@')
-            if (atIndex > 0) {
-                // 新格式: BASE64(method:password)@server:port
-                val userInfo = String(Base64.decode(mainPart.substring(0, atIndex), Base64.URL_SAFE or Base64.NO_PADDING))
-                val serverPart = mainPart.substring(atIndex + 1)
-                val colonIndex = serverPart.lastIndexOf(':')
-                val server = serverPart.substring(0, colonIndex)
-                val port = serverPart.substring(colonIndex + 1).toInt()
-                val methodPassword = userInfo.split(":", limit = 2)
-                
-                return Outbound(
-                    type = "shadowsocks",
-                    tag = name,
-                    server = server,
-                    serverPort = port,
-                    method = methodPassword[0],
-                    password = methodPassword.getOrElse(1) { "" }
-                )
-            } else {
-                // 旧格式: BASE64(method:password@server:port)
-                val decoded = String(Base64.decode(mainPart, Base64.URL_SAFE or Base64.NO_PADDING))
-                val match = REGEX_SS_OLD_FORMAT.find(decoded)
-                if (match != null) {
-                    val (method, password, server, port) = match.destructured
-                    return Outbound(
-                        type = "shadowsocks",
-                        tag = name,
-                        server = server,
-                        serverPort = port.toInt(),
-                        method = method,
-                        password = password
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        return null
-    }
-    
-    /**
-     * 解析 WireGuard 链接
-     * 格式: wireguard://private_key@server:port?public_key=...&preshared_key=...&address=...&mtu=...#name
-     */
-    private fun parseWireGuardLink(link: String): Outbound? {
-        try {
-            val uri = java.net.URI(link)
-            val name = java.net.URLDecoder.decode(uri.fragment ?: "WireGuard Node", "UTF-8")
-            val privateKey = uri.userInfo
-            val server = uri.host
-            val port = if (uri.port > 0) uri.port else 51820
-            
-            val params = mutableMapOf<String, String>()
-            uri.query?.split("&")?.forEach { param ->
-                val parts = param.split("=", limit = 2)
-                if (parts.size == 2) {
-                    params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
-                }
-            }
-            
-            val peerPublicKey = params["public_key"] ?: params["peer_public_key"] ?: ""
-            val preSharedKey = params["preshared_key"] ?: params["pre_shared_key"]
-            val address = params["address"] ?: params["ip"]
-            val mtu = params["mtu"]?.toIntOrNull() ?: 1420
-            val reserved = params["reserved"]?.split(",")?.mapNotNull { it.toIntOrNull() }
-            
-            val localAddresses = address?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
-            
-            val peer = WireGuardPeer(
-                server = server,
-                serverPort = port,
-                publicKey = peerPublicKey,
-                preSharedKey = preSharedKey,
-                allowedIps = listOf("0.0.0.0/0", "::/0"), // 默认全路由
-                reserved = reserved
-            )
-            
-            return Outbound(
-                type = "wireguard",
-                tag = name,
-                localAddress = localAddresses,
-                privateKey = privateKey,
-                peers = listOf(peer),
-                mtu = mtu
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        return null
-    }
-
-    /**
-     * 解析 SSH 链接
-     * 格式: ssh://user:password@server:port?params#name
-     */
-    private fun parseSSHLink(link: String): Outbound? {
-        try {
-            val uri = java.net.URI(link)
-            val name = java.net.URLDecoder.decode(uri.fragment ?: "SSH Node", "UTF-8")
-            val userInfo = uri.userInfo ?: ""
-            val server = uri.host
-            val port = if (uri.port > 0) uri.port else 22
-            
-            val colonIndex = userInfo.indexOf(':')
-            val user = if (colonIndex > 0) userInfo.substring(0, colonIndex) else userInfo
-            val password = if (colonIndex > 0) userInfo.substring(colonIndex + 1) else null
-            
-            val params = mutableMapOf<String, String>()
-            uri.query?.split("&")?.forEach { param ->
-                val parts = param.split("=", limit = 2)
-                if (parts.size == 2) {
-                    params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
-                }
-            }
-            
-            val privateKey = params["private_key"]
-            val privateKeyPassphrase = params["private_key_passphrase"]
-            val hostKey = params["host_key"]?.split(",")
-            val clientVersion = params["client_version"]
-            
-            return Outbound(
-                type = "ssh",
-                tag = name,
-                server = server,
-                serverPort = port,
-                user = user,
-                password = password,
-                privateKey = privateKey,
-                privateKeyPassphrase = privateKeyPassphrase,
-                hostKey = hostKey,
-                clientVersion = clientVersion
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse ssh link", e)
-        }
-        return null
-    }
-
-    private fun parseVMessLink(link: String): Outbound? {
-        try {
-            val base64Part = link.removePrefix("vmess://")
-            val decoded = String(Base64.decode(base64Part, Base64.DEFAULT))
-            val json = gson.fromJson(decoded, VMessLinkConfig::class.java)
-            
-            // 如果是 WS 且开启了 TLS，但没有指定 ALPN，默认强制使用 http/1.1
-            val alpn = json.alpn?.split(",")?.filter { it.isNotBlank() }
-            val finalAlpn = if (json.tls == "tls" && json.net == "ws" && (alpn == null || alpn.isEmpty())) {
-                listOf("http/1.1")
-            } else {
-                alpn
-            }
-
-            val tlsConfig = if (json.tls == "tls") {
-                TlsConfig(
-                    enabled = true,
-                    serverName = json.sni ?: json.host ?: json.add,
-                    alpn = finalAlpn,
-                    utls = json.fp?.let { UtlsConfig(enabled = true, fingerprint = it) }
-                )
-            } else null
-            
-            val transport = when (json.net) {
-                "ws" -> {
-                    val host = json.host ?: json.sni ?: json.add
-                    val userAgent = if (json.fp?.contains("chrome") == true) {
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
-                    } else {
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0"
-                    }
-                    val headers = mutableMapOf<String, String>()
-                    if (!host.isNullOrBlank()) {
-                        headers["Host"] = host
-                    }
-                    headers["User-Agent"] = userAgent
-
-                    val rawPath = json.path ?: "/"
-                    val edMatch = REGEX_ED_EXTRACT.find(rawPath)
-                    val maxEarlyData = edMatch?.groupValues?.get(1)?.toIntOrNull() ?: 2048
-                    val cleanPath = rawPath.replace(REGEX_ED_EXTRACT, "").ifEmpty { "/" }
-
-                    TransportConfig(
-                        type = "ws",
-                        path = cleanPath,
-                        headers = headers,
-                        maxEarlyData = maxEarlyData,
-                        earlyDataHeaderName = "Sec-WebSocket-Protocol"
-                    )
-                }
-                "grpc" -> TransportConfig(
-                    type = "grpc",
-                    serviceName = json.path ?: ""
-                )
-                "h2" -> TransportConfig(
-                    type = "http",
-                    host = json.host?.let { listOf(it) },
-                    path = json.path
-                )
-                "tcp" -> null
-                else -> null
-            }
-            
-            // 注意：sing-box 不支持 alter_id，只支持 AEAD 加密的 VMess (alterId=0)
-            val aid = json.aid?.toIntOrNull() ?: 0
-            if (aid != 0) {
-                Log.w(TAG, "VMess node '${json.ps}' has alterId=$aid, sing-box only supports alterId=0 (AEAD)")
-            }
-            
-            return Outbound(
-                type = "vmess",
-                tag = json.ps ?: "VMess Node",
-                server = json.add,
-                serverPort = json.port?.toIntOrNull() ?: 443,
-                uuid = json.id,
-                // alterId 已从模型中移除，sing-box 不支持
-                security = json.scy ?: "auto",
-                tls = tlsConfig,
-                transport = transport,
-                packetEncoding = json.packetEncoding?.takeIf { it.isNotBlank() }
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        return null
-    }
-    
-    private fun parseVLessLink(link: String): Outbound? {
-        try {
-            // vless://uuid@server:port?params#name
-            val uri = java.net.URI(link)
-            val name = java.net.URLDecoder.decode(uri.fragment ?: "VLESS Node", "UTF-8")
-            val uuid = uri.userInfo
-            val server = uri.host
-            val port = if (uri.port > 0) uri.port else 443
-            
-            val params = mutableMapOf<String, String>()
-            uri.query?.split("&")?.forEach { param ->
-                val parts = param.split("=", limit = 2)
-                if (parts.size == 2) {
-                    params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
-                }
-            }
-            
-            val security = params["security"] ?: "none"
-            val sni = params["sni"] ?: params["host"] ?: server
-            val insecure = params["allowInsecure"] == "1" || params["insecure"] == "1"
-            val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
-            val fingerprint = params["fp"]
-            val packetEncoding = params["packetEncoding"] ?: "xudp"
-            val transportType = params["type"] ?: "tcp"
-            val flow = params["flow"]?.takeIf { it.isNotBlank() }
-
-            val finalAlpnList = if (security == "tls" && transportType == "ws" && (alpnList == null || alpnList.isEmpty())) {
-                listOf("http/1.1")
-            } else {
-                alpnList
-            }
-            
-            val tlsConfig = when (security) {
-                "tls" -> TlsConfig(
-                    enabled = true,
-                    serverName = sni,
-                    insecure = insecure,
-                    alpn = finalAlpnList,
-                    utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
-                )
-                "reality" -> TlsConfig(
-                    enabled = true,
-                    serverName = sni,
-                    insecure = insecure,
-                    alpn = finalAlpnList,
-                    reality = RealityConfig(
-                        enabled = true,
-                        publicKey = params["pbk"],
-                        shortId = params["sid"]
-                    ),
-                    utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
-                )
-                else -> null
-            }
-            
-            val transport = when (transportType) {
-                "ws" -> {
-                    val host = params["host"] ?: sni
-                    val rawWsPath = params["path"] ?: "/"
-
-                    // 从路径中提取 ed 参数
-                    val earlyDataSize = params["ed"]?.toIntOrNull()
-                        ?: REGEX_ED_EXTRACT
-                            .find(rawWsPath)
-                            ?.groupValues
-                            ?.getOrNull(1)
-                            ?.toIntOrNull()
-                    val maxEarlyData = earlyDataSize ?: 2048
-
-                    // 从路径中移除 ed 参数，只保留纯路径
-                    val cleanPath = rawWsPath
-                        .replace(REGEX_ED_PARAM_START, "")
-                        .replace(REGEX_ED_PARAM_MID, "")
-                        .trimEnd('?', '&')
-                        .ifEmpty { "/" }
-                    
-                    val userAgent = if (fingerprint?.contains("chrome") == true) {
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
-                    } else {
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0"
-                    }
-                    val headers = mutableMapOf<String, String>()
-                    if (!host.isNullOrBlank()) {
-                        headers["Host"] = host
-                    }
-                    headers["User-Agent"] = userAgent
-
-                    TransportConfig(
-                        type = "ws",
-                        path = cleanPath,
-                        headers = headers,
-                        maxEarlyData = maxEarlyData,
-                        earlyDataHeaderName = "Sec-WebSocket-Protocol"
-                    )
-                }
-                "grpc" -> TransportConfig(
-                    type = "grpc",
-                    serviceName = params["serviceName"] ?: params["sn"] ?: ""
-                )
-                "http", "h2", "httpupgrade" -> TransportConfig(
-                    type = "http",
-                    path = params["path"],
-                    host = params["host"]?.let { listOf(it) }
-                )
-                "tcp" -> null
-                else -> null
-            }
-            
-            return Outbound(
-                type = "vless",
-                tag = name,
-                server = server,
-                serverPort = port,
-                uuid = uuid,
-                flow = flow,
-                tls = tlsConfig,
-                transport = transport,
-                packetEncoding = packetEncoding
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        return null
-    }
-    
-    private fun parseTrojanLink(link: String): Outbound? {
-        try {
-            // trojan://password@server:port?params#name
-            val uri = java.net.URI(link)
-            val name = java.net.URLDecoder.decode(uri.fragment ?: "Trojan Node", "UTF-8")
-            val password = uri.userInfo
-            val server = uri.host
-            val port = if (uri.port > 0) uri.port else 443
-            
-            val params = mutableMapOf<String, String>()
-            uri.query?.split("&")?.forEach { param ->
-                val parts = param.split("=", limit = 2)
-                if (parts.size == 2) {
-                    params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
-                }
-            }
-            
-            val sni = params["sni"] ?: server
-            val insecure = params["allowInsecure"] == "1" || params["insecure"] == "1"
-            val fingerprint = params["fp"]
-            val transportType = params["type"] ?: "tcp"
-            
-            val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
-            val finalAlpnList = if (transportType == "ws" && alpnList.isNullOrEmpty()) {
-                listOf("http/1.1")
-            } else {
-                alpnList
-            }
-            
-            val transport = when (transportType) {
-                "ws" -> {
-                    val wsHost = params["host"] ?: sni
-                    val rawPath = params["path"] ?: "/"
-                    val edMatch = REGEX_ED_EXTRACT.find(rawPath)
-                    val maxEarlyData = params["ed"]?.toIntOrNull() ?: edMatch?.groupValues?.get(1)?.toIntOrNull() ?: 2048
-                    val cleanPath = rawPath.replace(REGEX_ED_EXTRACT, "").ifEmpty { "/" }
-                    
-                    val ua = if (fingerprint?.contains("chrome", true) == true) {
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
-                    } else {
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
-                    }
-                    
-                    TransportConfig(
-                        type = "ws",
-                        path = cleanPath,
-                        headers = mapOf("Host" to wsHost, "User-Agent" to ua),
-                        maxEarlyData = maxEarlyData,
-                        earlyDataHeaderName = "Sec-WebSocket-Protocol"
-                    )
-                }
-                "grpc" -> TransportConfig(type = "grpc", serviceName = params["serviceName"] ?: "")
-                else -> null
-            }
-            
-            return Outbound(
-                type = "trojan",
-                tag = name,
-                server = server,
-                serverPort = port,
-                password = password,
-                tls = TlsConfig(
-                    enabled = true,
-                    serverName = sni,
-                    insecure = insecure,
-                    alpn = finalAlpnList,
-                    utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
-                ),
-                transport = transport
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse trojan link", e)
-        }
-        return null
-    }
-    
-    private fun parseHysteria2Link(link: String): Outbound? {
-        try {
-            // hysteria2://password@server:port?params#name
-            val uri = java.net.URI(link.replace("hy2://", "hysteria2://"))
-            val name = java.net.URLDecoder.decode(uri.fragment ?: "Hysteria2 Node", "UTF-8")
-            val password = uri.userInfo
-            val server = uri.host
-            val port = if (uri.port == -1) 443 else uri.port
-            
-            val params = mutableMapOf<String, String>()
-            uri.query?.split("&")?.forEach { param ->
-                val parts = param.split("=", limit = 2)
-                if (parts.size == 2) {
-                    params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
-                }
-            }
-            
-            return Outbound(
-                type = "hysteria2",
-                tag = name,
-                server = server,
-                serverPort = port,
-                password = password,
-                tls = TlsConfig(
-                    enabled = true,
-                    serverName = params["sni"] ?: server,
-                    insecure = params["insecure"] == "1"
-                ),
-                obfs = params["obfs"]?.let { obfsType ->
-                    ObfsConfig(
-                        type = obfsType,
-                        password = params["obfs-password"]
-                    )
-                }
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse hysteria2 link", e)
-        }
-        return null
-    }
-    
-    private fun parseHysteriaLink(link: String): Outbound? {
-        try {
-            val uri = java.net.URI(link)
-            val name = java.net.URLDecoder.decode(uri.fragment ?: "Hysteria Node", "UTF-8")
-            val server = uri.host
-            val port = if (uri.port == -1) 443 else uri.port
-            
-            val params = mutableMapOf<String, String>()
-            uri.query?.split("&")?.forEach { param ->
-                val parts = param.split("=", limit = 2)
-                if (parts.size == 2) {
-                    params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
-                }
-            }
-            
-            return Outbound(
-                type = "hysteria",
-                tag = name,
-                server = server,
-                serverPort = port,
-                authStr = params["auth"],
-                upMbps = params["upmbps"]?.toIntOrNull(),
-                downMbps = params["downmbps"]?.toIntOrNull(),
-                tls = TlsConfig(
-                    enabled = true,
-                    serverName = params["sni"] ?: server,
-                    insecure = params["insecure"] == "1",
-                    alpn = params["alpn"]?.split(",")
-                ),
-                obfs = params["obfs"]?.let { ObfsConfig(type = it) }
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse hysteria link", e)
-        }
-        return null
-    }
-    
-    /**
-     * 解析 AnyTLS 链接
-     * 格式: anytls://password@server:port?params#name
-     */
-    private fun parseAnyTLSLink(link: String): Outbound? {
-        try {
-            val uri = java.net.URI(link)
-            val name = java.net.URLDecoder.decode(uri.fragment ?: "AnyTLS Node", "UTF-8")
-            val password = uri.userInfo
-            val server = uri.host
-            val port = if (uri.port > 0) uri.port else 443
-            
-            val params = mutableMapOf<String, String>()
-            uri.query?.split("&")?.forEach { param ->
-                val parts = param.split("=", limit = 2)
-                if (parts.size == 2) {
-                    try {
-                        params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
-                    } catch (e: Exception) {
-                        params[parts[0]] = parts[1]
-                    }
-                }
-            }
-            
-            val sni = params["sni"] ?: server
-            val insecure = params["insecure"] == "1" || params["allowInsecure"] == "1"
-            val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
-            val fingerprint = params["fp"]?.takeIf { it.isNotBlank() }
-            
-            return Outbound(
-                type = "anytls",
-                tag = name,
-                server = server,
-                serverPort = port,
-                password = password,
-                tls = TlsConfig(
-                    enabled = true,
-                    serverName = sni,
-                    insecure = insecure,
-                    alpn = alpnList,
-                    utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
-                ),
-                idleSessionCheckInterval = params["idle_session_check_interval"],
-                idleSessionTimeout = params["idle_session_timeout"],
-                minIdleSession = params["min_idle_session"]?.toIntOrNull()
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        return null
-    }
-    
-    /**
-     * 解析 TUIC 链接
-     * 格式: tuic://uuid:password@server:port?params#name
-     */
-    private fun parseTuicLink(link: String): Outbound? {
-        try {
-            val uri = java.net.URI(link)
-            val name = java.net.URLDecoder.decode(uri.fragment ?: "TUIC Node", "UTF-8")
-            val server = uri.host
-            val port = if (uri.port > 0) uri.port else 443
-            
-            // 解析 userInfo: uuid:password
-            val userInfo = uri.userInfo ?: ""
-            val colonIndex = userInfo.indexOf(':')
-            val uuid = if (colonIndex > 0) userInfo.substring(0, colonIndex) else userInfo
-            var password = if (colonIndex > 0) userInfo.substring(colonIndex + 1) else ""
-            
-            val params = mutableMapOf<String, String>()
-            uri.query?.split("&")?.forEach { param ->
-                val parts = param.split("=", limit = 2)
-                if (parts.size == 2) {
-                    try {
-                        params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
-                    } catch (e: Exception) {
-                        params[parts[0]] = parts[1]
-                    }
-                }
-            }
-            
-            // 如果 password 为空，尝试从 query 参数中获取，或使用 UUID 作为密码
-            if (password.isBlank()) {
-                password = params["password"] ?: params["token"] ?: uuid
-            }
-            
-            val sni = params["sni"] ?: server
-            val insecure = params["allow_insecure"] == "1" || params["allowInsecure"] == "1" || params["insecure"] == "1"
-            val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
-            val fingerprint = params["fp"]?.takeIf { it.isNotBlank() }
-            
-            return Outbound(
-                type = "tuic",
-                tag = name,
-                server = server,
-                serverPort = port,
-                uuid = uuid,
-                password = password,
-                congestionControl = params["congestion_control"] ?: params["congestion"] ?: "bbr",
-                udpRelayMode = params["udp_relay_mode"] ?: "native",
-                zeroRttHandshake = params["reduce_rtt"] == "1" || params["zero_rtt"] == "1",
-                tls = TlsConfig(
-                    enabled = true,
-                    serverName = sni,
-                    insecure = insecure,
-                    alpn = alpnList,
-                    utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
-                )
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        return null
+        return nodeLinkParser.parse(link)
     }
 
     /**
@@ -2170,7 +1581,7 @@ class ConfigRepository(private val context: Context) {
                 lastRunProfileId = currentProfileId
 
 
-                val coreMode = VpnStateStore.getMode(context)
+                val coreMode = VpnStateStore.getMode()
 
                 // ⭐ 2025-fix: 跨配置切换预清理机制
                 // 如果需要重启 VPN (tagsChanged=true)，先发送预清理信号让 Service 关闭现有连接
@@ -2385,10 +1796,13 @@ class ConfigRepository(private val context: Context) {
      * 使用并发方式提高效率
      */
     suspend fun clearAllNodesLatency() = withContext(Dispatchers.IO) {
+        // 清除已保存的延时数据
+        savedNodeLatencies.clear()
+
         _nodes.update { list ->
             list.map { it.copy(latencyMs = null) }
         }
-        
+
         // Update profileNodes map
         profileNodes.keys.forEach { profileId ->
             profileNodes[profileId] = profileNodes[profileId]?.map {
@@ -2683,317 +2097,13 @@ class ConfigRepository(private val context: Context) {
             null
         }
     }
-    
+
     /**
-     * 运行时修复 Outbound 配置
-     * 包括：修复 interval 单位、清理 flow、补充 ALPN、补充 User-Agent、补充缺省值
+     * 运行时修复 Outbound 配置 - 委托给 OutboundFixer
      */
-    private fun fixOutboundForRuntime(outbound: Outbound): Outbound {
-        var result = outbound
+    private fun fixOutboundForRuntime(outbound: Outbound): Outbound = OutboundFixer.fix(outbound)
 
-        val interval = result.interval
-        if (interval != null) {
-            val fixedInterval = when {
-                REGEX_INTERVAL_DIGITS.matches(interval) -> "${interval}s"
-                REGEX_INTERVAL_DECIMAL.matches(interval) -> "${interval}s"
-                REGEX_INTERVAL_UNIT.matches(interval) -> interval.lowercase()
-                else -> interval
-            }
-            if (fixedInterval != interval) {
-                result = result.copy(interval = fixedInterval)
-            }
-        }
-
-        // Fix flow
-        val cleanedFlow = result.flow?.takeIf { it.isNotBlank() }
-        val normalizedFlow = cleanedFlow?.let { flowValue ->
-            if (flowValue.contains("xtls-rprx-vision")) {
-                "xtls-rprx-vision"
-            } else {
-                flowValue
-            }
-        }
-        if (normalizedFlow != result.flow) {
-            result = result.copy(flow = normalizedFlow)
-        }
-
-        // Fix URLTest - Convert to selector to avoid sing-box core panic during InterfaceUpdated
-        // The urltest implementation in some sing-box versions has race condition issues
-        if (result.type == "urltest" || result.type == "url-test") {
-            var newOutbounds = result.outbounds
-            if (newOutbounds.isNullOrEmpty()) {
-                newOutbounds = listOf("direct")
-            }
-            
-            // Convert urltest to selector to avoid crash
-            result = result.copy(
-                type = "selector",
-                outbounds = newOutbounds,
-                default = newOutbounds.firstOrNull(),
-                interruptExistConnections = false,
-                // Clear urltest-specific fields
-                url = null,
-                interval = null,
-                tolerance = null
-            )
-        }
-        
-        // Fix Selector empty outbounds
-        if (result.type == "selector" && result.outbounds.isNullOrEmpty()) {
-            result = result.copy(outbounds = listOf("direct"))
-        }
-
-        fun isIpLiteral(value: String): Boolean {
-            val v = value.trim()
-            if (v.isEmpty()) return false
-            if (REGEX_IPV4.matches(v)) {
-                return v.split(".").all { it.toIntOrNull()?.let { n -> n in 0..255 } == true }
-            }
-            return v.contains(":") && REGEX_IPV6.matches(v)
-        }
-
-        val tls = result.tls
-        val transport = result.transport
-        if (transport?.type == "ws" && tls?.enabled == true) {
-            val wsHost = transport.headers?.get("Host")
-                ?: transport.headers?.get("host")
-                ?: transport.host?.firstOrNull()
-            val sni = tls.serverName?.trim().orEmpty()
-            val server = result.server?.trim().orEmpty()
-            if (!wsHost.isNullOrBlank() && !isIpLiteral(wsHost)) {
-                val needFix = sni.isBlank() || isIpLiteral(sni) || (server.isNotBlank() && sni.equals(server, ignoreCase = true))
-                if (needFix && !wsHost.equals(sni, ignoreCase = true)) {
-                    result = result.copy(tls = tls.copy(serverName = wsHost))
-                }
-            }
-        }
-
-        val tlsAfterSni = result.tls
-        if (result.transport?.type == "ws" && tlsAfterSni?.enabled == true && (tlsAfterSni.alpn == null || tlsAfterSni.alpn.isEmpty())) {
-            result = result.copy(tls = tlsAfterSni.copy(alpn = listOf("http/1.1")))
-        }
-
-        // Fix User-Agent and path for WS
-        if (transport != null && transport.type == "ws") {
-            val headers = transport.headers?.toMutableMap() ?: mutableMapOf()
-            var needUpdate = false
-            
-            // 如果没有 Host，尝试从 SNI 或 Server 获取
-            if (!headers.containsKey("Host")) {
-                val host = transport.host?.firstOrNull()
-                    ?: result.tls?.serverName
-                    ?: result.server
-                if (!host.isNullOrBlank()) {
-                    headers["Host"] = host
-                    needUpdate = true
-                }
-            }
-            
-            // 补充 User-Agent
-            if (!headers.containsKey("User-Agent")) {
-                val fingerprint = result.tls?.utls?.fingerprint
-                val userAgent = if (fingerprint?.contains("chrome") == true) {
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
-                } else {
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0"
-                }
-                headers["User-Agent"] = userAgent
-                needUpdate = true
-            }
-            
-            // 清理路径中的 ed 参数
-            val rawPath = transport.path ?: "/"
-            val cleanPath = rawPath
-                .replace(REGEX_ED_PARAM_START, "")
-                .replace(REGEX_ED_PARAM_MID, "")
-                .trimEnd('?', '&')
-                .ifEmpty { "/" }
-            
-            val pathChanged = cleanPath != rawPath
-            
-            if (needUpdate || pathChanged) {
-                result = result.copy(transport = transport.copy(
-                    headers = headers,
-                    path = cleanPath
-                ))
-            }
-        }
-
-        // 强制清理 VLESS 协议中的 security 字段 (sing-box 不支持)
-        if (result.type == "vless" && result.security != null) {
-            result = result.copy(security = null)
-        }
-
-        // Hysteria/Hysteria2: some sing-box/libbox builds require up_mbps/down_mbps to be present.
-        // If missing, the core may fail to establish connections and the local proxy test will see Connection reset.
-        if (result.type == "hysteria" || result.type == "hysteria2") {
-            val up = result.upMbps
-            val down = result.downMbps
-            val defaultMbps = 50
-            if (up == null || down == null) {
-                result = result.copy(
-                    upMbps = up ?: defaultMbps,
-                    downMbps = down ?: defaultMbps
-                )
-            }
-        }
-
-        // 补齐 VMess packetEncoding 缺省值
-        if (result.type == "vmess" && result.packetEncoding.isNullOrBlank()) {
-            result = result.copy(packetEncoding = "xudp")
-        }
-
-        return result
-    }
-
-    private fun buildOutboundForRuntime(outbound: Outbound): Outbound {
-        val fixed = fixOutboundForRuntime(outbound)
-        return when (fixed.type) {
-            "selector", "urltest", "url-test" -> Outbound(
-                type = "selector",
-                tag = fixed.tag,
-                outbounds = fixed.outbounds,
-                default = fixed.default,
-                interruptExistConnections = fixed.interruptExistConnections
-            )
-
-            "direct", "block", "dns" -> Outbound(type = fixed.type, tag = fixed.tag)
-
-            "vmess" -> Outbound(
-                type = fixed.type,
-                tag = fixed.tag,
-                server = fixed.server,
-                serverPort = fixed.serverPort,
-                uuid = fixed.uuid,
-                security = fixed.security,
-                packetEncoding = fixed.packetEncoding,
-                tls = fixed.tls,
-                transport = fixed.transport,
-                multiplex = fixed.multiplex
-            )
-
-            "vless" -> Outbound(
-                type = fixed.type,
-                tag = fixed.tag,
-                server = fixed.server,
-                serverPort = fixed.serverPort,
-                uuid = fixed.uuid,
-                flow = fixed.flow,
-                packetEncoding = fixed.packetEncoding,
-                tls = fixed.tls,
-                transport = fixed.transport,
-                multiplex = fixed.multiplex
-            )
-
-            "trojan" -> Outbound(
-                type = fixed.type,
-                tag = fixed.tag,
-                server = fixed.server,
-                serverPort = fixed.serverPort,
-                password = fixed.password,
-                tls = fixed.tls,
-                transport = fixed.transport,
-                multiplex = fixed.multiplex
-            )
-
-            "shadowsocks" -> Outbound(
-                type = fixed.type,
-                tag = fixed.tag,
-                server = fixed.server,
-                serverPort = fixed.serverPort,
-                method = fixed.method,
-                password = fixed.password,
-                plugin = fixed.plugin,
-                pluginOpts = fixed.pluginOpts,
-                udpOverTcp = fixed.udpOverTcp,
-                multiplex = fixed.multiplex
-            )
-
-            "hysteria", "hysteria2" -> Outbound(
-                type = fixed.type,
-                tag = fixed.tag,
-                server = fixed.server,
-                serverPort = fixed.serverPort,
-                password = fixed.password,
-                authStr = fixed.authStr,
-                upMbps = fixed.upMbps,
-                downMbps = fixed.downMbps,
-                obfs = fixed.obfs,
-                recvWindowConn = fixed.recvWindowConn,
-                recvWindow = fixed.recvWindow,
-                disableMtuDiscovery = fixed.disableMtuDiscovery,
-                hopInterval = fixed.hopInterval,
-                ports = fixed.ports,
-                tls = fixed.tls,
-                multiplex = fixed.multiplex
-            )
-
-            "tuic" -> Outbound(
-                type = fixed.type,
-                tag = fixed.tag,
-                server = fixed.server,
-                serverPort = fixed.serverPort,
-                uuid = fixed.uuid,
-                password = fixed.password,
-                congestionControl = fixed.congestionControl,
-                udpRelayMode = fixed.udpRelayMode,
-                zeroRttHandshake = fixed.zeroRttHandshake,
-                heartbeat = fixed.heartbeat,
-                disableSni = fixed.disableSni,
-                mtu = fixed.mtu,
-                tls = fixed.tls,
-                multiplex = fixed.multiplex
-            )
-
-            "anytls" -> Outbound(
-                type = fixed.type,
-                tag = fixed.tag,
-                server = fixed.server,
-                serverPort = fixed.serverPort,
-                password = fixed.password,
-                idleSessionCheckInterval = fixed.idleSessionCheckInterval,
-                idleSessionTimeout = fixed.idleSessionTimeout,
-                minIdleSession = fixed.minIdleSession,
-                tls = fixed.tls,
-                multiplex = fixed.multiplex
-            )
-
-            "wireguard" -> Outbound(
-                type = fixed.type,
-                tag = fixed.tag,
-                localAddress = fixed.localAddress,
-                privateKey = fixed.privateKey,
-                peerPublicKey = fixed.peerPublicKey,
-                preSharedKey = fixed.preSharedKey,
-                reserved = fixed.reserved,
-                peers = fixed.peers
-            )
-
-            "ssh" -> Outbound(
-                type = fixed.type,
-                tag = fixed.tag,
-                server = fixed.server,
-                serverPort = fixed.serverPort,
-                user = fixed.user,
-                password = fixed.password,
-                privateKeyPath = fixed.privateKeyPath,
-                privateKeyPassphrase = fixed.privateKeyPassphrase,
-                hostKey = fixed.hostKey,
-                hostKeyAlgorithms = fixed.hostKeyAlgorithms,
-                clientVersion = fixed.clientVersion
-            )
-
-            "shadowtls" -> Outbound(
-                type = fixed.type,
-                tag = fixed.tag,
-                version = fixed.version,
-                password = fixed.password,
-                detour = fixed.detour
-            )
-
-            else -> fixed
-        }
-    }
+    private fun buildOutboundForRuntime(outbound: Outbound): Outbound = OutboundFixer.buildForRuntime(outbound)
 
     /**
      * 构建自定义规则集配置
@@ -3373,62 +2483,9 @@ class ConfigRepository(private val context: Context) {
         )
     }
 
-    private fun buildRunInbounds(settings: AppSettings): List<Inbound> {
-        // 添加入站配置
-        val inbounds = mutableListOf<Inbound>()
 
-        // 1. 添加混合入站 (Mixed Port)
-        if (settings.proxyPort > 0) {
-            inbounds.add(
-                Inbound(
-                    type = "mixed",
-                    tag = "mixed-in",
-                    listen = if (settings.allowLan) "0.0.0.0" else "127.0.0.1",
-                    listenPort = settings.proxyPort,
-                    sniff = true,
-                    sniffOverrideDestination = true,
-                    sniffTimeout = "300ms"
-                )
-            )
-        }
-
-        if (settings.tunEnabled) {
-            inbounds.add(
-                Inbound(
-                    type = "tun",
-                    tag = "tun-in",
-                    interfaceName = settings.tunInterfaceName,
-                    inet4AddressRaw = listOf("172.19.0.1/30"),
-                    mtu = settings.tunMtu,
-                    autoRoute = false, // Handled by Android VpnService
-                    strictRoute = false, // Can cause issues on some Android versions
-                    // 智能降级逻辑：如果设备不支持 system/mixed 模式（缺少 CAP_NET_RAW 权限），
-                    // 自动降级到 gvisor 模式。UI 仍显示用户选择的模式。
-                    stack = getEffectiveTunStack(settings.tunStack).name.lowercase(),
-                    endpointIndependentNat = settings.endpointIndependentNat,
-                    gso = true, // GSO 优化，需要 libbox 1.11+
-                    sniff = true,
-                    sniffOverrideDestination = true,
-                    sniffTimeout = "300ms"
-                )
-            )
-        } else if (settings.proxyPort <= 0) {
-            // 如果禁用 TUN 且未设置自定义端口，则添加默认混合入站（HTTP+SOCKS），方便本地代理使用
-            inbounds.add(
-                Inbound(
-                    type = "mixed",
-                    tag = "mixed-in",
-                    listen = "127.0.0.1",
-                    listenPort = 2080,
-                    sniff = true,
-                    sniffOverrideDestination = true,
-                    sniffTimeout = "300ms"
-                )
-            )
-        }
-
-        return inbounds
-    }
+    private fun buildRunInbounds(settings: AppSettings): List<Inbound> =
+        InboundBuilder.build(settings, getEffectiveTunStack(settings.tunStack))
 
     private fun buildRunDns(settings: AppSettings, validRuleSets: List<RuleSetConfig>): DnsConfig {
         // 添加 DNS 配置

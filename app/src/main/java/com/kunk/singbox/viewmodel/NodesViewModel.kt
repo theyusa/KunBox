@@ -256,7 +256,7 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
             val success = configRepository.setActiveNode(nodeId)
 
             // Only show toast when VPN is running
-            val isVpnRunning = VpnStateStore.getActive(getApplication())
+            val isVpnRunning = VpnStateStore.getActive()
             if (isVpnRunning) {
                 val nodeName = node?.displayName ?: getApplication<Application>().getString(R.string.nodes_unknown_node)
                 val msg = if (success) {

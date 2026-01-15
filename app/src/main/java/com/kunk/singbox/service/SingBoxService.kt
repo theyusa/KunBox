@@ -847,6 +847,8 @@ class SingBoxService : VpnService() {
     private fun startPeriodicHealthCheck() {
         periodicHealthCheckJob?.cancel()
         consecutiveHealthCheckFailures = 0
+        consecutiveHealthyChecks = 0
+        healthCheckIntervalMs = 15_000L // 重置为默认间隔
 
         periodicHealthCheckJob = serviceScope.launch {
             while (isActive && isRunning) {
@@ -881,6 +883,8 @@ class SingBoxService : VpnService() {
                                 Log.i(TAG, "Health check recovered, failures reset to 0")
                                 consecutiveHealthCheckFailures = 0
                             }
+                            // 自适应间隔: 健康时逐渐增加间隔
+                            onHealthCheckSuccess()
                         } catch (e: Exception) {
                             Log.e(TAG, "Health check failed: boxService method call threw exception", e)
                             handleHealthCheckFailure("boxService exception: ${e.message}")
@@ -897,11 +901,38 @@ class SingBoxService : VpnService() {
     }
 
     /**
+     * 健康检查成功时调整间隔
+     * 连续健康 5 次后增加间隔 (x1.5)，最大 60 秒
+     */
+    private fun onHealthCheckSuccess() {
+        consecutiveHealthyChecks++
+        if (consecutiveHealthyChecks >= 5) {
+            val newInterval = (healthCheckIntervalMs * 1.5).toLong()
+                .coerceAtMost(maxHealthCheckIntervalMs)
+            if (newInterval != healthCheckIntervalMs) {
+                Log.d(TAG, "Health check interval increased: ${healthCheckIntervalMs}ms -> ${newInterval}ms")
+                healthCheckIntervalMs = newInterval
+            }
+            consecutiveHealthyChecks = 0
+        }
+    }
+
+    /**
      * 处理健康检查失败
+     * 失败时缩短间隔 (x0.5)，最小 5 秒
      */
     private fun handleHealthCheckFailure(reason: String) {
         consecutiveHealthCheckFailures++
+        consecutiveHealthyChecks = 0 // 重置健康计数
         Log.w(TAG, "Health check failure #$consecutiveHealthCheckFailures: $reason")
+
+        // 自适应间隔: 失败时缩短间隔
+        val newInterval = (healthCheckIntervalMs * 0.5).toLong()
+            .coerceAtLeast(minHealthCheckIntervalMs)
+        if (newInterval != healthCheckIntervalMs) {
+            Log.d(TAG, "Health check interval decreased: ${healthCheckIntervalMs}ms -> ${newInterval}ms")
+            healthCheckIntervalMs = newInterval
+        }
 
         if (consecutiveHealthCheckFailures >= maxConsecutiveHealthCheckFailures) {
             Log.e(TAG, "Max consecutive health check failures reached, restarting VPN service")
@@ -1277,9 +1308,11 @@ class SingBoxService : VpnService() {
 
     // Periodic health check states
     private var periodicHealthCheckJob: Job? = null
-    // ⭐ 优化间隔: 从 15 秒缩短到 10 秒,更及时清理超时连接
-    // 根据日志 "context deadline exceeded" 发生在 18.37s,缩短间隔可以在超时前清理
-    private val healthCheckIntervalMs: Long = 10000L // 每 10 秒检查一次
+    // 自适应健康检查间隔
+    @Volatile private var healthCheckIntervalMs: Long = 15_000L // 默认 15 秒
+    private val minHealthCheckIntervalMs: Long = 5_000L  // 最小 5 秒
+    private val maxHealthCheckIntervalMs: Long = 60_000L // 最大 60 秒
+    @Volatile private var consecutiveHealthyChecks: Int = 0
     @Volatile private var consecutiveHealthCheckFailures: Int = 0
     private val maxConsecutiveHealthCheckFailures: Int = 3 // 连续失败 3 次触发重启
 
@@ -1764,11 +1797,29 @@ private val platformInterface = object : PlatformInterface {
                     com.kunk.singbox.repository.LogRepository.getInstance()
                         .addLog("WARN SingBoxService: findConnectionOwner permission denied; per-app routing (package_name) disabled on this ROM")
                 }
-                0
+                // procfs 回退: ConnectivityManager 失败后尝试 procfs
+                val uid = findUidFromProcFsBySourcePort(protocol, sourcePort)
+                if (uid > 0) {
+                    connectionOwnerUidResolved.incrementAndGet()
+                    connectionOwnerLastUid = uid
+                    connectionOwnerLastEvent = "procfs_fallback_after_security uid=$uid"
+                    uid
+                } else {
+                    0
+                }
             } catch (e: Exception) {
                 connectionOwnerOtherException.incrementAndGet()
                 connectionOwnerLastEvent = "Exception ${e.javaClass.simpleName}: ${e.message}"
-                0
+                // procfs 回退: ConnectivityManager 异常后尝试 procfs
+                val uid = findUidFromProcFsBySourcePort(protocol, sourcePort)
+                if (uid > 0) {
+                    connectionOwnerUidResolved.incrementAndGet()
+                    connectionOwnerLastUid = uid
+                    connectionOwnerLastEvent = "procfs_fallback_after_exception uid=$uid"
+                    uid
+                } else {
+                    0
+                }
             }
         }
         
@@ -2220,7 +2271,7 @@ private val platformInterface = object : PlatformInterface {
         instance = this
         
         // Restore manually stopped state from persistent storage
-        isManuallyStopped = VpnStateStore.isManuallyStopped(applicationContext)
+        isManuallyStopped = VpnStateStore.isManuallyStopped()
         Log.i(TAG, "Restored isManuallyStopped state: $isManuallyStopped")
 
         createNotificationChannel()
@@ -2286,7 +2337,7 @@ private val platformInterface = object : PlatformInterface {
         when (intent?.action) {
             ACTION_START -> {
                 isManuallyStopped = false
-                VpnStateStore.setManuallyStopped(applicationContext, false)
+                VpnStateStore.setManuallyStopped(false)
                 VpnTileService.persistVpnPending(applicationContext, "starting")
                 var configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
                 val cleanCache = intent.getBooleanExtra(EXTRA_CLEAN_CACHE, false)
@@ -2364,7 +2415,7 @@ private val platformInterface = object : PlatformInterface {
             ACTION_STOP -> {
                 Log.i(TAG, "Received ACTION_STOP (manual) -> stopping VPN")
                 isManuallyStopped = true
-                VpnStateStore.setManuallyStopped(applicationContext, true)
+                VpnStateStore.setManuallyStopped(true)
                 VpnTileService.persistVpnPending(applicationContext, "stopping")
                 updateServiceState(ServiceState.STOPPING)
                 suppressNotificationUpdates = true
@@ -2927,7 +2978,7 @@ private val platformInterface = object : PlatformInterface {
 
                 suppressNotificationUpdates = false
                 VpnTileService.persistVpnState(applicationContext, true)
-                VpnStateStore.setMode(applicationContext, VpnStateStore.CoreMode.VPN)
+                VpnStateStore.setMode(VpnStateStore.CoreMode.VPN)
 
                 // 启动 TrafficMonitor 速度监控 (在状态持久化之后)
                 trafficMonitor.start(Process.myUid(), trafficListener)
@@ -3239,7 +3290,7 @@ private val platformInterface = object : PlatformInterface {
                     }
                     Log.i(TAG, "VPN stopped")
                     VpnTileService.persistVpnState(applicationContext, false)
-                    VpnStateStore.setMode(applicationContext, VpnStateStore.CoreMode.NONE)
+                    VpnStateStore.setMode(VpnStateStore.CoreMode.NONE)
                     VpnTileService.persistVpnPending(applicationContext, "")
                     updateServiceState(ServiceState.STOPPED)
                     updateTileState()
@@ -3504,7 +3555,7 @@ private val platformInterface = object : PlatformInterface {
              // If we are being destroyed but not manually stopped (e.g. app update or system kill),
              // ensure we don't accidentally mark it as manually stopped, but we DO mark VPN as inactive.
              VpnTileService.persistVpnState(applicationContext, false)
-             VpnStateStore.setMode(applicationContext, VpnStateStore.CoreMode.NONE)
+             VpnStateStore.setMode(VpnStateStore.CoreMode.NONE)
              Log.i(TAG, "onDestroy: Persisted vpn_active=false, mode=NONE")
         }
 

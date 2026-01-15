@@ -453,7 +453,7 @@ class SingBoxCore private constructor(private val context: Context) {
         method: LatencyTestMethod
     ): Long = withContext(Dispatchers.IO) {
         // 尝试调用 native 方法 (如果 VPN 正在运行)
-        if (VpnStateStore.getActive(context) && libboxAvailable) {
+        if (VpnStateStore.getActive() && libboxAvailable) {
             val rtt = testWithLibboxStaticUrlTest(outbound, targetUrl, timeoutMs, method)
             if (rtt >= 0) return@withContext rtt
         }
@@ -805,7 +805,7 @@ class SingBoxCore private constructor(private val context: Context) {
 
         // When VPN is running, prefer running-instance URLTest.
         // When VPN is stopped, try Libbox static URLTest first, then local HTTP proxy fallback.
-        if (VpnStateStore.getActive(context)) {
+        if (VpnStateStore.getActive()) {
             return@withContext testOutboundLatencyWithLibbox(outbound, settings)
         }
 
@@ -844,7 +844,7 @@ class SingBoxCore private constructor(private val context: Context) {
         // Otherwise (VPN off OR native URLTest unsupported), use our efficient batch test.
         val isNativeUrlTestSupported = false // Currently false for official libbox
         
-        if (libboxAvailable && VpnStateStore.getActive(context) && isNativeUrlTestSupported) {
+        if (libboxAvailable && VpnStateStore.getActive() && isNativeUrlTestSupported) {
             // 先做一次轻量预热，避免批量首个请求落在 link 验证/路由冷启动窗口
             try {
                 val warmupOutbound = outbounds.firstOrNull()

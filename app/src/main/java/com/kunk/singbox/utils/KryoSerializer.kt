@@ -14,9 +14,52 @@ import java.io.File
 /**
  * Kryo 二进制序列化工具
  * 相比 JSON 序列化速度快 5-10x，体积小 50-70%
+ *
+ * 文件格式 (v2+):
+ * [MAGIC: 4 bytes "KBOX"] [VERSION: 2 bytes] [DATA: Kryo serialized]
  */
 object KryoSerializer {
     private const val TAG = "KryoSerializer"
+
+    // 魔数: "KBOX" 用于识别文件格式
+    private val MAGIC = byteArrayOf('K'.code.toByte(), 'B'.code.toByte(), 'O'.code.toByte(), 'X'.code.toByte())
+
+    // 当前数据格式版本 - 修改数据结构时递增此值
+    const val CURRENT_VERSION = 1
+
+    // 版本迁移器注册表
+    private val migrators = mutableMapOf<Int, DataMigrator>()
+
+    /**
+     * 数据迁移器接口
+     */
+    interface DataMigrator {
+        /**
+         * 将数据从当前版本迁移到下一版本
+         * @param data 原始数据对象
+         * @return 迁移后的数据对象
+         */
+        fun migrate(data: Any?): Any?
+    }
+
+    /**
+     * 注册版本迁移器
+     * @param fromVersion 源版本号
+     * @param migrator 迁移器实现
+     */
+    fun registerMigrator(fromVersion: Int, migrator: DataMigrator) {
+        migrators[fromVersion] = migrator
+        Log.d(TAG, "Registered migrator for version $fromVersion -> ${fromVersion + 1}")
+    }
+
+    /**
+     * 注册版本迁移器 (Lambda 简化版)
+     */
+    fun registerMigrator(fromVersion: Int, migrate: (Any?) -> Any?) {
+        registerMigrator(fromVersion, object : DataMigrator {
+            override fun migrate(data: Any?): Any? = migrate(data)
+        })
+    }
 
     // 使用 ThreadLocal 保证线程安全，Kryo 实例不是线程安全的
     private val kryoThreadLocal = object : ThreadLocal<Kryo>() {
@@ -89,12 +132,26 @@ object KryoSerializer {
     }
 
     /**
-     * 序列化对象到文件
+     * 带版本号序列化对象到文件
+     * 文件格式: [MAGIC: 4 bytes] [VERSION: 2 bytes] [DATA: Kryo serialized]
      */
     fun <T> serializeToFile(obj: T, file: File): Boolean {
+        return serializeToFileVersioned(obj, file, CURRENT_VERSION)
+    }
+
+    /**
+     * 带指定版本号序列化对象到文件
+     */
+    fun <T> serializeToFileVersioned(obj: T, file: File, version: Int): Boolean {
         return try {
             val tmpFile = File(file.parent, "${file.name}.tmp")
             tmpFile.outputStream().use { fos ->
+                // 写入魔数
+                fos.write(MAGIC)
+                // 写入版本号 (2 bytes, big-endian)
+                fos.write((version shr 8) and 0xFF)
+                fos.write(version and 0xFF)
+                // 写入数据
                 Output(fos, 8192).use { output ->
                     kryo.writeClassAndObject(output, obj)
                 }
@@ -121,7 +178,7 @@ object KryoSerializer {
     }
 
     /**
-     * 从文件反序列化对象
+     * 从文件反序列化对象，自动处理版本迁移
      */
     @Suppress("UNCHECKED_CAST")
     fun <T> deserializeFromFile(file: File): T? {
@@ -129,9 +186,38 @@ object KryoSerializer {
 
         return try {
             file.inputStream().use { fis ->
-                Input(fis, 8192).use { input ->
-                    kryo.readClassAndObject(input) as? T
+                val header = ByteArray(6)
+                val headerRead = fis.read(header)
+
+                // 检查是否为新格式 (带魔数)
+                val (version, dataStream) = if (headerRead >= 6 && header.sliceArray(0..3).contentEquals(MAGIC)) {
+                    // 新格式: 读取版本号
+                    val ver = ((header[4].toInt() and 0xFF) shl 8) or (header[5].toInt() and 0xFF)
+                    Log.d(TAG, "Reading versioned file: version=$ver, current=$CURRENT_VERSION")
+                    ver to fis
+                } else {
+                    // 旧格式 (无魔数): 视为版本 0，需要重新读取整个文件
+                    Log.d(TAG, "Reading legacy file (no magic), treating as version 0")
+                    fis.close()
+                    0 to file.inputStream()
                 }
+
+                // 反序列化数据
+                var data: Any? = Input(dataStream, 8192).use { input ->
+                    kryo.readClassAndObject(input)
+                }
+
+                // 执行版本迁移
+                if (version < CURRENT_VERSION) {
+                    data = migrateData(data, version, CURRENT_VERSION)
+                    // 迁移成功后，重新保存为新版本格式
+                    if (data != null) {
+                        Log.i(TAG, "Data migrated from v$version to v$CURRENT_VERSION, saving...")
+                        serializeToFile(data as T, file)
+                    }
+                }
+
+                data as? T
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to deserialize from file: ${file.name}", e)
@@ -140,16 +226,72 @@ object KryoSerializer {
     }
 
     /**
-     * 检查文件是否为 Kryo 格式（通过魔数判断）
-     * Kryo 文件没有固定魔数，但 JSON 文件通常以 { 或 [ 开头
+     * 执行数据迁移，从 fromVersion 逐步迁移到 toVersion
+     */
+    private fun migrateData(data: Any?, fromVersion: Int, toVersion: Int): Any? {
+        var currentData = data
+        var currentVersion = fromVersion
+
+        while (currentVersion < toVersion) {
+            val migrator = migrators[currentVersion]
+            if (migrator != null) {
+                Log.i(TAG, "Migrating data from v$currentVersion to v${currentVersion + 1}")
+                currentData = migrator.migrate(currentData)
+                if (currentData == null) {
+                    Log.e(TAG, "Migration from v$currentVersion failed, data is null")
+                    return null
+                }
+            } else {
+                Log.w(TAG, "No migrator for v$currentVersion, skipping")
+            }
+            currentVersion++
+        }
+
+        return currentData
+    }
+
+    /**
+     * 读取文件版本号，不反序列化数据
+     * @return 版本号，-1 表示无法读取或非 Kryo 文件
+     */
+    fun getFileVersion(file: File): Int {
+        if (!file.exists() || file.length() < 6) return -1
+
+        return try {
+            file.inputStream().use { fis ->
+                val header = ByteArray(6)
+                if (fis.read(header) < 6) return -1
+
+                if (header.sliceArray(0..3).contentEquals(MAGIC)) {
+                    ((header[4].toInt() and 0xFF) shl 8) or (header[5].toInt() and 0xFF)
+                } else {
+                    0 // 旧格式，视为版本 0
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read file version: ${file.name}", e)
+            -1
+        }
+    }
+
+    /**
+     * 检查文件是否为 Kryo 格式
      */
     fun isKryoFile(file: File): Boolean {
         if (!file.exists() || file.length() < 1) return false
 
         return try {
             file.inputStream().use { fis ->
-                val firstByte = fis.read()
-                // JSON 文件通常以 '{' (123) 或 '[' (91) 或空白字符开头
+                val header = ByteArray(4)
+                val read = fis.read(header)
+
+                // 新格式: 检查魔数
+                if (read >= 4 && header.contentEquals(MAGIC)) {
+                    return true
+                }
+
+                // 旧格式: JSON 文件通常以 '{' 或 '[' 开头
+                val firstByte = header[0].toInt()
                 firstByte != '{'.code && firstByte != '['.code &&
                 firstByte != ' '.code && firstByte != '\n'.code &&
                 firstByte != '\r'.code && firstByte != '\t'.code
@@ -157,5 +299,13 @@ object KryoSerializer {
         } catch (e: Exception) {
             false
         }
+    }
+
+    /**
+     * 检查文件是否需要迁移
+     */
+    fun needsMigration(file: File): Boolean {
+        val version = getFileVersion(file)
+        return version in 0 until CURRENT_VERSION
     }
 }

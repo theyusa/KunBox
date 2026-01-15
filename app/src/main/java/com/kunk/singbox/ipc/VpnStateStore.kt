@@ -1,9 +1,17 @@
 package com.kunk.singbox.ipc
 
-import android.content.Context
+import com.tencent.mmkv.MMKV
 
+/**
+ * VPN 状态存储 - 使用 MMKV 实现跨进程安全访问
+ *
+ * MMKV 优势:
+ * - 跨进程安全 (MULTI_PROCESS_MODE)
+ * - 原子写入，无竞态条件
+ * - 性能比 SharedPreferences 快 100x
+ */
 object VpnStateStore {
-    private const val PREFS_NAME = "vpn_state"
+    private const val MMKV_ID = "vpn_state"
 
     private const val KEY_VPN_ACTIVE = "vpn_active"
     private const val KEY_VPN_PENDING = "vpn_pending"
@@ -18,44 +26,53 @@ object VpnStateStore {
         PROXY
     }
 
-    fun prefs(context: Context) = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-
-    fun getActive(context: Context): Boolean = prefs(context).getBoolean(KEY_VPN_ACTIVE, false)
-
-    fun setActive(context: Context, active: Boolean) {
-        prefs(context).edit().putBoolean(KEY_VPN_ACTIVE, active).apply()
+    private val mmkv: MMKV by lazy {
+        MMKV.mmkvWithID(MMKV_ID, MMKV.MULTI_PROCESS_MODE)
     }
 
-    fun getPending(context: Context): String = prefs(context).getString(KEY_VPN_PENDING, "").orEmpty()
+    fun getActive(): Boolean = mmkv.decodeBool(KEY_VPN_ACTIVE, false)
 
-    fun setPending(context: Context, pending: String?) {
-        prefs(context).edit().putString(KEY_VPN_PENDING, pending.orEmpty()).apply()
+    fun setActive(active: Boolean) {
+        mmkv.encode(KEY_VPN_ACTIVE, active)
     }
 
-    fun getActiveLabel(context: Context): String = prefs(context).getString(KEY_VPN_ACTIVE_LABEL, "").orEmpty()
+    fun getPending(): String = mmkv.decodeString(KEY_VPN_PENDING, "") ?: ""
 
-    fun setActiveLabel(context: Context, label: String?) {
-        prefs(context).edit().putString(KEY_VPN_ACTIVE_LABEL, label.orEmpty()).apply()
+    fun setPending(pending: String?) {
+        mmkv.encode(KEY_VPN_PENDING, pending ?: "")
     }
 
-    fun getLastError(context: Context): String = prefs(context).getString(KEY_VPN_LAST_ERROR, "").orEmpty()
+    fun getActiveLabel(): String = mmkv.decodeString(KEY_VPN_ACTIVE_LABEL, "") ?: ""
 
-    fun setLastError(context: Context, message: String?) {
-        prefs(context).edit().putString(KEY_VPN_LAST_ERROR, message.orEmpty()).apply()
+    fun setActiveLabel(label: String?) {
+        mmkv.encode(KEY_VPN_ACTIVE_LABEL, label ?: "")
     }
 
-    fun isManuallyStopped(context: Context): Boolean = prefs(context).getBoolean(KEY_VPN_MANUALLY_STOPPED, false)
+    fun getLastError(): String = mmkv.decodeString(KEY_VPN_LAST_ERROR, "") ?: ""
 
-    fun setManuallyStopped(context: Context, value: Boolean) {
-        prefs(context).edit().putBoolean(KEY_VPN_MANUALLY_STOPPED, value).apply()
+    fun setLastError(message: String?) {
+        mmkv.encode(KEY_VPN_LAST_ERROR, message ?: "")
     }
 
-    fun getMode(context: Context): CoreMode {
-        val raw = prefs(context).getString(KEY_CORE_MODE, CoreMode.NONE.name).orEmpty()
+    fun isManuallyStopped(): Boolean = mmkv.decodeBool(KEY_VPN_MANUALLY_STOPPED, false)
+
+    fun setManuallyStopped(value: Boolean) {
+        mmkv.encode(KEY_VPN_MANUALLY_STOPPED, value)
+    }
+
+    fun getMode(): CoreMode {
+        val raw = mmkv.decodeString(KEY_CORE_MODE, CoreMode.NONE.name) ?: CoreMode.NONE.name
         return runCatching { CoreMode.valueOf(raw) }.getOrDefault(CoreMode.NONE)
     }
 
-    fun setMode(context: Context, mode: CoreMode) {
-        prefs(context).edit().putString(KEY_CORE_MODE, mode.name).apply()
+    fun setMode(mode: CoreMode) {
+        mmkv.encode(KEY_CORE_MODE, mode.name)
+    }
+
+    /**
+     * 清除所有状态 (用于重置)
+     */
+    fun clear() {
+        mmkv.clearAll()
     }
 }

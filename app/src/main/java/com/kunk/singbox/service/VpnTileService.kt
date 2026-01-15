@@ -167,7 +167,7 @@ class VpnTileService : TileService() {
                 .getBoolean(KEY_VPN_ACTIVE, false)
         }.getOrDefault(false)
 
-        val coreMode = VpnStateStore.getMode(this)
+        val coreMode = VpnStateStore.getMode()
 
         if (persistedActive && coreMode == VpnStateStore.CoreMode.VPN && !hasSystemVpnTransport()) {
             persistVpnState(this, false)

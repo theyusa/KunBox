@@ -798,7 +798,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         _statsBase.value = ConnectionStats(0, 0, 0, 0, 0)
         _currentNodePing.value = null
         
-        val mode = VpnStateStore.getMode(context)
+        val mode = VpnStateStore.getMode()
         val intent = when (mode) {
             VpnStateStore.CoreMode.PROXY -> Intent(context, ProxyOnlyService::class.java).apply {
                 action = ProxyOnlyService.ACTION_STOP

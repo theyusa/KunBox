@@ -91,13 +91,13 @@ class VpnKeepaliveWorker(
         return try {
 
             // 1. 检查是否应该运行 VPN (用户未手动停止)
-            val isManuallyStopped = VpnStateStore.isManuallyStopped(applicationContext)
+            val isManuallyStopped = VpnStateStore.isManuallyStopped()
             if (isManuallyStopped) {
                 return Result.success()
             }
 
             // 2. 检查当前 VPN 模式
-            val currentMode = VpnStateStore.getMode(applicationContext)
+            val currentMode = VpnStateStore.getMode()
             if (currentMode == VpnStateStore.CoreMode.NONE) {
                 return Result.success()
             }
@@ -177,7 +177,7 @@ class VpnKeepaliveWorker(
                 Log.e(TAG, "Failed to start VPN service during recovery", e)
 
                 // 如果启动失败,清除状态避免无限重试
-                VpnStateStore.setMode(applicationContext, VpnStateStore.CoreMode.NONE)
+                VpnStateStore.setMode(VpnStateStore.CoreMode.NONE)
                 VpnTileService.persistVpnState(applicationContext, false)
             }
 

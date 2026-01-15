@@ -38,8 +38,8 @@ object VpnServiceManager {
      */
     fun isRunning(context: Context): Boolean {
         // 优先读取跨进程状态
-        val stateStoreActive = VpnStateStore.getActive(context)
-        val stateStorePending = VpnStateStore.getPending(context)
+        val stateStoreActive = VpnStateStore.getActive()
+        val stateStorePending = VpnStateStore.getPending()
 
         // 如果正在启动/停止,认为状态不稳定,返回当前激活状态
         if (stateStorePending.isNotEmpty()) {

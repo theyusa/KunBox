@@ -11,6 +11,7 @@ import com.kunk.singbox.service.RuleSetAutoUpdateWorker
 import com.kunk.singbox.service.SubscriptionAutoUpdateWorker
 import com.kunk.singbox.service.VpnKeepaliveWorker
 import com.kunk.singbox.utils.DefaultNetworkListener
+import com.tencent.mmkv.MMKV
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,6 +28,9 @@ class SingBoxApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+
+        // 初始化 MMKV - 必须在所有进程中初始化
+        MMKV.initialize(this)
 
         // 手动初始化 WorkManager 以支持多进程
         if (!isWorkManagerInitialized()) {

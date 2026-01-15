@@ -524,7 +524,7 @@ class ProxyOnlyService : Service() {
 
                 isRunning = true
                 VpnTileService.persistVpnState(applicationContext, true)
-                VpnStateStore.setMode(applicationContext, VpnStateStore.CoreMode.PROXY)
+                VpnStateStore.setMode(VpnStateStore.CoreMode.PROXY)
                 VpnTileService.persistVpnPending(applicationContext, "")
                 setLastError(null)
                 notifyRemoteState(state = SingBoxService.ServiceState.RUNNING)
@@ -583,7 +583,7 @@ class ProxyOnlyService : Service() {
                     stopSelf()
                 }
                 VpnTileService.persistVpnState(applicationContext, false)
-                VpnStateStore.setMode(applicationContext, VpnStateStore.CoreMode.NONE)
+                VpnStateStore.setMode(VpnStateStore.CoreMode.NONE)
                 VpnTileService.persistVpnPending(applicationContext, "")
                 notifyRemoteState(state = SingBoxService.ServiceState.STOPPED)
                 updateTileState()

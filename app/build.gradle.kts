@@ -400,7 +400,10 @@ dependencies {
 
     // Kryo - 高性能二进制序列化
     implementation("com.esotericsoftware:kryo:5.6.2")
-    
+
+    // MMKV - 高性能跨进程 KV 存储
+    implementation("com.tencent:mmkv:1.3.2")
+
     // QR Code scanning - ZXing
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     
