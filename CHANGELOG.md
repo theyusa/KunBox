@@ -1,5 +1,29 @@
 # Changelog
 
+## [2.3.0](https://github.com/roseforljh/KunBox/compare/v2.2.0...v2.3.0) (2026-01-15)
+
+
+### Features
+
+* **kernel:** add kernel-level HTTP fetch and URLTest extensions ([94718c5](https://github.com/roseforljh/KunBox/commit/94718c59246702cae51f185dddc9870fa66e041d))
+* **nodes:** add profile selection for manual node creation ([ed9f8ae](https://github.com/roseforljh/KunBox/commit/ed9f8aea4b8f867d2cce1f3557a9df071344987a))
+* **parser:** add Clash Meta advanced features support ([5b8e5df](https://github.com/roseforljh/KunBox/commit/5b8e5dfd5a5a56efa9514689812e9502fe0818b0))
+* **update:** implement app version check and notification ([91fa6e2](https://github.com/roseforljh/KunBox/commit/91fa6e2b8ca5a672ae7a6813e958c3c014a9db24))
+
+
+### Bug Fixes
+
+* **latency:** resolve SS+ShadowTLS dependency for latency testing ([215a108](https://github.com/roseforljh/KunBox/commit/215a1080675face4095eb1b5bf49a98904182d26))
+* 删除组逻辑 ([dc48bdb](https://github.com/roseforljh/KunBox/commit/dc48bdb974b99c184b889e3208b13794bd47f8e6))
+* 只读节点信息 ([62f0a56](https://github.com/roseforljh/KunBox/commit/62f0a56a966f914b3f12411fcbc4c16556413900))
+
+
+### Performance Improvements
+
+* **network:** optimize throughput and enable GSO ([3e2cb1d](https://github.com/roseforljh/KunBox/commit/3e2cb1dcc69f5bbaf5fd8a0ca4a8a0e27f313e8d))
+* **repository:** optimize node import performance and add Kryo serialization ([fd6e219](https://github.com/roseforljh/KunBox/commit/fd6e2193d44ed690d2938433f507a2986c5d29d4))
+* **repository:** parallelize node extraction and subscription updates ([80aca3b](https://github.com/roseforljh/KunBox/commit/80aca3b371f8672916aeffa305dc90e494adcde9))
+
 ## [2.2.0](https://github.com/roseforljh/KunBox/compare/v2.1.8...v2.2.0) (2026-01-14)
 
 
