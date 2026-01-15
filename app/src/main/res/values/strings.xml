@@ -12,6 +12,12 @@
     <string name="shortcut_scan">扫描二维码</string>
     <string name="shortcut_scan_short">扫描</string>
 
+    <!-- Update Notification -->
+    <string name="update_channel_name">版本更新</string>
+    <string name="update_channel_description">新版本发布通知</string>
+    <string name="update_notification_title">发现新版本</string>
+    <string name="update_notification_content">KunBox %s 已发布，点击查看详情</string>
+
     <!-- Common -->
     <string name="common_confirm">确认</string>
     <string name="common_cancel">取消</string>
@@ -235,6 +241,7 @@
 
     <!-- Nodes -->
     <string name="nodes_title">节点列表</string>
+    <string name="nodes_count_suffix">个节点</string>
     <string name="nodes_sort">排序</string>
     <string name="nodes_filter">筛选</string>
     <string name="nodes_add">添加节点</string>

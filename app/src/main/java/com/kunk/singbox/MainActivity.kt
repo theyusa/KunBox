@@ -172,6 +172,13 @@ fun SingBoxApp() {
         }
     }
 
+    // 自动检查更新
+    LaunchedEffect(settings?.autoCheckUpdate) {
+        if (settings?.autoCheckUpdate == true) {
+            com.kunk.singbox.utils.AppUpdateChecker.checkAndNotify(context)
+        }
+    }
+
     // Handle App Shortcuts - need navController reference
     var pendingNavigation by remember { mutableStateOf<String?>(null) }
 

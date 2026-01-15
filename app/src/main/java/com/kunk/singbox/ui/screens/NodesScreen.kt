@@ -451,6 +451,9 @@ fun NodesScreen(
                 onQueryChange = { searchQuery = it },
                 isExpanded = isSearchExpanded,
                 onToggle = { isSearchExpanded = !isSearchExpanded },
+                totalCount = nodes.size,
+                filteredCount = filteredNodes.size,
+                activeNodeName = nodes.find { it.id == activeNodeId }?.displayName,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
 
@@ -574,6 +577,9 @@ private fun NodeSearchBar(
     onQueryChange: (String) -> Unit,
     isExpanded: Boolean,
     onToggle: () -> Unit,
+    totalCount: Int,
+    filteredCount: Int,
+    activeNodeName: String?,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -593,6 +599,59 @@ private fun NodeSearchBar(
                 tint = if (isExpanded) MaterialTheme.colorScheme.primary else Neutral500,
                 modifier = Modifier.size(24.dp)
             )
+        }
+
+        // 未展开时显示统计信息
+        AnimatedVisibility(
+            visible = !isExpanded,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .padding(start = 48.dp, end = 8.dp)
+                .fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 节点数量统计
+                Text(
+                    text = if (filteredCount != totalCount) {
+                        "$filteredCount / $totalCount ${stringResource(R.string.nodes_count_suffix)}"
+                    } else {
+                        "$totalCount ${stringResource(R.string.nodes_count_suffix)}"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Neutral500
+                )
+
+                // 活跃节点
+                if (activeNodeName != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(start = 8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .background(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    shape = RoundedCornerShape(3.dp)
+                                )
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = activeNodeName,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                    }
+                }
+            }
         }
 
         // 右侧胶囊搜索框(仅展开时显示,从左侧按钮右边开始)

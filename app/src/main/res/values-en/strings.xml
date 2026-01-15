@@ -12,6 +12,12 @@
     <string name="shortcut_scan">Scan QR Code</string>
     <string name="shortcut_scan_short">Scan</string>
 
+    <!-- Update Notification -->
+    <string name="update_channel_name">App Updates</string>
+    <string name="update_channel_description">New version release notifications</string>
+    <string name="update_notification_title">New Version Available</string>
+    <string name="update_notification_content">KunBox %s is now available, tap to view details</string>
+
     <!-- Common -->
     <string name="common_confirm">Confirm</string>
     <string name="common_cancel">Cancel</string>
@@ -235,6 +241,7 @@
 
     <!-- Nodes -->
     <string name="nodes_title">Node List</string>
+    <string name="nodes_count_suffix">nodes</string>
     <string name="nodes_sort">Sort</string>
     <string name="nodes_filter">Filter</string>
     <string name="nodes_add">Add Node</string>
