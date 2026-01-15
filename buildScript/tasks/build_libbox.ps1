@@ -153,6 +153,28 @@ if (Test-Path $BoxExtFile) {
     }
 }
 
+# Inject URLTest extension
+$UrlTestExtFile = Join-Path $ExtensionDir "urltest_ext.go"
+if (Test-Path $UrlTestExtFile) {
+    $LibboxDir = Join-Path $BuildDir "experimental\libbox"
+    if (Test-Path $LibboxDir) {
+        $DestFile = Join-Path $LibboxDir "urltest_ext.go"
+        Copy-Item $UrlTestExtFile $DestFile -Force
+        Write-Host "Injected KunBox extension: urltest_ext.go" -ForegroundColor Cyan
+    }
+}
+
+# Inject Fetch extension
+$FetchExtFile = Join-Path $ExtensionDir "fetch_ext.go"
+if (Test-Path $FetchExtFile) {
+    $LibboxDir = Join-Path $BuildDir "experimental\libbox"
+    if (Test-Path $LibboxDir) {
+        $DestFile = Join-Path $LibboxDir "fetch_ext.go"
+        Copy-Item $FetchExtFile $DestFile -Force
+        Write-Host "Injected KunBox extension: fetch_ext.go" -ForegroundColor Cyan
+    }
+}
+
 # Patch build_libbox to remove tailscale (NekoBox-style optimization)
 $BuildLibboxFile = Join-Path $BuildDir "cmd\internal\build_libbox\main.go"
 if (Test-Path $BuildLibboxFile) {

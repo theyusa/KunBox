@@ -141,9 +141,10 @@ fun NodeCard(
                                 when {
                                     latency == null -> placeholderColor
                                     latency < 0 -> Color.Red
-                                    latency < 1000 -> Color(0xFF4CAF50)
-                                    latency < 2000 -> Color(0xFFFFC107)
-                                    else -> Color.Red
+                                    latency <= 100 -> Color(0xFF00BFA5)  // Teal: <=100ms
+                                    latency <= 200 -> Color(0xFF4CAF50)  // Green: <=200ms
+                                    latency <= 500 -> Color(0xFFFF9800)  // Orange: <=500ms
+                                    else -> Color.Red                    // Red: >500ms
                                 }
                             }
                             val latencyText = remember(latency) {

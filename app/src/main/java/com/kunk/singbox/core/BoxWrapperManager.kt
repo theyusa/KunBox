@@ -23,6 +23,9 @@ object BoxWrapperManager {
     @Volatile
     private var wrapper: BoxWrapper? = null
 
+    @Volatile
+    private var boxServiceRef: BoxService? = null
+
     private val _isPaused = MutableStateFlow(false)
     val isPaused: StateFlow<Boolean> = _isPaused.asStateFlow()
 
@@ -35,6 +38,7 @@ object BoxWrapperManager {
      */
     fun init(boxService: BoxService): Boolean {
         return try {
+            boxServiceRef = boxService
             wrapper = Libbox.wrapBoxService(boxService)
             _isPaused.value = false
             _hasSelector.value = wrapper?.hasSelector() == true
@@ -58,6 +62,7 @@ object BoxWrapperManager {
             Log.w(TAG, "clearGlobalWrapper failed: ${e.message}")
         }
         wrapper = null
+        boxServiceRef = null
         _isPaused.value = false
         _hasSelector.value = false
         Log.i(TAG, "BoxWrapper released")
@@ -258,5 +263,13 @@ object BoxWrapperManager {
         } catch (e: Exception) {
             wrapper
         }
+    }
+
+    /**
+     * 获取 BoxService 实例 (用于内核级 URLTest)
+     * 仅在 VPN 运行时可用
+     */
+    fun getBoxService(): BoxService? {
+        return boxServiceRef
     }
 }

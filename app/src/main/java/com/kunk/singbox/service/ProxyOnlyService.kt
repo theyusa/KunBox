@@ -21,6 +21,7 @@ import com.kunk.singbox.ipc.SingBoxIpcHub
 import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.LogRepository
+import com.kunk.singbox.utils.NetworkClient
 import com.kunk.singbox.repository.RuleSetRepository
 import io.nekohasekai.libbox.BoxService
 import io.nekohasekai.libbox.InterfaceUpdateListener
@@ -523,6 +524,7 @@ class ProxyOnlyService : Service() {
                 boxService?.start()
 
                 isRunning = true
+                NetworkClient.onVpnStateChanged(true)
                 VpnTileService.persistVpnState(applicationContext, true)
                 VpnStateStore.setMode(VpnStateStore.CoreMode.PROXY)
                 VpnTileService.persistVpnPending(applicationContext, "")
@@ -559,6 +561,7 @@ class ProxyOnlyService : Service() {
         notifyRemoteState(state = SingBoxService.ServiceState.STOPPING)
         updateTileState()
         isRunning = false
+        NetworkClient.onVpnStateChanged(false)
 
         val jobToJoin = startJob
         startJob = null

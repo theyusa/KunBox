@@ -51,6 +51,7 @@ import com.kunk.singbox.core.BoxWrapperManager
 import com.kunk.singbox.service.network.NetworkManager
 import com.kunk.singbox.service.network.TrafficMonitor
 import com.kunk.singbox.utils.L
+import com.kunk.singbox.utils.NetworkClient
 import io.nekohasekai.libbox.*
 import io.nekohasekai.libbox.Libbox
 import kotlinx.coroutines.*
@@ -2955,6 +2956,7 @@ private val platformInterface = object : PlatformInterface {
                 }
                 
                 isRunning = true
+                NetworkClient.onVpnStateChanged(true)
                 stopForeignVpnMonitor()
                 setLastError(null)
                 Log.i(TAG, "KunBox VPN started successfully")
@@ -3206,6 +3208,7 @@ private val platformInterface = object : PlatformInterface {
 
         realTimeNodeName = null
         isRunning = false
+        NetworkClient.onVpnStateChanged(false)
 
         val listener = currentInterfaceListener
         val serviceToClose = boxService
