@@ -489,7 +489,7 @@ fun NodesScreen(
                 ) {
                 itemsIndexed(
                     items = filteredNodes,
-                    key = { index, node -> "${node.id}_$index" },
+                    key = { _, node -> node.id },
                     contentType = { _, _ -> "node" }
                 ) { index, node ->
                     val isSelected = activeNodeId == node.id

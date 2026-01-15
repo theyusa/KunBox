@@ -23,6 +23,7 @@ import com.kunk.singbox.utils.parser.SubscriptionManager
 import com.kunk.singbox.utils.KryoSerializer
 import com.kunk.singbox.repository.TrafficRepository
 import java.io.File
+import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -30,9 +31,12 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import com.kunk.singbox.utils.NetworkClient
+import com.kunk.singbox.utils.StringBuilderPool
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.error.YAMLException
 
@@ -43,6 +47,9 @@ class ConfigRepository(private val context: Context) {
     
     companion object {
         private const val TAG = "ConfigRepository"
+
+        // 并行处理的默认并发数
+        private const val PARALLEL_CONCURRENCY = 8
 
         // 预编译的 Regex 常量 - 避免重复编译
         private val REGEX_TRAFFIC = Regex("([\\d.]+)\\s*([KMGTPE]?)B?")
@@ -119,7 +126,10 @@ class ConfigRepository(private val context: Context) {
         fun stableNodeId(profileId: String, outboundTag: String): String {
             val key = "$profileId|$outboundTag"
             return nodeIdCache.getOrPut(key) {
-                java.util.UUID.nameUUIDFromBytes(key.toByteArray(Charsets.UTF_8)).toString()
+                StringBuilderPool.use { sb ->
+                    sb.append(profileId).append('|').append(outboundTag)
+                    java.util.UUID.nameUUIDFromBytes(sb.toString().toByteArray(Charsets.UTF_8)).toString()
+                }
             }
         }
 
@@ -205,9 +215,15 @@ class ConfigRepository(private val context: Context) {
     private val _activeNodeId = MutableStateFlow<String?>(null)
     val activeNodeId: StateFlow<String?> = _activeNodeId.asStateFlow()
     
-    private val maxConfigCacheSize = 2
-    private val configCache = ConcurrentHashMap<String, SingBoxConfig>()
-    private val configCacheOrder = java.util.concurrent.ConcurrentLinkedDeque<String>()
+    private val maxConfigCacheSize = 10
+    // 使用 LinkedHashMap 实现 LRU 缓存，线程安全
+    private val configCache: MutableMap<String, SingBoxConfig> = Collections.synchronizedMap(
+        object : LinkedHashMap<String, SingBoxConfig>(maxConfigCacheSize, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, SingBoxConfig>?): Boolean {
+                return size > maxConfigCacheSize
+            }
+        }
+    )
     private val profileNodes = ConcurrentHashMap<String, List<NodeUi>>()
     private val profileResetJobs = ConcurrentHashMap<String, kotlinx.coroutines.Job>()
     private val inFlightLatencyTests = ConcurrentHashMap<String, Deferred<Long>>()
@@ -278,19 +294,10 @@ class ConfigRepository(private val context: Context) {
 
     private fun cacheConfig(profileId: String, config: SingBoxConfig) {
         configCache[profileId] = config
-        configCacheOrder.remove(profileId)
-        configCacheOrder.addLast(profileId)
-        while (configCache.size > maxConfigCacheSize && configCacheOrder.isNotEmpty()) {
-            val oldest = configCacheOrder.pollFirst()
-            if (oldest != null && oldest != profileId) {
-                configCache.remove(oldest)
-            }
-        }
     }
 
     private fun removeCachedConfig(profileId: String) {
         configCache.remove(profileId)
-        configCacheOrder.remove(profileId)
     }
 
     /**
@@ -377,7 +384,7 @@ class ConfigRepository(private val context: Context) {
         val profiles = _profiles.value
         for (p in profiles) {
             val cfg = loadConfig(p.id) ?: continue
-            result.addAll(extractNodesFromConfig(cfg, p.id))
+            result.addAll(runBlocking { extractNodesFromConfig(cfg, p.id) })
         }
         return result
     }
@@ -462,7 +469,7 @@ class ConfigRepository(private val context: Context) {
                         try {
                             val configJson = configFile.readText()
                             val config = gson.fromJson(configJson, SingBoxConfig::class.java)
-                            val nodes = extractNodesFromConfig(config, profile.id)
+                            val nodes = runBlocking { extractNodesFromConfig(config, profile.id) }
                             // 恢复延迟数据
                             val nodesWithLatency = nodes.map { node ->
                                 val latency = savedData.nodeLatencies[node.id]
@@ -1827,24 +1834,23 @@ class ConfigRepository(private val context: Context) {
         }
         return null
     }
-    
+
     /**
-     * 从配置中提取节点
+     * 从配置中提取节点 - 使用协程并行处理提升性能
      */
-    private fun extractNodesFromConfig(
+    private suspend fun extractNodesFromConfig(
         config: SingBoxConfig,
         profileId: String,
         onProgress: ((String) -> Unit)? = null
-    ): List<NodeUi> {
-        val nodes = mutableListOf<NodeUi>()
-        val outbounds = config.outbounds ?: return nodes
+    ): List<NodeUi> = withContext(Dispatchers.Default) {
+        val outbounds = config.outbounds ?: return@withContext emptyList()
         val trafficRepo = TrafficRepository.getInstance(context)
 
         // 收集所有 selector 和 urltest 的 outbounds 作为分组
-        val groupOutbounds = outbounds.filter { 
-            it.type == "selector" || it.type == "urltest" 
+        val groupOutbounds = outbounds.filter {
+            it.type == "selector" || it.type == "urltest"
         }
-        
+
         // 创建节点到分组的映射
         val nodeToGroup = mutableMapOf<String, String>()
         groupOutbounds.forEach { group ->
@@ -1852,7 +1858,7 @@ class ConfigRepository(private val context: Context) {
                 nodeToGroup[nodeName] = group.tag
             }
         }
-        
+
         // 过滤出代理节点
         val proxyTypes = setOf(
             "shadowsocks", "vmess", "vless", "trojan",
@@ -1860,84 +1866,96 @@ class ConfigRepository(private val context: Context) {
             "shadowtls", "ssh", "anytls", "http", "socks"
         )
 
-        var processedCount = 0
-        val totalCount = outbounds.size
-        
-        for (outbound in outbounds) {
-            processedCount++
-            // 每处理50个节点回调一次进度
-            if (processedCount % 50 == 0) {
-                onProgress?.invoke(context.getString(R.string.profiles_extracting_nodes, processedCount, totalCount))
-            }
+        val validOutbounds = outbounds.filter { it.type in proxyTypes }
+        if (validOutbounds.isEmpty()) return@withContext emptyList()
 
-            if (outbound.type in proxyTypes) {
-                var group = nodeToGroup[outbound.tag] ?: "Default"
-                
-                // 校验分组名是否为有效名称 (避免链接被当作分组名)
-                if (group.contains("://") || group.length > 50) {
-                    group = "未分组"
+        val total = validOutbounds.size
+        val completed = AtomicInteger(0)
+        val semaphore = Semaphore(PARALLEL_CONCURRENCY)
+
+        val deferredNodes = validOutbounds.map { outbound ->
+            async {
+                semaphore.withPermit {
+                    val node = createNodeUi(outbound, profileId, nodeToGroup, trafficRepo)
+                    val done = completed.incrementAndGet()
+                    if (done % 100 == 0 || done == total) {
+                        onProgress?.invoke(context.getString(R.string.profiles_extracting_nodes, done, total))
+                    }
+                    node
                 }
-
-                var regionFlag = detectRegionFlag(outbound.tag)
-                
-                // 如果从名称无法识别地区，尝试更深层次的信息挖掘
-                if (regionFlag == "🌐" || regionFlag.isBlank()) {
-                    // 1. 尝试 SNI (通常 CDN 节点会使用 SNI 指向真实域名)
-                    val sni = outbound.tls?.serverName
-                    if (!sni.isNullOrBlank()) {
-                        val sniRegion = detectRegionFlag(sni)
-                        if (sniRegion != "🌐" && sniRegion.isNotBlank()) regionFlag = sniRegion
-                    }
-                    
-                    // 2. 尝试 Host (WS/HTTP Host)
-                    if ((regionFlag == "🌐" || regionFlag.isBlank())) {
-                        val host = outbound.transport?.headers?.get("Host")
-                            ?: outbound.transport?.host?.firstOrNull()
-                        if (!host.isNullOrBlank()) {
-                            val hostRegion = detectRegionFlag(host)
-                            if (hostRegion != "🌐" && hostRegion.isNotBlank()) regionFlag = hostRegion
-                        }
-                    }
-
-                    // 3. 最后尝试服务器地址 (可能是 CDN IP，准确度较低，作为兜底)
-                    if ((regionFlag == "🌐" || regionFlag.isBlank()) && !outbound.server.isNullOrBlank()) {
-                        val serverRegion = detectRegionFlag(outbound.server)
-                        if (serverRegion != "🌐" && serverRegion.isNotBlank()) regionFlag = serverRegion
-                    }
-                }
-                
-                // 2025-fix: 始终设置 regionFlag 以确保排序功能正常工作
-                // UI 层 (NodeCard) 将负责检查名称中是否已包含该国旗，从而避免重复显示
-                val finalRegionFlag = regionFlag
-
-                // 2025 规范：确保 tag 已经应用了协议后缀（在 SubscriptionManager 中处理过了）
-                // 这里我们只需确保 NodeUi 能够正确显示国旗
-                
-                val id = stableNodeId(profileId, outbound.tag)
-                nodes.add(
-                    NodeUi(
-                        id = id,
-                        name = outbound.tag,
-                        protocol = outbound.type,
-                        group = group,
-                        regionFlag = finalRegionFlag,
-                        latencyMs = null,
-                        isFavorite = false,
-                        sourceProfileId = profileId,
-                        trafficUsed = trafficRepo.getMonthlyTotal(id),
-                        tags = buildList {
-                            outbound.tls?.let {
-                                if (it.enabled == true) add("TLS")
-                                it.reality?.let { r -> if (r.enabled == true) add("Reality") }
-                            }
-                            outbound.transport?.type?.let { add(it.uppercase()) }
-                        }
-                    )
-                )
             }
         }
-        
-        return nodes
+
+        deferredNodes.awaitAll().filterNotNull()
+    }
+
+    /**
+     * 创建单个节点 UI 对象
+     */
+    private fun createNodeUi(
+        outbound: Outbound,
+        profileId: String,
+        nodeToGroup: Map<String, String>,
+        trafficRepo: TrafficRepository
+    ): NodeUi? {
+        if (outbound.tag.isBlank()) return null
+
+        var group = nodeToGroup[outbound.tag] ?: "Default"
+
+        // 校验分组名是否为有效名称 (避免链接被当作分组名)
+        if (group.contains("://") || group.length > 50) {
+            group = "未分组"
+        }
+
+        var regionFlag = detectRegionFlag(outbound.tag)
+
+        // 如果从名称无法识别地区，尝试更深层次的信息挖掘
+        if (regionFlag == "🌐" || regionFlag.isBlank()) {
+            // 1. 尝试 SNI (通常 CDN 节点会使用 SNI 指向真实域名)
+            val sni = outbound.tls?.serverName
+            if (!sni.isNullOrBlank()) {
+                val sniRegion = detectRegionFlag(sni)
+                if (sniRegion != "🌐" && sniRegion.isNotBlank()) regionFlag = sniRegion
+            }
+
+            // 2. 尝试 Host (WS/HTTP Host)
+            if ((regionFlag == "🌐" || regionFlag.isBlank())) {
+                val host = outbound.transport?.headers?.get("Host")
+                    ?: outbound.transport?.host?.firstOrNull()
+                if (!host.isNullOrBlank()) {
+                    val hostRegion = detectRegionFlag(host)
+                    if (hostRegion != "🌐" && hostRegion.isNotBlank()) regionFlag = hostRegion
+                }
+            }
+
+            // 3. 最后尝试服务器地址 (可能是 CDN IP，准确度较低，作为兜底)
+            if ((regionFlag == "🌐" || regionFlag.isBlank()) && !outbound.server.isNullOrBlank()) {
+                val serverRegion = detectRegionFlag(outbound.server)
+                if (serverRegion != "🌐" && serverRegion.isNotBlank()) regionFlag = serverRegion
+            }
+        }
+
+        val finalRegionFlag = regionFlag
+        val id = stableNodeId(profileId, outbound.tag)
+
+        return NodeUi(
+            id = id,
+            name = outbound.tag,
+            protocol = outbound.type,
+            group = group,
+            regionFlag = finalRegionFlag,
+            latencyMs = null,
+            isFavorite = false,
+            sourceProfileId = profileId,
+            trafficUsed = trafficRepo.getMonthlyTotal(id),
+            tags = buildList {
+                outbound.tls?.let {
+                    if (it.enabled == true) add("TLS")
+                    it.reality?.let { r -> if (r.enabled == true) add("Reality") }
+                }
+                outbound.transport?.type?.let { add(it.uppercase()) }
+            }
+        )
     }
     
     /**
@@ -2432,21 +2450,24 @@ class ConfigRepository(private val context: Context) {
         saveProfiles()
     }
 
-    suspend fun updateAllProfiles(): BatchUpdateResult {
+    suspend fun updateAllProfiles(): BatchUpdateResult = withContext(Dispatchers.IO) {
         val enabledProfiles = _profiles.value.filter { it.enabled && it.type == ProfileType.Subscription }
-        
+
         if (enabledProfiles.isEmpty()) {
-            return BatchUpdateResult()
+            return@withContext BatchUpdateResult()
         }
-        
-        val results = mutableListOf<SubscriptionUpdateResult>()
-        
-        enabledProfiles.forEach { profile ->
-            val result = updateProfile(profile.id)
-            results.add(result)
-        }
-        
-        return BatchUpdateResult(
+
+        // 并行更新所有订阅，限制并发数为 3
+        val semaphore = Semaphore(3)
+        val results = enabledProfiles.map { profile ->
+            async {
+                semaphore.withPermit {
+                    updateProfile(profile.id)
+                }
+            }
+        }.awaitAll()
+
+        BatchUpdateResult(
             successWithChanges = results.count { it is SubscriptionUpdateResult.SuccessWithChanges },
             successNoChanges = results.count { it is SubscriptionUpdateResult.SuccessNoChanges },
             failed = results.count { it is SubscriptionUpdateResult.Failed },
@@ -4119,7 +4140,7 @@ class ConfigRepository(private val context: Context) {
 
             // 4. 更新内存状态
             cacheConfig(profileId, newConfig)
-            val nodes = extractNodesFromConfig(newConfig, profileId)
+            val nodes = runBlocking { extractNodesFromConfig(newConfig, profileId) }
             profileNodes[profileId] = nodes
 
             // 5. 如果是新配置，添加到 profiles 列表
@@ -4170,9 +4191,9 @@ class ConfigRepository(private val context: Context) {
 
         // 更新内存中的配置
         cacheConfig(profileId, newConfig)
-        
+
         // 重新提取节点列表
-        val newNodes = extractNodesFromConfig(newConfig, profileId)
+        val newNodes = runBlocking { extractNodesFromConfig(newConfig, profileId) }
         profileNodes[profileId] = newNodes
         updateAllNodesAndGroups()
 
@@ -4332,7 +4353,7 @@ class ConfigRepository(private val context: Context) {
         val originalLatency = oldNodes.find { it.id == nodeId }?.latencyMs
 
         // 重新提取节点列表
-        val newNodes = extractNodesFromConfig(newConfig, profileId)
+        val newNodes = runBlocking { extractNodesFromConfig(newConfig, profileId) }
         val mergedNodes = newNodes.map { nodeItem ->
             val storedLatency = latencyById[nodeItem.id]
                 ?: if (nodeItem.id == updatedNodeId) originalLatency else null
@@ -4390,7 +4411,7 @@ class ConfigRepository(private val context: Context) {
         val originalLatency = oldNodes.find { it.id == nodeId }?.latencyMs
 
         // 重新提取节点列表
-        val newNodes = extractNodesFromConfig(newConfig, profileId)
+        val newNodes = runBlocking { extractNodesFromConfig(newConfig, profileId) }
         val mergedNodes = newNodes.map { nodeItem ->
             val storedLatency = latencyById[nodeItem.id]
                 ?: if (nodeItem.id == updatedNodeId) originalLatency else null
