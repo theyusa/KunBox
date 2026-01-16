@@ -175,6 +175,17 @@ if (Test-Path $FetchExtFile) {
     }
 }
 
+# Inject Reload extension (Hot Reload support)
+$ReloadExtFile = Join-Path $ExtensionDir "reload_ext.go"
+if (Test-Path $ReloadExtFile) {
+    $LibboxDir = Join-Path $BuildDir "experimental\libbox"
+    if (Test-Path $LibboxDir) {
+        $DestFile = Join-Path $LibboxDir "reload_ext.go"
+        Copy-Item $ReloadExtFile $DestFile -Force
+        Write-Host "Injected KunBox extension: reload_ext.go" -ForegroundColor Cyan
+    }
+}
+
 # Patch build_libbox to remove tailscale (NekoBox-style optimization)
 $BuildLibboxFile = Join-Path $BuildDir "cmd\internal\build_libbox\main.go"
 if (Test-Path $BuildLibboxFile) {

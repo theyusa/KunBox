@@ -387,4 +387,66 @@ class NetworkHelper(
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
                 caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
     }
+
+    /**
+     * 当 NetworkManager 为 null 时的回退逻辑（服务重启期间）
+     * 遍历所有网络，查找有效的物理网络（非 VPN）
+     */
+    fun findBestPhysicalNetworkFallback(): Network? {
+        val cm = connectivityManager ?: return null
+
+        // 1. 先检查 activeNetwork 是否是有效的物理网络
+        val activeNetwork = cm.activeNetwork
+        if (activeNetwork != null && isValidPhysicalNetwork(cm, activeNetwork)) {
+            return activeNetwork
+        }
+
+        // 2. 遍历所有网络，查找最佳的物理网络
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            @Suppress("DEPRECATION")
+            val allNetworks = cm.allNetworks
+            var bestNetwork: Network? = null
+            var bestScore = -1
+
+            for (net in allNetworks) {
+                val caps = cm.getNetworkCapabilities(net) ?: continue
+                val hasInternet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                val notVpn = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+
+                if (hasInternet && notVpn) {
+                    val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    val isWifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                    val isCellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                    val isEthernet = caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+
+                    val score = if (validated) {
+                        when {
+                            isEthernet -> 5
+                            isWifi -> 4
+                            isCellular -> 3
+                            else -> 1
+                        }
+                    } else {
+                        when {
+                            isEthernet -> 2
+                            isWifi -> 2
+                            isCellular -> 1
+                            else -> 0
+                        }
+                    }
+
+                    if (score > bestScore) {
+                        bestScore = score
+                        bestNetwork = net
+                    }
+                }
+            }
+
+            if (bestNetwork != null) {
+                return bestNetwork
+            }
+        }
+
+        return null
+    }
 }

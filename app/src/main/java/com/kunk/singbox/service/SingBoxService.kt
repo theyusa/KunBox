@@ -249,7 +249,13 @@ class SingBoxService : VpnService() {
          * 避免应用在旧连接上等待超时
          */
         const val ACTION_PREPARE_RESTART = "com.kunk.singbox.PREPARE_RESTART"
+        /**
+         * 热重载 Action: 在 VPN 运行时重载配置，不销毁 VPN 服务
+         * 使用内核级热重载，保留 TUN 接口和 VPN 连接
+         */
+        const val ACTION_HOT_RELOAD = "com.kunk.singbox.HOT_RELOAD"
         const val EXTRA_CONFIG_PATH = "config_path"
+        const val EXTRA_CONFIG_CONTENT = "config_content"
         const val EXTRA_CLEAN_CACHE = "clean_cache"
         const val EXTRA_SETTING_KEY = "setting_key"
         const val EXTRA_SETTING_VALUE_BOOL = "setting_value_bool"
@@ -1076,8 +1082,9 @@ class SingBoxService : VpnService() {
         // 优先使用 ConnectManager (新架构)
         connectManager.getCurrentNetwork()?.let { return it }
         // 回退到 NetworkManager
-        return networkManager?.findBestPhysicalNetwork()
-            ?: connectivityManager?.activeNetwork
+        networkManager?.findBestPhysicalNetwork()?.let { return it }
+        // 当 networkManager 为 null 时（服务重启期间），使用 NetworkHelper 的回退逻辑
+        return networkHelper.findBestPhysicalNetworkFallback()
     }
 
     private fun updateDefaultInterface(network: Network) {
@@ -1323,6 +1330,17 @@ class SingBoxService : VpnService() {
                 Log.i(TAG, "Received ACTION_PREPARE_RESTART -> preparing for VPN restart")
                 performPrepareRestart()
             }
+            ACTION_HOT_RELOAD -> {
+                // ⭐ 2025-fix: 内核级热重载
+                // 在 VPN 运行时重载配置，不销毁 VPN 服务
+                Log.i(TAG, "Received ACTION_HOT_RELOAD -> performing hot reload")
+                val configContent = intent.getStringExtra(EXTRA_CONFIG_CONTENT)
+                if (configContent.isNullOrEmpty()) {
+                    Log.e(TAG, "ACTION_HOT_RELOAD: config content is empty")
+                } else {
+                    performHotReload(configContent)
+                }
+            }
         }
         // Use START_STICKY to allow system auto-restart if killed due to memory pressure
         // This prevents "VPN mysteriously stops" issue on Android 14+
@@ -1370,6 +1388,46 @@ class SingBoxService : VpnService() {
                 Log.i(TAG, "[PrepareRestart] Complete - apps should now detect network interruption")
             } catch (e: Exception) {
                 Log.e(TAG, "performPrepareRestart error", e)
+            }
+        }
+    }
+
+    /**
+     * 执行内核级热重载
+     * 在 VPN 运行时重载配置，不销毁 VPN 服务
+     */
+    private fun performHotReload(configContent: String) {
+        if (!isRunning) {
+            Log.w(TAG, "performHotReload: VPN not running, skip")
+            return
+        }
+
+        serviceScope.launch {
+            try {
+                Log.i(TAG, "[HotReload] Starting kernel-level hot reload...")
+
+                val result = coreManager.hotReloadConfig(configContent, preserveSelector = true)
+
+                result.onSuccess { success ->
+                    if (success) {
+                        Log.i(TAG, "[HotReload] Kernel hot reload succeeded")
+                        LogRepository.getInstance().addLog("INFO [HotReload] Config reloaded successfully")
+
+                        // Re-init BoxWrapperManager
+                        boxService?.let { BoxWrapperManager.init(it) }
+
+                        // Update notification
+                        requestNotificationUpdate(force = true)
+                    } else {
+                        Log.w(TAG, "[HotReload] Kernel hot reload not available, fallback needed")
+                        LogRepository.getInstance().addLog("WARN [HotReload] Kernel reload not available")
+                    }
+                }.onFailure { e ->
+                    Log.e(TAG, "[HotReload] Failed: ${e.message}", e)
+                    LogRepository.getInstance().addLog("ERROR [HotReload] Failed: ${e.message}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "performHotReload error", e)
             }
         }
     }

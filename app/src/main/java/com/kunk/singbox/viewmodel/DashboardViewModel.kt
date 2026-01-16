@@ -596,45 +596,75 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }
 
-            // 记录当前状态，用于判断是否需要等待
-            val wasRunning = SingBoxRemote.isRunning.value || SingBoxRemote.isStarting.value
-            
-            // Force restart to apply latest generated config.
-            // ACTION_START on running service is ignored, so we must STOP first.
-            runCatching {
-                context.startService(Intent(context, SingBoxService::class.java).apply {
-                    action = SingBoxService.ACTION_STOP
-                })
-            }
-            runCatching {
-                context.startService(Intent(context, ProxyOnlyService::class.java).apply {
-                    action = ProxyOnlyService.ACTION_STOP
-                })
+            // 生成新配置
+            val configResult = withContext(Dispatchers.IO) {
+                val settingsRepository = SettingsRepository.getInstance(context)
+                settingsRepository.checkAndMigrateRuleSets()
+                configRepository.generateConfigFile()
             }
 
-            // 【优雅等待】只有在服务之前正在运行时才需要等待
-            // 使用 drop(1) 跳过当前值，确保等待的是状态变化而不是当前状态
-            if (wasRunning) {
-                try {
-                    withTimeout(5000L) {
-                        // 使用 drop(1) 跳过当前值，等待真正的状态变化
-                        SingBoxRemote.state
-                            .drop(1)
-                            .first { it == SingBoxService.ServiceState.STOPPED }
+            if (configResult == null) {
+                _testStatus.value = getApplication<Application>().getString(R.string.dashboard_config_generation_failed)
+                delay(2000)
+                _testStatus.value = null
+                return@launch
+            }
+
+            // 2025-fix-v3: 优先使用内核级热重载
+            // 如果热重载可用，直接发送 ACTION_HOT_RELOAD，不需要重启服务
+            // 这样可以保持 VPN 连接不中断，用户体验更好
+            val useTun = settings.tunEnabled
+            if (useTun && SingBoxRemote.isRunning.value) {
+                // 读取配置内容用于热重载
+                val configContent = withContext(Dispatchers.IO) {
+                    runCatching { java.io.File(configResult.path).readText() }.getOrNull()
+                }
+
+                if (!configContent.isNullOrEmpty()) {
+                    Log.i(TAG, "Attempting kernel hot reload...")
+                    runCatching {
+                        context.startService(Intent(context, SingBoxService::class.java).apply {
+                            action = SingBoxService.ACTION_HOT_RELOAD
+                            putExtra(SingBoxService.EXTRA_CONFIG_CONTENT, configContent)
+                        })
                     }
-                } catch (e: TimeoutCancellationException) {
-                    // 超时后仍然继续，但记录警告
-                    Log.w(TAG, "Timeout waiting for service to stop, proceeding with restart")
+                    return@launch
                 }
             }
 
-            // 优化: 减少等待时间从 2500ms 到 300ms
-            // 原因: 之前的长延迟是为了确保 QUIC 连接释放,但实际上状态机已经等待 STOPPED 状态
-            // STOPPED 状态意味着 boxService.close() 已完成,资源已释放
-            // 只需要一个小缓冲确保操作系统层面的网络接口完全释放
-            delay(300)
+            // Fallback: 使用传统重启方式
+            Log.i(TAG, "Using traditional restart (hot reload not available)")
 
-            startCore()
+            // 发送预清理信号，让应用感知网络变化
+            runCatching {
+                context.startService(Intent(context, SingBoxService::class.java).apply {
+                    action = SingBoxService.ACTION_PREPARE_RESTART
+                })
+            }
+
+            // 短暂等待预清理完成
+            delay(150)
+
+            // 直接发送 ACTION_START 带新配置，服务内部会处理重启逻辑
+            val intent = if (useTun) {
+                Intent(context, SingBoxService::class.java).apply {
+                    action = SingBoxService.ACTION_START
+                    putExtra(SingBoxService.EXTRA_CONFIG_PATH, configResult.path)
+                    putExtra(SingBoxService.EXTRA_CLEAN_CACHE, true)
+                }
+            } else {
+                Intent(context, ProxyOnlyService::class.java).apply {
+                    action = ProxyOnlyService.ACTION_START
+                    putExtra(ProxyOnlyService.EXTRA_CONFIG_PATH, configResult.path)
+                    putExtra(SingBoxService.EXTRA_CLEAN_CACHE, true)
+                }
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
         }
     }
     

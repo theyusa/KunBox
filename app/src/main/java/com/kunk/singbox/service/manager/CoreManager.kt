@@ -191,12 +191,18 @@ class CoreManager(
 
             SingBoxCore.ensureLibboxSetup(context)
 
+            // Register platform interface for hot reload before creating service
+            runCatching { Libbox.setReloadablePlatformInterface(pInterface) }
+
             val service = withContext(Dispatchers.IO) {
                 Libbox.newService(configContent, pInterface)
             }
             service.start()
             boxService = service
             currentConfigContent = configContent
+
+            // Register BoxService for hot reload after start
+            runCatching { Libbox.setReloadableBoxService(service) }
 
             // 初始化 BoxWrapperManager
             if (BoxWrapperManager.init(service)) {
@@ -227,6 +233,9 @@ class CoreManager(
     suspend fun stopBoxService(): Result<Unit> {
         return runCatching {
             withContext(Dispatchers.IO) {
+                // Clear hot reload state
+                runCatching { Libbox.clearReloadableService() }
+
                 // 释放 BoxWrapperManager
                 BoxWrapperManager.release()
 
@@ -382,6 +391,43 @@ class CoreManager(
                 Unit
             }
         }
+    }
+
+    /**
+     * Hot reload config without destroying VPN service
+     * Returns true if hot reload succeeded, false if fallback to full restart is needed
+     */
+    suspend fun hotReloadConfig(configContent: String, preserveSelector: Boolean = true): Result<Boolean> {
+        return runCatching {
+            withContext(Dispatchers.IO) {
+                if (!Libbox.canReload()) {
+                    Log.w(TAG, "Hot reload not available, fallback to full restart")
+                    return@withContext false
+                }
+
+                Log.i(TAG, "Attempting hot reload...")
+                Libbox.reloadConfig(configContent, preserveSelector)
+
+                // Update current config content
+                currentConfigContent = configContent
+
+                // Re-register BoxService after reload (the internal instance changed)
+                boxService?.let { Libbox.setReloadableBoxService(it) }
+
+                // Re-init BoxWrapperManager with the reloaded service
+                boxService?.let { BoxWrapperManager.init(it) }
+
+                Log.i(TAG, "Hot reload completed successfully (count: ${Libbox.getReloadCount()})")
+                true
+            }
+        }
+    }
+
+    /**
+     * Check if hot reload is available
+     */
+    fun canHotReload(): Boolean {
+        return runCatching { Libbox.canReload() }.getOrDefault(false)
     }
 
     fun cleanup(): Result<Unit> {
