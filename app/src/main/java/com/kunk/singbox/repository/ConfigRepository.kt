@@ -360,7 +360,18 @@ class ConfigRepository(private val context: Context) {
                 node.latencyMs?.let { latencies[node.id] = it }
             }
 
-            // 保存到 Room 数据库
+            // 同步保存活跃状态 - 确保节点切换后立即持久化，防止应用被杀后丢失
+            try {
+                activeStateDao.saveSync(ActiveStateEntity(
+                    id = 1,
+                    activeProfileId = activeProfileId,
+                    activeNodeId = activeNodeId
+                ))
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save active state synchronously", e)
+            }
+
+            // 异步保存其他数据到 Room 数据库
             scope.launch {
                 try {
                     // 保存 Profiles
@@ -368,13 +379,6 @@ class ConfigRepository(private val context: Context) {
                         ProfileEntity.fromUiModel(profile, sortOrder = index)
                     }
                     profileDao.insertAll(entities)
-
-                    // 保存活跃状态
-                    activeStateDao.save(ActiveStateEntity(
-                        id = 1,
-                        activeProfileId = activeProfileId,
-                        activeNodeId = activeNodeId
-                    ))
 
                     // 保存延时数据
                     if (latencies.isNotEmpty()) {
@@ -2175,9 +2179,15 @@ class ConfigRepository(private val context: Context) {
      */
     suspend fun generateConfigFile(): ConfigGenerationResult? = withContext(Dispatchers.IO) {
         try {
-            val activeId = _activeProfileId.value ?: return@withContext null
+            val activeId = _activeProfileId.value 
+                ?: activeStateDao.getSync()?.activeProfileId 
+                ?: return@withContext null
             val config = loadConfig(activeId) ?: return@withContext null
-            val activeNodeId = _activeNodeId.value
+            
+            // 优先使用内存中的值，若为空则从数据库同步读取（解决异步加载竞态问题）
+            val activeNodeId = _activeNodeId.value 
+                ?: activeStateDao.getSync()?.activeNodeId
+            
             val allNodesSnapshot = _allNodes.value.takeIf { it.isNotEmpty() } ?: loadAllNodesSnapshot()
             val activeNode = _nodes.value.find { it.id == activeNodeId }
                 ?: allNodesSnapshot.find { it.id == activeNodeId }

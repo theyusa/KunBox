@@ -5,7 +5,6 @@ import android.content.Intent
 import android.os.Build
 import android.util.Log
 import com.kunk.singbox.ipc.SingBoxRemote
-import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.service.ProxyOnlyService
 import com.kunk.singbox.service.SingBoxService
 
@@ -33,27 +32,30 @@ object VpnServiceManager {
     /**
      * 判断 VPN 是否正在运行
      *
-     * 优先使用 VpnStateStore (跨进程共享状态),兜底使用 SingBoxRemote (主进程内存状态)
-     * 这样在 :bg 进程中也能正确判断 VPN 状态
+     * 使用 SharedPreferences 读取状态（与 VpnTileService.persistVpnState 保持一致）
      */
     fun isRunning(context: Context): Boolean {
-        // 优先读取跨进程状态
-        val stateStoreActive = VpnStateStore.getActive()
-        val stateStorePending = VpnStateStore.getPending()
-
-        // 如果正在启动/停止,认为状态不稳定,返回当前激活状态
-        if (stateStorePending.isNotEmpty()) {
-            return stateStoreActive
+        val prefs = context.applicationContext.getSharedPreferences(
+            PREFS_VPN_STATE,
+            Context.MODE_PRIVATE
+        )
+        val persistedActive = prefs.getBoolean(KEY_VPN_ACTIVE, false)
+        val pending = prefs.getString(KEY_VPN_PENDING, "") ?: ""
+        
+        if (pending.isNotEmpty()) {
+            return persistedActive || pending == "starting"
         }
-
-        // 如果 StateStore 显示激活,返回 true
-        if (stateStoreActive) {
+        
+        if (persistedActive) {
             return true
         }
 
-        // 兜底: 检查内存状态 (仅主进程有效)
         return SingBoxRemote.isRunning.value
     }
+    
+    private const val PREFS_VPN_STATE = "vpn_state"
+    private const val KEY_VPN_ACTIVE = "vpn_active"
+    private const val KEY_VPN_PENDING = "vpn_pending"
 
     /**
      * 判断 VPN 是否正在启动中
