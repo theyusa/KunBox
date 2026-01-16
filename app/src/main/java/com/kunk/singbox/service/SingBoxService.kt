@@ -1601,6 +1601,13 @@ class SingBoxService : VpnService() {
         // This ensures clean restart if system decides to recreate the service.
         Log.i(TAG, "SingBoxService destroyed. Halting process ${android.os.Process.myPid()}.")
 
+        // 同步取消通知，防止 halt(0) 后通知残留
+        runCatching {
+            val nm = getSystemService(android.app.NotificationManager::class.java)
+            nm.cancel(com.kunk.singbox.service.notification.VpnNotificationManager.NOTIFICATION_ID)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        }
+
         // Give a tiny breath for logs to flush
         try { Thread.sleep(50) } catch (_: Exception) {}
 

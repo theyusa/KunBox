@@ -221,10 +221,10 @@ class ShutdownManager(
                 Log.w(TAG, "Graceful close failed or timed out", e)
             }
 
-            val isFullStop = interfaceToClose != null
-
+            // 使用 stopService 参数决定是否完全停止，而非依赖 vpnInterface 是否为 null
+            // 这确保用户明确请求停止时，通知总会被取消
             withContext(Dispatchers.Main) {
-                if (isFullStop) {
+                if (stopService) {
                     callbacks.stopForegroundService()
                     runCatching {
                         val manager = context.getSystemService(NotificationManager::class.java)
