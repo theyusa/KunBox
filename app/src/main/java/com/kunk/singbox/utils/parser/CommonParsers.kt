@@ -81,28 +81,41 @@ class SingBoxParser(private val gson: Gson) : SubscriptionParser {
  * Base64 订阅格式解析器 (V2Ray/Shadowrocket)
  */
 class Base64Parser(private val nodeParser: (String) -> Outbound?) : SubscriptionParser {
+    private val LINK_PREFIXES = listOf(
+        "vmess://",
+        "vless://",
+        "ss://",
+        "ssr://",
+        "trojan://",
+        "hysteria://",
+        "hysteria2://",
+        "hy2://",
+        "tuic://",
+        "anytls://",
+        "wireguard://",
+        "ssh://",
+        "socks5://",
+        "socks://",
+        "http://",
+        "https://"
+    )
+
     override fun canParse(content: String): Boolean {
-        // 简单判断是否可能是 Base64 或包含节点链接
         val trimmed = content.trim()
         return !trimmed.startsWith("{") && !trimmed.startsWith("proxies:") && !trimmed.startsWith("proxy-groups:")
     }
 
     override fun parse(content: String): SingBoxConfig? {
-        // 1. 尝试 Base64 解码
         val decoded = tryDecodeBase64(content.trim()) ?: content
-        
-        // 2. 按行分割
-        val lines = decoded.lines().filter { it.isNotBlank() }
+        val normalized = decoded
+            .replace("\u2028", "\n")
+            .replace("\u2029", "\n")
+        val candidates = normalized.lines().flatMap { extractLinksFromLine(it) }
+            .ifEmpty { normalized.split(Regex("\\s+")).flatMap { extractLinksFromLine(it) } }
         val outbounds = mutableListOf<Outbound>()
-        
-        for (line in lines) {
-            val trimmedLine = line.trim()
-            // 3. 处理 Shadowrocket 的 remarks 和 plugin 参数 (如果存在)
-            // 格式通常是: ss://...#remarks 或 ss://...?plugin=...
-            // NodeLinkParser 已经处理了 #remarks (作为 tag)
-            // 这里主要关注是否需要预处理一些非标准格式，目前 NodeLinkParser 应该足够健壮
 
-            val outbound = nodeParser(trimmedLine)
+        for (candidate in candidates) {
+            val outbound = nodeParser(candidate)
             if (outbound != null) {
                 outbounds.add(outbound)
             }
@@ -111,6 +124,38 @@ class Base64Parser(private val nodeParser: (String) -> Outbound?) : Subscription
         if (outbounds.isEmpty()) return null
 
         return SingBoxConfig(outbounds = outbounds)
+    }
+
+
+    private fun extractLinksFromLine(line: String): List<String> {
+        val normalized = line.trim()
+            .trimStart('\uFEFF', '\u200B', '\u200C', '\u200D')
+            .removePrefix("- ")
+            .removePrefix("• ")
+            .trim()
+            .trim('`', '"', '\'')
+
+        if (normalized.isBlank()) return emptyList()
+
+        val indices = LINK_PREFIXES.mapNotNull { prefix ->
+            val index = normalized.indexOf(prefix)
+            if (index >= 0) index else null
+        }.distinct().sorted()
+
+        if (indices.isEmpty()) return emptyList()
+
+        val results = mutableListOf<String>()
+        for (i in indices.indices) {
+            val start = indices[i]
+            val end = if (i + 1 < indices.size) indices[i + 1] else normalized.length
+            var candidate = normalized.substring(start, end).trim()
+            candidate = candidate.trimEnd(',', ';')
+            val candidateTrimmed = candidate.trim()
+            if (LINK_PREFIXES.any { candidateTrimmed.startsWith(it) }) {
+                results.add(candidateTrimmed)
+            }
+        }
+        return results
     }
 
     private fun tryDecodeBase64(content: String): String? {
