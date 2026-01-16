@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.1](https://github.com/roseforljh/KunBox/compare/v2.3.0...v2.3.1) (2026-01-15)
+
+
+### Performance Improvements
+
+* implement 4 performance optimizations ([6b32e46](https://github.com/roseforljh/KunBox/commit/6b32e468511496e696652d25d584203048e61e5a))
+
 ## [2.3.0](https://github.com/roseforljh/KunBox/compare/v2.2.0...v2.3.0) (2026-01-15)
 
 
