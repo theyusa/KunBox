@@ -80,10 +80,10 @@ object PreciseLatencyTester {
 
         val client = OkHttpClient.Builder()
             .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", proxyPort)))
-            .connectTimeout(2000L, TimeUnit.MILLISECONDS)
+            .connectTimeout(1000L, TimeUnit.MILLISECONDS)
             .readTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
             .writeTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
-            .callTimeout(timeoutMs.toLong() + 2000L, TimeUnit.MILLISECONDS)
+            .callTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
             .eventListener(timingListener)
             // 关键：根据测量标准决定是否禁用 Keep-Alive
             .apply {

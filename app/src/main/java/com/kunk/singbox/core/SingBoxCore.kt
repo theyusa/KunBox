@@ -355,102 +355,30 @@ class SingBoxCore private constructor(private val context: Context) {
                 service = Libbox.newService(configJson, platformInterface)
                 service.start()
 
-                // 服务启动等待：增加等待时间以确保服务完全就绪
-                // 参考 v2rayNG: 服务启动后直接调用内核API，无需等待
-                // 但我们使用 HTTP 代理方式，需要等待端口就绪
-                val deadline = System.currentTimeMillis() + 1500L
+                val deadline = System.currentTimeMillis() + 500L
                 while (System.currentTimeMillis() < deadline) {
-                    try {
-                        Socket().use { s ->
-                            s.soTimeout = 100
-                            s.connect(InetSocketAddress("127.0.0.1", port), 100)
-                        }
-                        break
-                    } catch (_: Exception) {
-                        delay(30)
-                    }
-                }
-
-                // 智能就绪检测：通过实际连接验证代替固定等待
-                // 尝试一次快速连接验证，如果失败则短暂等待后重试
-                var serviceReady = false
-                for (i in 1..3) {
                     try {
                         Socket().use { s ->
                             s.soTimeout = 50
                             s.connect(InetSocketAddress("127.0.0.1", port), 50)
-                            // 连接成功，尝试发送 HTTP CONNECT 头验证代理就绪
-                            s.getOutputStream().write("CONNECT 127.0.0.1:80 HTTP/1.1\r\n\r\n".toByteArray())
-                            s.getInputStream().read() // 读取一个字节验证响应
                         }
-                        serviceReady = true
                         break
                     } catch (_: Exception) {
-                        if (i < 3) delay(50)
-                    }
-                }
-                if (!serviceReady) {
-                    // 最后的兜底等待
-                    delay(100)
-                }
-
-                // 使用精确延迟测试器（参考 NekoBox speedtest.go 实现）
-                // 通过 OkHttp EventListener 精确测量 RTT，排除本地代理连接开销
-                suspend fun runPreciseTest(url: String): Long {
-                    val result = PreciseLatencyTester.test(
-                        proxyPort = port,
-                        url = url,
-                        timeoutMs = timeoutMs,
-                        standard = PreciseLatencyTester.Standard.RTT,
-                        warmup = false // 单节点测试不预热，批量测试会有其他优化
-                    )
-                    return if (result.isSuccess && result.latencyMs <= timeoutMs) {
-                        result.latencyMs
-                    } else {
-                        -1L
+                        delay(20)
                     }
                 }
 
-                // 判断是否为可重试的连接错误
-                fun isRetryableError(e: Exception): Boolean {
-                    val msg = e.message ?: ""
-                    return msg.contains("Connection reset", ignoreCase = true) ||
-                           msg.contains("connection closed", ignoreCase = true) ||
-                           msg.contains("Connection refused", ignoreCase = true) ||
-                           msg.contains("broken pipe", ignoreCase = true)
-                }
-
-                // 带重试的精确测试
-                suspend fun runWithRetry(url: String, maxRetries: Int = 2): Long {
-                    var lastResult = -1L
-                    repeat(maxRetries) { attempt ->
-                        lastResult = runPreciseTest(url)
-                        if (lastResult >= 0) {
-                            return lastResult
-                        }
-                        if (attempt < maxRetries - 1) {
-                            delay(100L * (attempt + 1))
-                        }
-                    }
-                    return lastResult
-                }
-
-                // 执行精确延迟测试（带 fallback）
-                val primaryResult = runWithRetry(targetUrl)
-                if (primaryResult >= 0) {
-                    primaryResult
+                val result = PreciseLatencyTester.test(
+                    proxyPort = port,
+                    url = targetUrl,
+                    timeoutMs = timeoutMs,
+                    standard = PreciseLatencyTester.Standard.RTT,
+                    warmup = false
+                )
+                if (result.isSuccess && result.latencyMs <= timeoutMs) {
+                    result.latencyMs
                 } else {
-                    val fb = fallbackUrl
-                    if (!fb.isNullOrBlank() && fb != targetUrl) {
-                        val fallbackResult = runWithRetry(fb)
-                        if (fallbackResult < 0) {
-                            Log.w(TAG, "Precise latency test failed for both primary and fallback URLs")
-                        }
-                        fallbackResult
-                    } else {
-                        Log.w(TAG, "Precise latency test failed for primary URL")
-                        -1L
-                    }
+                    -1L
                 }
             } finally {
                 try { service?.close() } catch (e: Exception) { Log.w(TAG, "Failed to close service", e) }

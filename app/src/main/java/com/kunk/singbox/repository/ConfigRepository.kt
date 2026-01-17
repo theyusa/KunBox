@@ -530,6 +530,20 @@ class ConfigRepository(private val context: Context) {
         }
     }
 
+    private fun updateNodeLatencyFull(nodeId: String, latency: Long) {
+        val latencyValue = if (latency > 0) latency else -1L
+        _nodes.update { list ->
+            list.map { if (it.id == nodeId) it.copy(latencyMs = latencyValue) else it }
+        }
+        val node = _nodes.value.find { it.id == nodeId }
+        if (node != null) {
+            profileNodes[node.sourceProfileId] = profileNodes[node.sourceProfileId]?.map {
+                if (it.id == nodeId) it.copy(latencyMs = latencyValue) else it
+            } ?: emptyList()
+        }
+        updateLatencyInAllNodes(nodeId, latency)
+    }
+
     /**
      * 重新加载所有保存的配置
      * 用于导入数据后刷新内存状态
@@ -1938,55 +1952,61 @@ class ConfigRepository(private val context: Context) {
             return prev.await()
         }
 
+        val settings = SettingsRepository.getInstance(context).settings.first()
+        val totalTimeoutMs = settings.latencyTestTimeout.toLong()
+
         try {
             val result = withContext(Dispatchers.IO) {
-                try {
-                    val node = _nodes.value.find { it.id == nodeId }
-                    if (node == null) {
-                        Log.e(TAG, "Node not found: $nodeId")
-                        return@withContext -1L
-                    }
-
-                    val config = loadConfig(node.sourceProfileId)
-                    if (config == null) {
-                        Log.e(TAG, "Config not found for profile: ${node.sourceProfileId}")
-                        return@withContext -1L
-                    }
-
-                    val outbound = config.outbounds?.find { it.tag == node.name }
-                    if (outbound == null) {
-                        Log.e(TAG, "Outbound not found: ${node.name}")
-                        return@withContext -1L
-                    }
-
-                    val fixedOutbound = buildOutboundForRuntime(outbound)
-                    // 传入完整的 outbounds 列表，用于解析依赖（如 SS+ShadowTLS）
-                    val allOutbounds = config.outbounds?.map { buildOutboundForRuntime(it) } ?: emptyList()
-                    val latency = singBoxCore.testOutboundLatency(fixedOutbound, allOutbounds)
-
-                    _nodes.update { list ->
-                        list.map {
-                            if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else -1L) else it
+                withTimeoutOrNull(totalTimeoutMs) {
+                    try {
+                        val node = _nodes.value.find { it.id == nodeId }
+                        if (node == null) {
+                            Log.e(TAG, "Node not found: $nodeId")
+                            return@withTimeoutOrNull -1L
                         }
-                    }
 
-                    profileNodes[node.sourceProfileId] = profileNodes[node.sourceProfileId]?.map {
-                        if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else -1L) else it
-                    } ?: emptyList()
-                    updateLatencyInAllNodes(nodeId, latency)
-                    saveProfiles()
+                        val config = loadConfig(node.sourceProfileId)
+                        if (config == null) {
+                            Log.e(TAG, "Config not found for profile: ${node.sourceProfileId}")
+                            return@withTimeoutOrNull -1L
+                        }
 
-                    latency
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) {
-                        -1L
-                    } else {
+                        val outbound = config.outbounds?.find { it.tag == node.name }
+                        if (outbound == null) {
+                            Log.e(TAG, "Outbound not found: ${node.name}")
+                            return@withTimeoutOrNull -1L
+                        }
+
+                        val fixedOutbound = buildOutboundForRuntime(outbound)
+                        val allOutbounds = config.outbounds?.map { buildOutboundForRuntime(it) } ?: emptyList()
+                        val latency = singBoxCore.testOutboundLatency(fixedOutbound, allOutbounds)
+
+                        _nodes.update { list ->
+                            list.map {
+                                if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else -1L) else it
+                            }
+                        }
+
+                        profileNodes[node.sourceProfileId] = profileNodes[node.sourceProfileId]?.map {
+                            if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else -1L) else it
+                        } ?: emptyList()
+                        updateLatencyInAllNodes(nodeId, latency)
+                        saveProfiles()
+
+                        latency
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) {
+                            throw e
+                        }
                         Log.e(TAG, "Latency test error for $nodeId", e)
-                        // 2025-debug: 记录详细测速失败原因到日志系统，方便用户排查
                         val nodeName = _nodes.value.find { it.id == nodeId }?.name
-                        com.kunk.singbox.repository.LogRepository.getInstance().addLog(context.getString(R.string.nodes_test_failed, nodeName ?: nodeId) + ": ${e.message}")
+                        LogRepository.getInstance().addLog(context.getString(R.string.nodes_test_failed, nodeName ?: nodeId) + ": ${e.message}")
                         -1L
                     }
+                } ?: run {
+                    Log.w(TAG, "Latency test timeout for $nodeId (${totalTimeoutMs}ms)")
+                    updateNodeLatencyFull(nodeId, -1L)
+                    -1L
                 }
             }
             deferred.complete(result)
