@@ -136,16 +136,6 @@ KunBox-Android/
 | **Serialization** | Gson & SnakeYAML | 高性能 JSON 和 YAML 解析 |
 | **Build System** | Gradle & CMake | 混合构建系统 |
 
-## 📅 路线图 (Roadmap)
-
-- [x] **v1.0**: 基础功能发布，支持核心协议，Clash/URL 导入。
-- [x] **v1.1**: UI 细节打磨，OLED 主题优化，延迟测试重构。
-- [x] **v1.2**: 规则集中心 (RuleSet Hub) 上线，支持在线下载与管理路由规则。
-- [x] **v1.3**: 应用分流机制重构 (UID + PackageName)，显著提升分流稳定性。
-- [ ] **v1.4**: 引入 **Tun 模式** 配置向导，简化 VPN 权限处理。
-- [ ] **v1.5**: 支持 **Sub-Store** 格式，更强大的订阅管理。
-- [ ] **v2.0**: 插件系统，支持用户自定义脚本与规则集。
-
 ## 📦 构建指南
 
 如果你是开发者并希望从源码构建：
@@ -180,6 +170,7 @@ KunBox-Android/
 
 *   **[SagerNet/sing-box](https://github.com/SagerNet/sing-box)**: The universal proxy platform.
 *   **[MatsuriDayo/NekoBoxForAndroid](https://github.com/MatsuriDayo/NekoBoxForAndroid)**: NekoBox for Android.
+*   **[v2ray/v2ray-core](https://github.com/v2ray/v2ray-core)**: Project V2Ray - 感谢 V2Ray 团队为代理生态做出的开创性贡献。
 
 ## 📝 许可证
 
