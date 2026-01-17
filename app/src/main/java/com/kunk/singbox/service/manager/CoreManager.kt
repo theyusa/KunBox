@@ -126,6 +126,13 @@ class CoreManager(
     }
 
     /**
+     * 设置当前设置 (用于外部已加载的设置)
+     */
+    fun setCurrentSettings(settings: AppSettings) {
+        currentSettings = settings
+    }
+
+    /**
      * 获取 WakeLock 和 WifiLock
      */
     fun acquireLocks(): Result<Unit> {

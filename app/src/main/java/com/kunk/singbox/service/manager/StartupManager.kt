@@ -145,6 +145,9 @@ class StartupManager(
             callbacks.setLastKnownNetwork(physicalNetwork)
             callbacks.setNetworkCallbackReady(true)
 
+            // 设置 CoreManager 的当前设置 (用于 TUN 配置中的分应用代理等)
+            coreManager.setCurrentSettings(settings)
+
             // 4. 读取和修补配置
             val configContent = loadAndPatchConfig(configPath, settings)
 
