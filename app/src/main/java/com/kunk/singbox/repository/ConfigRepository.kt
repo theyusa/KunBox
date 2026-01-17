@@ -43,6 +43,7 @@ import com.kunk.singbox.utils.NetworkClient
 import com.kunk.singbox.utils.StringBuilderPool
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.error.YAMLException
+import com.tencent.mmkv.MMKV
 
 /**
  * 配置仓库 - 负责获取、解析和存储配置
@@ -268,6 +269,12 @@ class ConfigRepository(private val context: Context) {
     // 缓存上一次运行的配置 ID，用于判断是否跨配置切换
     @Volatile private var lastRunProfileId: String? = null
 
+    // 配置级别的节点选择记忆 - 记录每个配置上次选中的节点
+    private val profileLastSelectedNode = ConcurrentHashMap<String, String>()
+    private val profileNodeMemoryMmkv: MMKV by lazy {
+        MMKV.mmkvWithID("profile_node_memory", MMKV.SINGLE_PROCESS_MODE)
+    }
+
     fun resolveNodeNameFromOutboundTag(tag: String?): String? {
         if (tag.isNullOrBlank()) return null
         if (tag.equals("PROXY", ignoreCase = true)) return null
@@ -290,6 +297,7 @@ class ConfigRepository(private val context: Context) {
         get() = File(context.filesDir, "profiles.json")
 
     init {
+        loadProfileNodeMemory()
         loadSavedProfiles()
 
         // 订阅设置变化，自动更新缓存 (性能优化: 避免 getClient 中使用 runBlocking)
@@ -298,6 +306,24 @@ class ConfigRepository(private val context: Context) {
                 cachedSettings = settings
             }
         }
+    }
+
+    private fun loadProfileNodeMemory() {
+        profileNodeMemoryMmkv.allKeys()?.forEach { profileId ->
+            val nodeId = profileNodeMemoryMmkv.decodeString(profileId, null)
+            if (!nodeId.isNullOrBlank()) {
+                profileLastSelectedNode[profileId] = nodeId
+            }
+        }
+    }
+
+    private fun saveProfileNodeMemory(profileId: String, nodeId: String) {
+        profileLastSelectedNode[profileId] = nodeId
+        profileNodeMemoryMmkv.encode(profileId, nodeId)
+    }
+
+    private fun getProfileLastSelectedNode(profileId: String): String? {
+        return profileLastSelectedNode[profileId]
     }
     
     private fun loadConfig(profileId: String): SingBoxConfig? {
@@ -1526,6 +1552,12 @@ class ConfigRepository(private val context: Context) {
     }
     
     fun setActiveProfile(profileId: String, targetNodeId: String? = null) {
+        val currentProfileId = _activeProfileId.value
+        val currentNodeId = _activeNodeId.value
+        if (currentProfileId != null && currentNodeId != null && currentProfileId != profileId) {
+            saveProfileNodeMemory(currentProfileId, currentNodeId)
+        }
+
         _activeProfileId.value = profileId
         val cached = profileNodes[profileId]
 
@@ -1534,21 +1566,16 @@ class ConfigRepository(private val context: Context) {
 
             val currentActiveId = _activeNodeId.value
 
-            // 如果指定了目标节点且存在于列表中，直接选中
             if (targetNodeId != null && nodes.any { it.id == targetNodeId }) {
                 _activeNodeId.value = targetNodeId
-            }
-            // 如果当前选中节点在新节点列表中，保持不变
-            else if (currentActiveId != null && nodes.any { it.id == currentActiveId }) {
-                // 不需要修改，已经是正确的值
-            }
-            // 如果当前没有选中节点，或选中的节点不在新列表中，选择第一个
-            else if (nodes.isNotEmpty()) {
-                val oldValue = _activeNodeId.value
-                _activeNodeId.value = nodes.first().id
-                if (oldValue != null) {
-                    Log.w(TAG, "setActiveProfile.updateState: Current activeNodeId=$oldValue not in nodes list, resetting to first node: ${nodes.first().id}")
-                } else {
+            } else if (currentActiveId != null && nodes.any { it.id == currentActiveId }) {
+                // keep current
+            } else {
+                val rememberedNodeId = getProfileLastSelectedNode(profileId)
+                if (rememberedNodeId != null && nodes.any { it.id == rememberedNodeId }) {
+                    _activeNodeId.value = rememberedNodeId
+                } else if (nodes.isNotEmpty()) {
+                    _activeNodeId.value = nodes.first().id
                 }
             }
         }
@@ -1569,7 +1596,7 @@ class ConfigRepository(private val context: Context) {
                 }
             }
         }
-        saveProfiles()
+        saveProfilesImmediate()
     }
     
     sealed class NodeSwitchResult {
@@ -1580,7 +1607,10 @@ class ConfigRepository(private val context: Context) {
 
     fun setActiveNodeIdOnly(nodeId: String) {
         _activeNodeId.value = nodeId
-        saveProfiles()
+        _activeProfileId.value?.let { profileId ->
+            saveProfileNodeMemory(profileId, nodeId)
+        }
+        saveProfilesImmediate()
     }
 
     suspend fun setActiveNode(nodeId: String): Boolean {
@@ -1614,7 +1644,7 @@ class ConfigRepository(private val context: Context) {
         }
 
         _activeNodeId.value = nodeId
-        saveProfiles()
+        saveProfilesImmediate()
 
         val remoteRunning = SingBoxRemote.isRunning.value || SingBoxRemote.isStarting.value
         if (!remoteRunning) {
