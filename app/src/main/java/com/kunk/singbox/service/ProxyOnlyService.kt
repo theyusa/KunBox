@@ -626,8 +626,10 @@ class ProxyOnlyService : Service() {
         val st = state ?: if (isRunning) SingBoxService.ServiceState.RUNNING else SingBoxService.ServiceState.STOPPED
         val repo = runCatching { ConfigRepository.getInstance(applicationContext) }.getOrNull()
         val activeId = repo?.activeNodeId?.value
+        // 2025-fix: 优先使用 VpnStateStore.getActiveLabel()，然后回退到 configRepository
         val activeLabel = runCatching {
-            if (repo != null && activeId != null) repo.nodes.value.find { it.id == activeId }?.name else ""
+            VpnStateStore.getActiveLabel().takeIf { it.isNotBlank() }
+                ?: if (repo != null && activeId != null) repo.nodes.value.find { it.id == activeId }?.name else ""
         }.getOrNull().orEmpty()
 
         SingBoxIpcHub.update(

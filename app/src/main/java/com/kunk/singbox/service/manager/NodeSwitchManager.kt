@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.repository.ConfigRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -72,6 +73,8 @@ class NodeSwitchManager(
             if (success) {
                 Log.i(TAG, "Hot switch successful for $nodeTag")
                 val displayName = node?.name ?: nodeTag
+                // 2025-fix: 持久化 activeLabel 到 VpnStateStore，确保跨进程/重启后通知栏显示正确
+                VpnStateStore.setActiveLabel(displayName)
                 callbacks?.setRealTimeNodeName(displayName)
                 runCatching { configRepository.syncActiveNodeFromProxySelection(displayName) }
                 callbacks?.requestNotificationUpdate(force = false)
@@ -135,6 +138,8 @@ class NodeSwitchManager(
             try {
                 val success = callbacks?.hotSwitchNode(nextNode.name) == true
                 if (success) {
+                    // 2025-fix: 持久化 activeLabel 到 VpnStateStore，确保跨进程/重启后通知栏显示正确
+                    VpnStateStore.setActiveLabel(nextNode.name)
                     callbacks?.setRealTimeNodeName(nextNode.name)
                     callbacks?.requestNotificationUpdate(force = true)
                     callbacks?.notifyRemoteStateUpdate(force = true)

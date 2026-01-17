@@ -54,6 +54,9 @@ import com.kunk.singbox.service.manager.RouteGroupSelector
 import com.kunk.singbox.service.manager.ForeignVpnMonitor
 import com.kunk.singbox.service.manager.CoreNetworkResetManager
 import com.kunk.singbox.service.manager.NodeSwitchManager
+import com.kunk.singbox.service.manager.BackgroundPowerManager
+import com.kunk.singbox.model.BackgroundPowerSavingDelay
+import com.kunk.singbox.lifecycle.AppLifecycleObserver
 import com.kunk.singbox.utils.perf.PerfTracer
 import com.kunk.singbox.utils.perf.StateCache
 import com.kunk.singbox.utils.L
@@ -151,6 +154,10 @@ class SingBoxService : VpnService() {
     // 节点切换管理器
     private val nodeSwitchManager: NodeSwitchManager by lazy {
         NodeSwitchManager(this, serviceScope)
+    }
+
+    private val backgroundPowerManager: BackgroundPowerManager by lazy {
+        BackgroundPowerManager(serviceScope)
     }
 
     // PlatformInterfaceImpl 回调实现
@@ -496,7 +503,48 @@ class SingBoxService : VpnService() {
         })
         Log.i(TAG, "NodeSwitchManager initialized")
 
+        initBackgroundPowerManager()
+        Log.i(TAG, "BackgroundPowerManager initialized")
+
         Log.i(TAG, "All 12 Managers initialized successfully")
+    }
+
+    private fun initBackgroundPowerManager() {
+        val thresholdMs = runBlocking {
+            try {
+                val settings = SettingsRepository.getInstance(this@SingBoxService).settings.first()
+                settings.backgroundPowerSavingDelay.delayMs
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to read power saving delay setting, using default", e)
+                BackgroundPowerSavingDelay.MINUTES_30.delayMs
+            }
+        }
+
+        backgroundPowerManager.init(
+            callbacks = object : BackgroundPowerManager.Callbacks {
+                override val isVpnRunning: Boolean
+                    get() = isRunning
+
+                override fun suspendNonEssentialProcesses() {
+                    Log.i(TAG, "[PowerSaving] Suspending non-essential processes...")
+                    commandManager.suspendNonEssential()
+                    trafficMonitor.pause()
+                    healthMonitorWrapper.enterPowerSavingMode()
+                    LogRepository.getInstance().addLog("INFO: Entered power saving mode (background ${thresholdMs / 1000 / 60}min)")
+                }
+
+                override fun resumeNonEssentialProcesses() {
+                    Log.i(TAG, "[PowerSaving] Resuming all processes...")
+                    commandManager.resumeNonEssential()
+                    trafficMonitor.resume()
+                    healthMonitorWrapper.exitPowerSavingMode()
+                    LogRepository.getInstance().addLog("INFO: Exited power saving mode (user returned)")
+                }
+            },
+            thresholdMs = thresholdMs
+        )
+
+        AppLifecycleObserver.setPowerManager(backgroundPowerManager)
     }
 
     /**
@@ -803,7 +851,9 @@ class SingBoxService : VpnService() {
         val activeLabel = runCatching {
             val repo = ConfigRepository.getInstance(applicationContext)
             val activeNodeId = repo.activeNodeId.value
+            // 2025-fix: 与 buildNotificationState 保持一致的优先级
             realTimeNodeName
+                ?: VpnStateStore.getActiveLabel().takeIf { it.isNotBlank() }
                 ?: repo.nodes.value.find { it.id == activeNodeId }?.name
                 ?: ""
         }.getOrDefault("")
@@ -1617,7 +1667,10 @@ class SingBoxService : VpnService() {
     private fun buildNotificationState(): VpnNotificationManager.NotificationState {
         val configRepository = ConfigRepository.getInstance(this)
         val activeNodeId = configRepository.activeNodeId.value
+        // 2025-fix: 优先使用内存中的 realTimeNodeName，然后是持久化的 VpnStateStore.activeLabel
+        // 最后才回退到 configRepository（可能在跨进程时不同步）
         val nodeName = realTimeNodeName
+            ?: VpnStateStore.getActiveLabel().takeIf { it.isNotBlank() }
             ?: configRepository.nodes.value.find { it.id == activeNodeId }?.name
 
         return VpnNotificationManager.NotificationState(
@@ -1642,7 +1695,9 @@ class SingBoxService : VpnService() {
         Log.i(TAG, "onDestroy called -> stopVpn(stopService=false) pid=${android.os.Process.myPid()}")
         TrafficRepository.getInstance(this).saveStats()
 
-        // ⭐ P0修复3: 清理 ActivityLifecycleCallbacks
+        AppLifecycleObserver.setPowerManager(null)
+        backgroundPowerManager.cleanup()
+
         screenStateManager.unregisterActivityLifecycleCallbacks(application)
 
         // Ensure critical state is saved synchronously before we potentially halt

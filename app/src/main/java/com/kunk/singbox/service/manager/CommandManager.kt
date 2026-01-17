@@ -2,6 +2,7 @@ package com.kunk.singbox.service.manager
 
 import android.content.Context
 import android.util.Log
+import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.LogRepository
 import com.kunk.singbox.repository.TrafficRepository
@@ -25,11 +26,15 @@ class CommandManager(
         private const val TAG = "CommandManager"
     }
 
-    // Command Server/Client
+// Command Server/Client
     private var commandServer: CommandServer? = null
     private var commandClient: CommandClient? = null
     private var commandClientLogs: CommandClient? = null
     private var commandClientConnections: CommandClient? = null
+
+    private var cachedBoxService: BoxService? = null
+    @Volatile
+    private var isNonEssentialSuspended: Boolean = false
 
     // 状态
     private val groupSelectedOutbounds = ConcurrentHashMap<String, String>()
@@ -65,7 +70,8 @@ class CommandManager(
     /**
      * 启动 Command Server 和 Client
      */
-    fun start(boxService: BoxService): Result<Unit> = runCatching {
+fun start(boxService: BoxService): Result<Unit> = runCatching {
+        cachedBoxService = boxService
         val serverHandler = object : CommandServerHandler {
             override fun serviceReload() {}
             override fun postServiceClose() {}
@@ -261,6 +267,8 @@ class CommandManager(
                     if (tag.equals("PROXY", ignoreCase = true)) {
                         if (!selected.isNullOrBlank() && selected != realTimeNodeName) {
                             realTimeNodeName = selected
+                            // 2025-fix: 持久化 activeLabel 到 VpnStateStore，确保跨进程/重启后通知栏显示正确
+                            VpnStateStore.setActiveLabel(selected)
                             Log.i(TAG, "Real-time node update: $selected")
                             serviceScope.launch {
                                 configRepo.syncActiveNodeFromProxySelection(selected)
@@ -389,7 +397,7 @@ class CommandManager(
             ?: lastTag
     }
 
-    fun cleanup() {
+fun cleanup() {
         stop()
         groupSelectedOutbounds.clear()
         realTimeNodeName = null
@@ -397,5 +405,58 @@ class CommandManager(
         activeConnectionLabel = null
         recentConnectionIds = emptyList()
         callbacks = null
+        cachedBoxService = null
+        isNonEssentialSuspended = false
     }
+
+    fun suspendNonEssential() {
+        if (isNonEssentialSuspended) return
+        isNonEssentialSuspended = true
+
+        commandClientLogs?.disconnect()
+        commandClientLogs = null
+
+        commandClientConnections?.disconnect()
+        commandClientConnections = null
+
+        Log.i(TAG, "Non-essential clients suspended (Logs, Connections)")
+    }
+
+    fun resumeNonEssential() {
+        if (!isNonEssentialSuspended) return
+        isNonEssentialSuspended = false
+
+        val boxService = cachedBoxService
+        if (boxService == null) {
+            Log.w(TAG, "Cannot resume: no cached BoxService")
+            return
+        }
+
+        val clientHandler = createClientHandler()
+
+        try {
+            val optionsLog = CommandClientOptions()
+            optionsLog.command = Libbox.CommandLog
+            optionsLog.statusInterval = 1500L * 1000L * 1000L
+            commandClientLogs = Libbox.newCommandClient(clientHandler, optionsLog)
+            commandClientLogs?.connect()
+            Log.i(TAG, "CommandClient (Logs) resumed")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to resume Logs client", e)
+        }
+
+        try {
+            val optionsConn = CommandClientOptions()
+            optionsConn.command = Libbox.CommandConnections
+            optionsConn.statusInterval = 5000L * 1000L * 1000L
+            commandClientConnections = Libbox.newCommandClient(clientHandler, optionsConn)
+            commandClientConnections?.connect()
+            Log.i(TAG, "CommandClient (Connections) resumed")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to resume Connections client", e)
+        }
+    }
+
+    val isNonEssentialActive: Boolean
+        get() = !isNonEssentialSuspended && (commandClientLogs != null || commandClientConnections != null)
 }
