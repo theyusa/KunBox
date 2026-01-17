@@ -1,10 +1,14 @@
 package com.kunk.singbox.ipc
 
 import android.os.RemoteCallbackList
+import android.util.Log
 import com.kunk.singbox.aidl.ISingBoxServiceCallback
 import com.kunk.singbox.service.SingBoxService
+import com.kunk.singbox.service.manager.BackgroundPowerManager
 
 object SingBoxIpcHub {
+    private const val TAG = "SingBoxIpcHub"
+
     @Volatile
     private var stateOrdinal: Int = SingBoxService.ServiceState.STOPPED.ordinal
 
@@ -22,6 +26,27 @@ object SingBoxIpcHub {
     private val broadcastLock = Any()
     @Volatile private var broadcasting: Boolean = false
     @Volatile private var broadcastPending: Boolean = false
+
+    // 省电管理器引用，由 SingBoxService 设置
+    @Volatile
+    private var powerManager: BackgroundPowerManager? = null
+
+    fun setPowerManager(manager: BackgroundPowerManager?) {
+        powerManager = manager
+        Log.d(TAG, "PowerManager ${if (manager != null) "set" else "cleared"}")
+    }
+
+    /**
+     * 接收主进程的 App 生命周期通知
+     */
+    fun onAppLifecycle(isForeground: Boolean) {
+        Log.i(TAG, "onAppLifecycle: isForeground=$isForeground")
+        if (isForeground) {
+            powerManager?.onAppForeground()
+        } else {
+            powerManager?.onAppBackground()
+        }
+    }
 
     fun getStateOrdinal(): Int = stateOrdinal
 

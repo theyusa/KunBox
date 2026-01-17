@@ -10,11 +10,19 @@ import kotlinx.coroutines.launch
 
 /**
  * 后台省电管理器
- * 
+ *
  * 功能:
- * 1. 检测应用进入后台超过指定时间后，关闭非核心进程以节省资源
- * 2. 用户返回前台时立即恢复所有进程
- * 
+ * 1. 检测用户离开 App (后台或息屏) 超过指定时间后，关闭非核心进程以节省资源
+ * 2. 用户返回 (前台或亮屏) 时立即恢复所有进程
+ *
+ * 双信号源设计:
+ * - 信号1: 主进程通过 IPC 通知 App 前后台变化 (onAppBackground/onAppForeground)
+ * - 信号2: ScreenStateManager 通知屏幕开关状态 (onScreenOff/onScreenOn)
+ *
+ * 省电触发逻辑:
+ * - 任一信号表明"用户离开" -> 开始计时
+ * - 任一信号表明"用户返回" -> 取消计时并退出省电
+ *
  * 设计理念:
  * - VPN 核心连接必须始终保持 (BoxService, TUN 接口)
  * - 非核心进程 (日志收集、连接追踪、流量监控) 可以暂停
@@ -68,10 +76,13 @@ class BackgroundPowerManager(
     private var currentMode: PowerMode = PowerMode.NORMAL
 
     @Volatile
-    private var lastBackgroundAtMs: Long = 0L
+    private var userAwayAtMs: Long = 0L
 
+    // 双信号状态
     @Volatile
-    private var isInBackground: Boolean = false
+    private var isAppInBackground: Boolean = false
+    @Volatile
+    private var isScreenOff: Boolean = false
 
     /**
      * 当前省电模式
@@ -82,6 +93,11 @@ class BackgroundPowerManager(
      * 是否处于省电模式
      */
     val isPowerSaving: Boolean get() = currentMode == PowerMode.POWER_SAVING
+
+    /**
+     * 用户是否离开 (后台或息屏)
+     */
+    private val isUserAway: Boolean get() = isAppInBackground || isScreenOff
 
     /**
      * 初始化管理器
@@ -104,46 +120,91 @@ class BackgroundPowerManager(
         backgroundThresholdMs = thresholdMs.coerceIn(MIN_THRESHOLD_MS, MAX_THRESHOLD_MS)
         Log.i(TAG, "Threshold updated to ${backgroundThresholdMs / 1000 / 60}min")
 
-        // 如果已经在后台，重新计算定时器
-        if (isInBackground && currentMode == PowerMode.NORMAL) {
+        // 如果用户已离开，重新计算定时器
+        if (isUserAway && currentMode == PowerMode.NORMAL) {
             schedulePowerSavingCheck()
         }
     }
 
+    // ==================== 信号1: 主进程 IPC 通知 ====================
+
     /**
-     * 应用进入后台时调用
+     * App 进入后台 (来自主进程 IPC)
      */
     fun onAppBackground() {
-        if (isInBackground) return
-        if (backgroundThresholdMs == Long.MAX_VALUE) {
-            Log.i(TAG, "App entered background, but power saving is disabled (threshold=NEVER)")
-            return
-        }
-
-        isInBackground = true
-        lastBackgroundAtMs = SystemClock.elapsedRealtime()
-        Log.i(TAG, "App entered background, scheduling power saving check in ${backgroundThresholdMs / 1000 / 60}min")
-
-        schedulePowerSavingCheck()
+        if (isAppInBackground) return
+        isAppInBackground = true
+        Log.i(TAG, "[IPC] App entered background")
+        evaluateUserPresence()
     }
 
     /**
-     * 应用返回前台时调用
+     * App 返回前台 (来自主进程 IPC)
      */
     fun onAppForeground() {
-        if (!isInBackground) return
+        if (!isAppInBackground) return
+        isAppInBackground = false
+        Log.i(TAG, "[IPC] App returned to foreground")
+        evaluateUserPresence()
+    }
 
-        isInBackground = false
-        val wasInBackground = SystemClock.elapsedRealtime() - lastBackgroundAtMs
-        Log.i(TAG, "App returned to foreground after ${wasInBackground / 1000}s")
+    // ==================== 信号2: 屏幕状态 ====================
 
-        // 取消待执行的省电检查
-        powerSavingJob?.cancel()
-        powerSavingJob = null
+    /**
+     * 屏幕关闭 (来自 ScreenStateManager)
+     */
+    fun onScreenOff() {
+        if (isScreenOff) return
+        isScreenOff = true
+        Log.i(TAG, "[Screen] Screen turned OFF")
+        evaluateUserPresence()
+    }
 
-        // 如果处于省电模式，立即恢复
-        if (currentMode == PowerMode.POWER_SAVING) {
-            exitPowerSavingMode()
+    /**
+     * 屏幕点亮 (来自 ScreenStateManager)
+     */
+    fun onScreenOn() {
+        if (!isScreenOff) return
+        isScreenOff = false
+        Log.i(TAG, "[Screen] Screen turned ON")
+        evaluateUserPresence()
+    }
+
+    // ==================== 统一判断逻辑 ====================
+
+    /**
+     * 评估用户状态并决定是否触发省电
+     */
+    private fun evaluateUserPresence() {
+        if (backgroundThresholdMs == Long.MAX_VALUE) {
+            Log.d(TAG, "Power saving disabled (threshold=NEVER)")
+            return
+        }
+
+        if (isUserAway) {
+            // 用户离开 - 开始计时
+            if (userAwayAtMs == 0L) {
+                userAwayAtMs = SystemClock.elapsedRealtime()
+                Log.i(TAG, "User away (background=$isAppInBackground, screenOff=$isScreenOff), scheduling power saving in ${backgroundThresholdMs / 1000 / 60}min")
+                schedulePowerSavingCheck()
+            }
+        } else {
+            // 用户回来 - 取消计时并恢复
+            val wasAway = userAwayAtMs > 0
+            if (wasAway) {
+                val awayDuration = SystemClock.elapsedRealtime() - userAwayAtMs
+                Log.i(TAG, "User returned after ${awayDuration / 1000}s")
+            }
+            userAwayAtMs = 0L
+
+            // 取消待执行的省电检查
+            powerSavingJob?.cancel()
+            powerSavingJob = null
+
+            // 如果处于省电模式，立即恢复
+            if (currentMode == PowerMode.POWER_SAVING) {
+                exitPowerSavingMode()
+            }
         }
     }
 
@@ -154,16 +215,16 @@ class BackgroundPowerManager(
         powerSavingJob?.cancel()
 
         powerSavingJob = serviceScope.launch(Dispatchers.Main) {
-            val alreadyInBackground = SystemClock.elapsedRealtime() - lastBackgroundAtMs
-            val remainingDelay = (backgroundThresholdMs - alreadyInBackground).coerceAtLeast(0L)
+            val alreadyAway = SystemClock.elapsedRealtime() - userAwayAtMs
+            val remainingDelay = (backgroundThresholdMs - alreadyAway).coerceAtLeast(0L)
 
             if (remainingDelay > 0) {
                 Log.d(TAG, "Waiting ${remainingDelay / 1000}s before entering power saving mode")
                 delay(remainingDelay)
             }
 
-            // 再次检查是否仍在后台
-            if (isInBackground && callbacks?.isVpnRunning == true) {
+            // 再次检查是否仍然离开
+            if (isUserAway && callbacks?.isVpnRunning == true) {
                 enterPowerSavingMode()
             }
         }
@@ -226,7 +287,9 @@ class BackgroundPowerManager(
         powerSavingJob?.cancel()
         powerSavingJob = null
         currentMode = PowerMode.NORMAL
-        isInBackground = false
+        isAppInBackground = false
+        isScreenOff = false
+        userAwayAtMs = 0L
         callbacks = null
         Log.i(TAG, "BackgroundPowerManager cleaned up")
     }
@@ -237,10 +300,12 @@ class BackgroundPowerManager(
     fun getStats(): Map<String, Any> {
         return mapOf(
             "currentMode" to currentMode.name,
-            "isInBackground" to isInBackground,
+            "isAppInBackground" to isAppInBackground,
+            "isScreenOff" to isScreenOff,
+            "isUserAway" to isUserAway,
             "thresholdMin" to (backgroundThresholdMs / 1000 / 60),
-            "backgroundDurationSec" to if (isInBackground) {
-                (SystemClock.elapsedRealtime() - lastBackgroundAtMs) / 1000
+            "awayDurationSec" to if (userAwayAtMs > 0) {
+                (SystemClock.elapsedRealtime() - userAwayAtMs) / 1000
             } else 0L
         )
     }

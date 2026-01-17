@@ -56,7 +56,6 @@ import com.kunk.singbox.service.manager.CoreNetworkResetManager
 import com.kunk.singbox.service.manager.NodeSwitchManager
 import com.kunk.singbox.service.manager.BackgroundPowerManager
 import com.kunk.singbox.model.BackgroundPowerSavingDelay
-import com.kunk.singbox.lifecycle.AppLifecycleObserver
 import com.kunk.singbox.utils.perf.PerfTracer
 import com.kunk.singbox.utils.perf.StateCache
 import com.kunk.singbox.utils.L
@@ -547,7 +546,10 @@ class SingBoxService : VpnService() {
             thresholdMs = thresholdMs
         )
 
-        AppLifecycleObserver.setPowerManager(backgroundPowerManager)
+        // 设置 IPC Hub 的 PowerManager 引用，用于接收主进程的生命周期通知
+        SingBoxIpcHub.setPowerManager(backgroundPowerManager)
+        // 设置 ScreenStateManager 的 PowerManager 引用，用于接收屏幕状态通知
+        screenStateManager.setPowerManager(backgroundPowerManager)
     }
 
     /**
@@ -1705,7 +1707,9 @@ class SingBoxService : VpnService() {
         Log.i(TAG, "onDestroy called -> stopVpn(stopService=false) pid=${android.os.Process.myPid()}")
         TrafficRepository.getInstance(this).saveStats()
 
-        AppLifecycleObserver.setPowerManager(null)
+        // 清理省电管理器引用
+        SingBoxIpcHub.setPowerManager(null)
+        screenStateManager.setPowerManager(null)
         backgroundPowerManager.cleanup()
 
         screenStateManager.unregisterActivityLifecycleCallbacks(application)

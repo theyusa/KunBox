@@ -375,4 +375,22 @@ object SingBoxRemote {
     }
 
     fun getLastSyncAge(): Long = System.currentTimeMillis() - lastSyncTimeMs
+
+    /**
+     * 通知 :bg 进程 App 生命周期变化
+     * 用于触发省电模式
+     */
+    fun notifyAppLifecycle(isForeground: Boolean) {
+        val s = service
+        if (s != null && connectionActive && bound) {
+            runCatching {
+                s.notifyAppLifecycle(isForeground)
+                Log.d(TAG, "notifyAppLifecycle: isForeground=$isForeground")
+            }.onFailure {
+                Log.w(TAG, "Failed to notify app lifecycle", it)
+            }
+        } else {
+            Log.d(TAG, "notifyAppLifecycle: service not connected, skip")
+        }
+    }
 }

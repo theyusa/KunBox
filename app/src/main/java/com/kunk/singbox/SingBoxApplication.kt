@@ -8,6 +8,7 @@ import androidx.work.Configuration
 import androidx.work.WorkManager
 import com.kunk.singbox.lifecycle.AppLifecycleObserver
 import com.kunk.singbox.repository.LogRepository
+import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.service.RuleSetAutoUpdateWorker
 import com.kunk.singbox.service.SubscriptionAutoUpdateWorker
 import com.kunk.singbox.service.VpnKeepaliveWorker
@@ -48,6 +49,14 @@ class SingBoxApplication : Application(), Configuration.Provider {
             AppLifecycleObserver.register()
 
             applicationScope.launch {
+                // 读取省电设置并传给 AppLifecycleObserver
+                try {
+                    val settings = SettingsRepository.getInstance(this@SingBoxApplication).settings.value
+                    AppLifecycleObserver.setBackgroundTimeout(settings.backgroundPowerSavingDelay.delayMs)
+                } catch (e: Exception) {
+                    android.util.Log.w("SingBoxApp", "Failed to read power saving setting", e)
+                }
+
                 // 预缓存物理网络 - 参考 NekoBox 优化
                 // VPN 启动时可直接使用已缓存的网络，避免应用二次加载
                 val cm = getSystemService(CONNECTIVITY_SERVICE) as? ConnectivityManager

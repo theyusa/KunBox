@@ -185,7 +185,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun setBackgroundPowerSavingDelay(value: BackgroundPowerSavingDelay) {
-        viewModelScope.launch { repository.setBackgroundPowerSavingDelay(value) }
+        viewModelScope.launch {
+            repository.setBackgroundPowerSavingDelay(value)
+            // 同步更新 AppLifecycleObserver 的超时时间
+            com.kunk.singbox.lifecycle.AppLifecycleObserver.setBackgroundTimeout(value.delayMs)
+        }
     }
     
     fun setShowNotificationSpeed(value: Boolean) {

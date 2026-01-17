@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 /**
  * 屏幕和设备状态管理器
  * 负责屏幕状态监听、设备空闲处理和 Activity 生命周期回调
+ * 屏幕状态变化会通知 BackgroundPowerManager 触发省电模式
  */
 class ScreenStateManager(
     private val context: Context,
@@ -44,6 +45,7 @@ class ScreenStateManager(
     private var callbacks: Callbacks? = null
     private var screenStateReceiver: BroadcastReceiver? = null
     private var activityLifecycleCallbacks: Application.ActivityLifecycleCallbacks? = null
+    private var powerManager: BackgroundPowerManager? = null
 
     @Volatile private var lastScreenOnCheckMs: Long = 0L
     @Volatile var isScreenOn: Boolean = true
@@ -54,6 +56,14 @@ class ScreenStateManager(
 
     fun init(callbacks: Callbacks) {
         this.callbacks = callbacks
+    }
+
+    /**
+     * 设置省电管理器引用
+     */
+    fun setPowerManager(manager: BackgroundPowerManager?) {
+        powerManager = manager
+        Log.d(TAG, "PowerManager ${if (manager != null) "set" else "cleared"}")
     }
 
     /**
@@ -69,10 +79,14 @@ class ScreenStateManager(
                         Intent.ACTION_SCREEN_ON -> {
                             Log.i(TAG, "Screen ON detected")
                             isScreenOn = true
+                            // 通知省电管理器屏幕点亮
+                            powerManager?.onScreenOn()
                         }
                         Intent.ACTION_SCREEN_OFF -> {
                             Log.i(TAG, "Screen OFF detected")
                             isScreenOn = false
+                            // 通知省电管理器屏幕关闭
+                            powerManager?.onScreenOff()
                         }
                         Intent.ACTION_USER_PRESENT -> {
                             val now = SystemClock.elapsedRealtime()

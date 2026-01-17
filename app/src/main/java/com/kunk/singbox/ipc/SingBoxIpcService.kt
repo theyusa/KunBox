@@ -26,6 +26,10 @@ class SingBoxIpcService : Service() {
             if (callback == null) return
             SingBoxIpcHub.unregisterCallback(callback)
         }
+
+        override fun notifyAppLifecycle(isForeground: Boolean) {
+            SingBoxIpcHub.onAppLifecycle(isForeground)
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
