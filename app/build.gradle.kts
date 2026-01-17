@@ -390,6 +390,9 @@ dependencies {
     // ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")  // 从 2.7.0 更新
 
+    // ProcessLifecycleOwner - 用于检测应用前后台状态
+    implementation("androidx.lifecycle:lifecycle-process:2.8.7")
+
     // Network - OkHttp
     implementation("com.squareup.okhttp3:okhttp:4.12.0")  // 已是最新版本
 

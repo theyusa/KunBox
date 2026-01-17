@@ -43,6 +43,15 @@ class TrafficMonitor(
     private var stallConsecutiveCount: Int = 0
     private var lastStallTrafficBytes: Long = 0L
 
+    @Volatile
+    private var isPaused: Boolean = false
+    
+    @Volatile
+    private var cachedUid: Int = 0
+    
+    @Volatile
+    private var cachedListener: Listener? = null
+
     @Volatile var currentUploadSpeed: Long = 0L
         private set
 
@@ -51,6 +60,10 @@ class TrafficMonitor(
 
     fun start(uid: Int, listener: Listener) {
         stop()
+
+        cachedUid = uid
+        cachedListener = listener
+        isPaused = false
 
         val tx0 = TrafficStats.getUidTxBytes(uid).coerceAtLeast(0L)
         val rx0 = TrafficStats.getUidRxBytes(uid).coerceAtLeast(0L)
@@ -149,4 +162,74 @@ class TrafficMonitor(
             stallConsecutiveCount = 0
         }
     }
+
+    fun pause() {
+        if (isPaused) return
+        isPaused = true
+        monitorJob?.cancel()
+        monitorJob = null
+        currentUploadSpeed = 0L
+        currentDownloadSpeed = 0L
+        Log.i(TAG, "Traffic monitor paused")
+    }
+
+    fun resume() {
+        if (!isPaused) return
+        isPaused = false
+        
+        val uid = cachedUid
+        val listener = cachedListener
+        if (uid > 0 && listener != null) {
+            val tx0 = TrafficStats.getUidTxBytes(uid).coerceAtLeast(0L)
+            val rx0 = TrafficStats.getUidRxBytes(uid).coerceAtLeast(0L)
+            lastTxBytes = tx0
+            lastRxBytes = rx0
+            lastSampleTime = SystemClock.elapsedRealtime()
+            stallConsecutiveCount = 0
+            lastStallTrafficBytes = 0L
+            lastStallCheckAtMs = 0L
+
+            monitorJob = scope.launch(Dispatchers.IO) {
+                while (true) {
+                    delay(SAMPLE_INTERVAL_MS)
+
+                    val nowElapsed = SystemClock.elapsedRealtime()
+                    val tx = TrafficStats.getUidTxBytes(uid).coerceAtLeast(0L)
+                    val rx = TrafficStats.getUidRxBytes(uid).coerceAtLeast(0L)
+
+                    val dtMs = (nowElapsed - lastSampleTime).coerceAtLeast(1L)
+                    val dTx = (tx - lastTxBytes).coerceAtLeast(0L)
+                    val dRx = (rx - lastRxBytes).coerceAtLeast(0L)
+
+                    val uploadSpeedBps = dTx * 1000 / dtMs
+                    val downloadSpeedBps = dRx * 1000 / dtMs
+
+                    currentUploadSpeed = uploadSpeedBps
+                    currentDownloadSpeed = downloadSpeedBps
+
+                    val totalTx = (tx - baseTxBytes).coerceAtLeast(0L)
+                    val totalRx = (rx - baseRxBytes).coerceAtLeast(0L)
+
+                    listener.onTrafficUpdate(TrafficSnapshot(
+                        uploadSpeed = uploadSpeedBps,
+                        downloadSpeed = downloadSpeedBps,
+                        totalUpload = totalTx,
+                        totalDownload = totalRx
+                    ))
+
+                    checkForStall(tx + rx, listener)
+
+                    lastTxBytes = tx
+                    lastRxBytes = rx
+                    lastSampleTime = nowElapsed
+                }
+            }
+            Log.i(TAG, "Traffic monitor resumed")
+        } else {
+            Log.w(TAG, "Cannot resume: missing uid or listener")
+        }
+    }
+
+    val isMonitoringPaused: Boolean
+        get() = isPaused
 }

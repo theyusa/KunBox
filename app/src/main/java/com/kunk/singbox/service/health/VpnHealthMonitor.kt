@@ -11,12 +11,13 @@ class VpnHealthMonitor(
     private val context: HealthCheckContext,
     private val serviceScope: CoroutineScope
 ) {
-    companion object {
+companion object {
         private const val TAG = "VpnHealthMonitor"
 
         private const val DEFAULT_INTERVAL_MS = 15_000L
         private const val MIN_INTERVAL_MS = 5_000L
         private const val MAX_INTERVAL_MS = 60_000L
+        private const val POWER_SAVING_INTERVAL_MS = 120_000L
         private const val MAX_CONSECUTIVE_FAILURES = 3
         private const val HEALTHY_COUNT_THRESHOLD = 5
     }
@@ -43,21 +44,25 @@ class VpnHealthMonitor(
     @Volatile
     private var consecutiveHealthyChecks: Int = 0
 
-    @Volatile
+@Volatile
     private var consecutiveHealthCheckFailures: Int = 0
+
+    @Volatile
+    private var isPowerSavingMode: Boolean = false
 
     /**
      * 启动周期性健康检查
      * 定期检查 boxService 是否仍在正常运行，防止 native 崩溃导致僵尸状态
      */
-    fun start() {
+fun start() {
         stop()
         resetCounters()
-        healthCheckIntervalMs = DEFAULT_INTERVAL_MS
+        healthCheckIntervalMs = if (isPowerSavingMode) POWER_SAVING_INTERVAL_MS else DEFAULT_INTERVAL_MS
 
         periodicHealthCheckJob = serviceScope.launch {
             while (isActive && context.isRunning) {
-                delay(healthCheckIntervalMs)
+                val intervalToUse = if (isPowerSavingMode) POWER_SAVING_INTERVAL_MS else healthCheckIntervalMs
+                delay(intervalToUse)
 
                 if (!context.isRunning || context.isStopping) {
                     break
@@ -271,9 +276,27 @@ class VpnHealthMonitor(
     /**
      * 清理资源
      */
-    fun cleanup() {
+fun cleanup() {
         stop()
         resetCounters()
         healthCheckIntervalMs = DEFAULT_INTERVAL_MS
+        isPowerSavingMode = false
     }
+
+    fun enterPowerSavingMode() {
+        if (isPowerSavingMode) return
+        isPowerSavingMode = true
+        healthCheckIntervalMs = POWER_SAVING_INTERVAL_MS
+        Log.i(TAG, "Entered power saving mode (interval=${POWER_SAVING_INTERVAL_MS / 1000}s)")
+    }
+
+    fun exitPowerSavingMode() {
+        if (!isPowerSavingMode) return
+        isPowerSavingMode = false
+        healthCheckIntervalMs = DEFAULT_INTERVAL_MS
+        Log.i(TAG, "Exited power saving mode (interval=${DEFAULT_INTERVAL_MS / 1000}s)")
+    }
+
+    val isInPowerSavingMode: Boolean
+        get() = isPowerSavingMode
 }

@@ -142,5 +142,22 @@ class HealthMonitor(
     /**
      * 是否已初始化
      */
-    fun isInitialized(): Boolean = delegate != null
+fun isInitialized(): Boolean = delegate != null
+
+    fun enterPowerSavingMode(): Result<Unit> {
+        return runCatching {
+            delegate?.enterPowerSavingMode()
+                ?: throw IllegalStateException("HealthMonitor not initialized")
+        }
+    }
+
+    fun exitPowerSavingMode(): Result<Unit> {
+        return runCatching {
+            delegate?.exitPowerSavingMode()
+                ?: throw IllegalStateException("HealthMonitor not initialized")
+        }
+    }
+
+    val isInPowerSavingMode: Boolean
+        get() = delegate?.isInPowerSavingMode ?: false
 }

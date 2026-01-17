@@ -21,6 +21,7 @@ import com.kunk.singbox.model.AppThemeMode
 import com.kunk.singbox.model.AppLanguage
 import com.kunk.singbox.model.NodeSortType
 import com.kunk.singbox.model.NodeFilter
+import com.kunk.singbox.model.BackgroundPowerSavingDelay
 import com.kunk.singbox.repository.store.SettingsStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -344,6 +345,12 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setAutoCheckUpdate(value: Boolean) {
         settingsStore.updateSettingsAndWait { it.copy(autoCheckUpdate = value) }
+    }
+
+    // ==================== 后台省电设置 ====================
+
+    suspend fun setBackgroundPowerSavingDelay(value: BackgroundPowerSavingDelay) {
+        settingsStore.updateSettingsAndWait { it.copy(backgroundPowerSavingDelay = value) }
     }
 
     // ==================== 节点列表设置 ====================

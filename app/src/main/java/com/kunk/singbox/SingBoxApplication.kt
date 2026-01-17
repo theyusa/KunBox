@@ -6,6 +6,7 @@ import android.net.ConnectivityManager
 import android.os.Process
 import androidx.work.Configuration
 import androidx.work.WorkManager
+import com.kunk.singbox.lifecycle.AppLifecycleObserver
 import com.kunk.singbox.repository.LogRepository
 import com.kunk.singbox.service.RuleSetAutoUpdateWorker
 import com.kunk.singbox.service.SubscriptionAutoUpdateWorker
@@ -42,8 +43,10 @@ class SingBoxApplication : Application(), Configuration.Provider {
         // 清理遗留的临时数据库文件 (应对应用崩溃或强制停止的情况)
         cleanupOrphanedTempFiles()
 
-        // 只在主进程中调度自动更新任务
+// 只在主进程中调度自动更新任务
         if (isMainProcess()) {
+            AppLifecycleObserver.register()
+
             applicationScope.launch {
                 // 预缓存物理网络 - 参考 NekoBox 优化
                 // VPN 启动时可直接使用已缓存的网络，避免应用二次加载

@@ -85,7 +85,10 @@ data class AppSettings(
     @SerializedName("customNodeOrder") val customNodeOrder: List<String> = emptyList(),
 
     // 版本更新设置
-    @SerializedName("autoCheckUpdate") val autoCheckUpdate: Boolean = true
+    @SerializedName("autoCheckUpdate") val autoCheckUpdate: Boolean = true,
+
+    // 后台省电设置
+    @SerializedName("backgroundPowerSavingDelay") val backgroundPowerSavingDelay: BackgroundPowerSavingDelay = BackgroundPowerSavingDelay.MINUTES_30
 )
 
 enum class LatencyTestMethod(@StringRes val displayNameRes: Int) {
@@ -213,6 +216,21 @@ enum class GhProxyMirror(val url: String, @StringRes val displayNameRes: Int) {
         
         fun fromDisplayName(name: String): GhProxyMirror {
             return entries.find { it.name == name } ?: SAGERNET_ORIGIN
+        }
+    }
+}
+
+enum class BackgroundPowerSavingDelay(val delayMs: Long, @StringRes val displayNameRes: Int) {
+    @SerializedName("MINUTES_5") MINUTES_5(5 * 60 * 1000L, R.string.power_saving_delay_5min),
+    @SerializedName("MINUTES_15") MINUTES_15(15 * 60 * 1000L, R.string.power_saving_delay_15min),
+    @SerializedName("MINUTES_30") MINUTES_30(30 * 60 * 1000L, R.string.power_saving_delay_30min),
+    @SerializedName("HOURS_1") HOURS_1(60 * 60 * 1000L, R.string.power_saving_delay_1hour),
+    @SerializedName("HOURS_2") HOURS_2(2 * 60 * 60 * 1000L, R.string.power_saving_delay_2hours),
+    @SerializedName("NEVER") NEVER(Long.MAX_VALUE, R.string.power_saving_delay_never);
+    
+    companion object {
+        fun fromDisplayName(name: String): BackgroundPowerSavingDelay {
+            return entries.find { it.name == name } ?: MINUTES_30
         }
     }
 }

@@ -25,6 +25,7 @@ import com.kunk.singbox.model.LatencyTestMethod
 import com.kunk.singbox.model.VpnAppMode
 import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.model.GhProxyMirror
+import com.kunk.singbox.model.BackgroundPowerSavingDelay
 import com.kunk.singbox.repository.DataExportRepository
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.repository.SettingsRepository
@@ -181,6 +182,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setAutoCheckUpdate(value: Boolean) {
         viewModelScope.launch { repository.setAutoCheckUpdate(value) }
+    }
+
+    fun setBackgroundPowerSavingDelay(value: BackgroundPowerSavingDelay) {
+        viewModelScope.launch { repository.setBackgroundPowerSavingDelay(value) }
     }
     
     fun setShowNotificationSpeed(value: Boolean) {
