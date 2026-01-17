@@ -18,6 +18,7 @@ class TrafficMonitor(
         private const val STALL_CHECK_INTERVAL_MS = 15000L
         private const val STALL_MIN_BYTES_DELTA = 1024L
         private const val STALL_MIN_SAMPLES = 3
+        private const val PROXY_IDLE_THRESHOLD_MS = 60_000L
     }
 
     data class TrafficSnapshot(
@@ -30,6 +31,7 @@ class TrafficMonitor(
     interface Listener {
         fun onTrafficUpdate(snapshot: TrafficSnapshot)
         fun onTrafficStall(consecutiveCount: Int)
+        fun onProxyIdle(idleDurationMs: Long) {}
     }
 
     private var monitorJob: Job? = null
@@ -42,6 +44,9 @@ class TrafficMonitor(
     private var lastStallCheckAtMs: Long = 0L
     private var stallConsecutiveCount: Int = 0
     private var lastStallTrafficBytes: Long = 0L
+
+    private var lastTrafficActiveAtMs: Long = 0L
+    private var proxyIdleNotified: Boolean = false
 
     @Volatile
     private var isPaused: Boolean = false
@@ -76,6 +81,8 @@ class TrafficMonitor(
         stallConsecutiveCount = 0
         lastStallTrafficBytes = 0L
         lastStallCheckAtMs = 0L
+        lastTrafficActiveAtMs = SystemClock.elapsedRealtime()
+        proxyIdleNotified = false
 
         monitorJob = scope.launch(Dispatchers.IO) {
             while (true) {
@@ -106,6 +113,7 @@ class TrafficMonitor(
                 ))
 
                 checkForStall(tx + rx, listener)
+                checkForProxyIdle(dTx + dRx, nowElapsed, listener)
 
                 lastTxBytes = tx
                 lastRxBytes = rx
@@ -163,6 +171,24 @@ class TrafficMonitor(
         }
     }
 
+    private fun checkForProxyIdle(bytesDelta: Long, nowElapsedMs: Long, listener: Listener) {
+        if (bytesDelta > 0) {
+            lastTrafficActiveAtMs = nowElapsedMs
+            if (proxyIdleNotified) {
+                Log.i(TAG, "Proxy traffic resumed after idle")
+                proxyIdleNotified = false
+            }
+            return
+        }
+
+        val idleDuration = nowElapsedMs - lastTrafficActiveAtMs
+        if (idleDuration >= PROXY_IDLE_THRESHOLD_MS && !proxyIdleNotified) {
+            proxyIdleNotified = true
+            Log.i(TAG, "Proxy idle detected: ${idleDuration}ms")
+            listener.onProxyIdle(idleDuration)
+        }
+    }
+
     fun pause() {
         if (isPaused) return
         isPaused = true
@@ -188,6 +214,8 @@ class TrafficMonitor(
             stallConsecutiveCount = 0
             lastStallTrafficBytes = 0L
             lastStallCheckAtMs = 0L
+            lastTrafficActiveAtMs = SystemClock.elapsedRealtime()
+            proxyIdleNotified = false
 
             monitorJob = scope.launch(Dispatchers.IO) {
                 while (true) {
@@ -218,6 +246,7 @@ class TrafficMonitor(
                     ))
 
                     checkForStall(tx + rx, listener)
+                    checkForProxyIdle(dTx + dRx, nowElapsed, listener)
 
                     lastTxBytes = tx
                     lastRxBytes = rx

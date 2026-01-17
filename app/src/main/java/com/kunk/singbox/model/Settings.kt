@@ -55,7 +55,7 @@ data class AppSettings(
     
     // 连接重置设置 (参考 NekoBox)
     @SerializedName("networkChangeResetConnections") val networkChangeResetConnections: Boolean = true,
-    @SerializedName("wakeResetConnections") val wakeResetConnections: Boolean = false,
+    @SerializedName("wakeResetConnections") val wakeResetConnections: Boolean = true,
     
     // 延迟测试设置
     @SerializedName("latencyTestMethod") val latencyTestMethod: LatencyTestMethod = LatencyTestMethod.REAL_RTT,

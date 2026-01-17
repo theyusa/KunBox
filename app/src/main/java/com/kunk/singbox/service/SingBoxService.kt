@@ -444,6 +444,9 @@ class SingBoxService : VpnService() {
             override suspend fun resetConnectionsOptimal(reason: String, skipDebounce: Boolean) {
                 this@SingBoxService.resetConnectionsOptimal(reason, skipDebounce)
             }
+            override fun notifyRemoteStateUpdate(force: Boolean) {
+                this@SingBoxService.requestRemoteStateUpdate(force)
+            }
         })
         Log.i(TAG, "ScreenStateManager initialized")
 
@@ -1026,6 +1029,13 @@ class SingBoxService : VpnService() {
                     requestCoreNetworkReset(reason = "traffic_stall", force = true)
                     trafficMonitor.resetStallCounter()
                 }
+            }
+        }
+
+        override fun onProxyIdle(idleDurationMs: Long) {
+            Log.i(TAG, "Proxy idle detected (${idleDurationMs / 1000}s), preemptively resetting connections")
+            serviceScope.launch {
+                resetConnectionsOptimal(reason = "proxy_idle_${idleDurationMs / 1000}s", skipDebounce = false)
             }
         }
     }

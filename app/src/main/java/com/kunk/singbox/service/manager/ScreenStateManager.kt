@@ -34,6 +34,11 @@ class ScreenStateManager(
         suspend fun performScreenOnCheck()
         suspend fun performAppForegroundCheck()
         suspend fun resetConnectionsOptimal(reason: String, skipDebounce: Boolean)
+        /**
+         * 通知远程 UI 强制刷新状态
+         * 用于 Doze 唤醒后确保 IPC 状态同步
+         */
+        fun notifyRemoteStateUpdate(force: Boolean)
     }
 
     private var callbacks: Callbacks? = null
@@ -145,9 +150,18 @@ class ScreenStateManager(
                         Log.i(TAG, "App returned to FOREGROUND (${activity.localClassName})")
                         isAppInForeground = true
 
+                        val backgroundDuration = SystemClock.elapsedRealtime() - lastAppBackgroundAtMs
+                        val wasInBackgroundLong = lastAppBackgroundAtMs > 0 && backgroundDuration >= BACKGROUND_THRESHOLD_MS
+
                         serviceScope.launch {
                             delay(500)
                             callbacks?.performAppForegroundCheck()
+                            callbacks?.notifyRemoteStateUpdate(true)
+
+                            if (wasInBackgroundLong && callbacks?.isRunning == true) {
+                                Log.i(TAG, "[Foreground] Background duration ${backgroundDuration}ms >= threshold, resetting connections")
+                                callbacks?.resetConnectionsOptimal("foreground_after_long_background", false)
+                            }
                         }
                     }
                 }
@@ -230,6 +244,9 @@ class ScreenStateManager(
                 Log.i(TAG, "[Doze] wakeResetConnections enabled, resetting connections")
                 callbacks?.resetConnectionsOptimal("doze_exit", false)
             }
+
+            // Fix A: Doze 唤醒后强制推送状态到 UI，修复 IPC 状态同步问题
+            callbacks?.notifyRemoteStateUpdate(true)
         } catch (e: Exception) {
             Log.e(TAG, "[Doze] handleDeviceWake failed", e)
         }

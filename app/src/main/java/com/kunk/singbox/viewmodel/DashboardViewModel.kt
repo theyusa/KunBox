@@ -506,16 +506,25 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
      * 2025-fix-v5: 刷新 VPN 状态 (NekoBox + v2rayNG 混合策略)
      * 
      * 关键改进: 如果状态同步失败，强制调用 rebind 重新建立连接
+     * Fix C: 添加陈旧状态检测，超过 30 秒未同步则强制 rebind
      */
     fun refreshState() {
         viewModelScope.launch {
             val context = getApplication<Application>()
             
-            val synced = runCatching { SingBoxRemote.queryAndSyncState(context) }.getOrDefault(false)
+            val lastSyncAge = SingBoxRemote.getLastSyncAge()
+            val isStale = lastSyncAge > 30_000L
             
-            if (!synced) {
-                Log.w(TAG, "refreshState: queryAndSyncState failed, forcing rebind")
+            if (isStale && SingBoxRemote.isRunning.value) {
+                Log.w(TAG, "refreshState: stale state detected (${lastSyncAge}ms), forcing rebind")
                 SingBoxRemote.rebind(context)
+            } else {
+                val synced = runCatching { SingBoxRemote.queryAndSyncState(context) }.getOrDefault(false)
+                
+                if (!synced) {
+                    Log.w(TAG, "refreshState: queryAndSyncState failed, forcing rebind")
+                    SingBoxRemote.rebind(context)
+                }
             }
 
             var retries = 0
