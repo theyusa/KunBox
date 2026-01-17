@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.4.1](https://github.com/roseforljh/KunBox/compare/v2.4.0...v2.4.1) (2026-01-17)
+
+
+### Bug Fixes
+
+* **ipc:** resolve UI stuck loading after Doze wake and proxy idle ([f834ff9](https://github.com/roseforljh/KunBox/commit/f834ff9b482b47dde81abaf245bcf68f268f0e07))
+* **latency:** enforce user-configured timeout for single node test ([d2ce2b4](https://github.com/roseforljh/KunBox/commit/d2ce2b48beed652eeab54650f4b9f325dae802f9))
+* **latency:** pass latency value directly in callback to fix race condition ([79a3ab6](https://github.com/roseforljh/KunBox/commit/79a3ab6a445474e58e293358069be4ad71498513))
+* **memory:** optimize memory usage with LRU caches and static TypeTokens ([e8d4f87](https://github.com/roseforljh/KunBox/commit/e8d4f872b2970d37a25423b927da4cd54e4e890f))
+* **notification:** persist activeLabel to VpnStateStore for cross-process sync ([a2d3b03](https://github.com/roseforljh/KunBox/commit/a2d3b03eb918e108912e8481b2ee03e160fb09c5))
+* **parser:** handle empty string fields in Clash YAML hysteria2 nodes ([8910bac](https://github.com/roseforljh/KunBox/commit/8910bac91b3dbf8781e99950253218ece012a274))
+* **power:** add background power saving with configurable delay ([572e921](https://github.com/roseforljh/KunBox/commit/572e9214c35483bf2296d28b084204b06c0bc1b2))
+
 ## [2.4.0](https://github.com/roseforljh/KunBox/compare/v2.3.1...v2.4.0) (2026-01-17)
 
 
