@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.4.2](https://github.com/roseforljh/KunBox/compare/v2.4.1...v2.4.2) (2026-01-17)
+
+
+### Bug Fixes
+
+* **data:** persist node latency and improve update check ([2a21b55](https://github.com/roseforljh/KunBox/commit/2a21b5519d4ebb858dd6798e1f71cefd418b2e51))
+* **power:** enable main process self-termination for power saving ([549e079](https://github.com/roseforljh/KunBox/commit/549e079d8d54f91a1d282128a5fcdec697b68356))
+
 ## [2.4.1](https://github.com/roseforljh/KunBox/compare/v2.4.0...v2.4.1) (2026-01-17)
 
 
