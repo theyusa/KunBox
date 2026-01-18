@@ -10,7 +10,7 @@ KunBox is an Android VPN client built on sing-box core with OLED-optimized UI.
 - **UI**: Jetpack Compose + Material 3
 - **Architecture**: MVVM + Repository Pattern
 - **Core**: sing-box (libbox.aar via JNI)
-- **SDK**: Min 24 | Target 36
+- **SDK**: Min 24 | Target 36 | NDK 29
 
 ---
 
@@ -46,17 +46,35 @@ KunBox is an Android VPN client built on sing-box core with OLED-optimized UI.
 
 ```
 app/src/main/java/com/kunk/singbox/
-  model/          # Data classes (Gson serialization)
-  repository/     # Data layer (DataStore, file I/O)
-  service/        # Android Services (VpnService, TileService)
-  viewmodel/      # UI state management
+  core/              # libbox wrapper (JNI bridge)
+  database/          # Room database
+    dao/             # Data Access Objects
+    entity/          # Database entities
+  ipc/               # AIDL interfaces for IPC
+  lifecycle/         # App lifecycle observers
+  manager/           # System managers
+  model/             # Data classes (Gson serialization)
+  repository/        # Data layer (DataStore, file I/O)
+    config/          # Config generation
+    store/           # Persistent storage
+    subscription/    # Subscription parsing
+  service/           # Android Services
+    health/          # Health monitoring
+    manager/         # Service managers
+    network/         # Network utilities
+    notification/    # Notification handling
+    tun/             # TUN interface
   ui/
-    components/   # Reusable Composables
-    screens/      # Full-screen Composables
-    theme/        # Colors, Typography
-  utils/parser/   # Protocol parsers (Clash YAML, node links)
-  ipc/            # AIDL interfaces for IPC
-  core/           # libbox wrapper
+    components/      # Reusable Composables
+    navigation/      # Navigation setup
+    scanner/         # QR code scanner
+    screens/         # Full-screen Composables
+    theme/           # Colors, Typography
+  utils/
+    parser/          # Protocol parsers (Clash YAML, node links)
+    perf/            # Performance utilities
+  viewmodel/         # UI state management
+  worker/            # WorkManager workers
 ```
 
 ---
@@ -71,7 +89,7 @@ import androidx.compose.runtime.*
 import com.google.gson.Gson
 import com.kunk.singbox.model.AppSettings
 ```
-- Explicit imports preferred; wildcards OK for Compose only
+- Explicit imports preferred; wildcards OK for Compose/layout only
 
 ### Naming Conventions
 | Type | Convention | Example |
@@ -126,8 +144,8 @@ fun NodeCard(
 
 ### ViewModel & Repository
 - ViewModel exposes immutable `StateFlow`, actions launch coroutines via `viewModelScope`
-- Repository uses singleton pattern with `@Volatile` + `synchronized`
-- Use DataStore for persistence, `flowOn(Dispatchers.Default)` for parsing
+- Repository uses singleton pattern with `getInstance(context)`
+- Use DataStore/Room for persistence, `flowOn(Dispatchers.Default)` for parsing
 
 ---
 
@@ -151,16 +169,16 @@ try {
 ## Theme (OLED-first)
 
 ```kotlin
-val AppBackground = Color(0xFF000000)  // True black
-val SurfaceCard = Color(0xFF121212)
-// Always use MaterialTheme.colorScheme, never hardcoded colors
+val OLEDBlack = Color(0xFF000000)  // True black background
+val Neutral900 = Color(0xFF121212) // Surface card
+// Always use MaterialTheme.colorScheme, never hardcoded colors in components
 ```
 
 ---
 
 ## ProGuard Rules
 
-Critical classes preserved (see `app/proguard-rules.pro` for details):
+Critical classes preserved (see `app/proguard-rules.pro`):
 - `go.**`, `io.nekohasekai.libbox.**` - Native/JNI
 - `com.kunk.singbox.model.**` - JSON serialization
 - `com.kunk.singbox.service.*` - Android services
@@ -179,9 +197,10 @@ Critical classes preserved (see `app/proguard-rules.pro` for details):
 | Gson 2.11 | JSON serialization |
 | SnakeYAML 2.2 | YAML parsing |
 | DataStore | Preferences persistence |
-| WorkManager | Background scheduling |
+| WorkManager 2.9 | Background scheduling |
 | Room 2.6 | Database |
 | ZXing | QR code scanning |
+| MMKV 1.3 | Cross-process KV storage |
 
 ---
 

@@ -29,6 +29,7 @@ sing-box/
 NekoBoxForAndroid/.git
 # Claude Code 配置文件
 CLAUDE.md
+AGENTS.md
 .claude/
 build_log.txt
 
