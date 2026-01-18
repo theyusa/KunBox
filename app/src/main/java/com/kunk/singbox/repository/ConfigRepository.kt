@@ -1627,9 +1627,14 @@ class ConfigRepository(private val context: Context) {
             scope.launch {
                 val cfg = loadConfig(profileId) ?: return@launch
                 val nodes = extractNodesFromConfig(cfg, profileId)
-                profileNodes[profileId] = nodes
-                
-                updateState(nodes)
+                // 从 savedNodeLatencies 恢复延迟数据
+                val nodesWithLatency = nodes.map { node ->
+                    val latency = savedNodeLatencies[node.id]
+                    if (latency != null) node.copy(latencyMs = latency) else node
+                }
+                profileNodes[profileId] = nodesWithLatency
+
+                updateState(nodesWithLatency)
                 
                 if (allNodesUiActiveCount.get() > 0) {
                     updateAllNodesAndGroups()
@@ -1674,7 +1679,12 @@ class ConfigRepository(private val context: Context) {
                     Log.i(TAG, "Pre-loading profile nodes for $profileId")
                     loadConfig(profileId)?.let { cfg ->
                         val nodes = extractNodesFromConfig(cfg, profileId)
-                        profileNodes[profileId] = nodes
+                        // 从 savedNodeLatencies 恢复延迟数据
+                        val nodesWithLatency = nodes.map { node ->
+                            val latency = savedNodeLatencies[node.id]
+                            if (latency != null) node.copy(latencyMs = latency) else node
+                        }
+                        profileNodes[profileId] = nodesWithLatency
                     }
                 }
             }
