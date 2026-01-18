@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.5](https://github.com/roseforljh/KunBox/compare/v2.4.4...v2.4.5) (2026-01-18)
+
+
+### Bug Fixes
+
+* 同步官方内核 ([471ed80](https://github.com/roseforljh/KunBox/commit/471ed808fab514a6eb991be71ed9073e8ef8005a))
+
 ## [2.4.4](https://github.com/roseforljh/KunBox/compare/v2.4.3...v2.4.4) (2026-01-18)
 
 
