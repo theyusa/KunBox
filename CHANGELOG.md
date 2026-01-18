@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.3](https://github.com/roseforljh/KunBox/compare/v2.4.2...v2.4.3) (2026-01-18)
+
+
+### Bug Fixes
+
+* **db:** remove foreign key constraint to fix node latency persistence ([663966c](https://github.com/roseforljh/KunBox/commit/663966c415133a671754d69b4475fd5653d1a385))
+
 ## [2.4.2](https://github.com/roseforljh/KunBox/compare/v2.4.1...v2.4.2) (2026-01-17)
 
 
