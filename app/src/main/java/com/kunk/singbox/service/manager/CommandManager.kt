@@ -435,7 +435,7 @@ class CommandManager(
             activeConnectionLabel = newLabel
             if (newLabel != lastConnectionsLabelLogged) {
                 lastConnectionsLabelLogged = newLabel
-                Log.i(TAG, "Connections label updated: ${newLabel ?: "(null)"}")
+                Log.d(TAG, "Connections label updated: ${newLabel ?: "(null)"}")
             }
         }
 

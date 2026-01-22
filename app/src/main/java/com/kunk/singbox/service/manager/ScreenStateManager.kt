@@ -28,6 +28,14 @@ class ScreenStateManager(
         private const val TAG = "ScreenStateManager"
         private const val SCREEN_ON_CHECK_DEBOUNCE_MS = 3000L
         private const val BACKGROUND_THRESHOLD_MS = 30_000L
+        private const val SHORT_BACKGROUND_THRESHOLD_MS = 10_000L
+
+        // Recovery modes (must match Go side constants)
+        const val RECOVERY_MODE_AUTO = 0
+        const val RECOVERY_MODE_QUICK = 1
+        const val RECOVERY_MODE_FULL = 2
+        const val RECOVERY_MODE_DEEP = 3
+        const val RECOVERY_MODE_PROACTIVE = 4  // New: includes network probe
     }
 
     interface Callbacks {
@@ -40,6 +48,11 @@ class ScreenStateManager(
          * 用于 Doze 唤醒后确保 IPC 状态同步
          */
         fun notifyRemoteStateUpdate(force: Boolean)
+        /**
+         * 执行网络恢复
+         * mode: 0=自动, 1=快速, 2=完整, 3=深度
+         */
+        suspend fun performNetworkRecovery(mode: Int)
     }
 
     private var callbacks: Callbacks? = null
@@ -81,6 +94,20 @@ class ScreenStateManager(
                             isScreenOn = true
                             // 通知省电管理器屏幕点亮
                             powerManager?.onScreenOn()
+
+                            // ===== 早期恢复：屏幕亮起时立即开始网络恢复 =====
+                            // 不等待用户解锁，提前开始恢复网络连接
+                            if (callbacks?.isRunning == true) {
+                                serviceScope.launch {
+                                    Log.i(TAG, "[ScreenOn] Early recovery triggered")
+                                    try {
+                                        // 使用快速恢复模式，不阻塞用户解锁
+                                        callbacks?.performNetworkRecovery(RECOVERY_MODE_QUICK)
+                                    } catch (e: Exception) {
+                                        Log.w(TAG, "[ScreenOn] Early recovery failed", e)
+                                    }
+                                }
+                            }
                         }
                         Intent.ACTION_SCREEN_OFF -> {
                             Log.i(TAG, "Screen OFF detected")
@@ -96,7 +123,7 @@ class ScreenStateManager(
                             Log.i(TAG, "[Unlock] User unlocked device")
 
                             serviceScope.launch {
-                                delay(1200)
+                                delay(800) // Reduced from 1200ms for faster response
                                 callbacks?.performScreenOnCheck()
                             }
                         }
@@ -166,15 +193,33 @@ class ScreenStateManager(
 
                         val backgroundDuration = SystemClock.elapsedRealtime() - lastAppBackgroundAtMs
                         val wasInBackgroundLong = lastAppBackgroundAtMs > 0 && backgroundDuration >= BACKGROUND_THRESHOLD_MS
+                        val wasInBackgroundShort = lastAppBackgroundAtMs > 0 && backgroundDuration >= SHORT_BACKGROUND_THRESHOLD_MS
 
                         serviceScope.launch {
-                            delay(500)
+                            delay(300) // Reduced from 500ms for faster response
                             callbacks?.performAppForegroundCheck()
                             callbacks?.notifyRemoteStateUpdate(true)
 
-                            if (wasInBackgroundLong && callbacks?.isRunning == true) {
-                                Log.i(TAG, "[Foreground] Background duration ${backgroundDuration}ms >= threshold, resetting connections")
-                                callbacks?.resetConnectionsOptimal("foreground_after_long_background", false)
+                            if (callbacks?.isRunning == true) {
+                                // ===== 核心修复：使用 Proactive 模式进行网络恢复 =====
+                                // Proactive 模式会主动探测网络并预热连接，解决 Telegram 等应用加载慢的问题
+                                val recoveryMode = when {
+                                    // 长时间后台 (>30s) -> 深度恢复 + 网络探测
+                                    wasInBackgroundLong -> RECOVERY_MODE_PROACTIVE
+                                    // 中等时间后台 (>10s) -> 完整恢复 + 网络探测
+                                    wasInBackgroundShort -> RECOVERY_MODE_PROACTIVE
+                                    // 短时间后台 (<10s) -> 快速恢复
+                                    else -> RECOVERY_MODE_QUICK
+                                }
+
+                                Log.i(TAG, "[Foreground] Background duration ${backgroundDuration}ms, recovery mode=$recoveryMode")
+
+                                try {
+                                    callbacks?.performNetworkRecovery(recoveryMode)
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "[Foreground] Network recovery failed, falling back to connection reset", e)
+                                    callbacks?.resetConnectionsOptimal("foreground_recovery_fallback", false)
+                                }
                             }
                         }
                     }
@@ -245,18 +290,28 @@ class ScreenStateManager(
         if (callbacks?.isRunning != true) return
 
         try {
-            val success = BoxWrapperManager.wake()
-            if (success) {
-                Log.i(TAG, "[Doze] Device wake - called wake() successfully")
-            } else {
-                Log.w(TAG, "[Doze] Device wake - wake() returned false, trying resume()")
-                BoxWrapperManager.resume()
-            }
+            Log.i(TAG, "[Doze] Device wake - performing deep network recovery")
 
-            val settings = SettingsRepository.getInstance(context).settings.value
-            if (settings.wakeResetConnections) {
-                Log.i(TAG, "[Doze] wakeResetConnections enabled, resetting connections")
-                callbacks?.resetConnectionsOptimal("doze_exit", false)
+            // ===== 核心修复：Doze 唤醒时使用深度恢复 =====
+            // 深度恢复包含：唤醒 pause.Manager -> 关闭连接 -> 清除 DNS -> 重置网络栈
+            try {
+                callbacks?.performNetworkRecovery(3) // 3 = 深度恢复
+            } catch (e: Exception) {
+                Log.w(TAG, "[Doze] Deep recovery failed, falling back to manual recovery", e)
+                // 回退到原有逻辑
+                val success = BoxWrapperManager.wake()
+                if (success) {
+                    Log.i(TAG, "[Doze] Device wake - called wake() successfully")
+                } else {
+                    Log.w(TAG, "[Doze] Device wake - wake() returned false, trying resume()")
+                    BoxWrapperManager.resume()
+                }
+
+                val settings = SettingsRepository.getInstance(context).settings.value
+                if (settings.wakeResetConnections) {
+                    Log.i(TAG, "[Doze] wakeResetConnections enabled, resetting connections")
+                    callbacks?.resetConnectionsOptimal("doze_exit", false)
+                }
             }
 
             // Fix A: Doze 唤醒后强制推送状态到 UI，修复 IPC 状态同步问题

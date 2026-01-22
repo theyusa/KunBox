@@ -304,6 +304,108 @@ object BoxWrapperManager {
         return commandServer
     }
 
+    // ==================== Network Recovery (Fix loading issue after background resume) ====================
+
+    /**
+     * Auto network recovery - Recommended entry point
+     * Automatically selects recovery strategy based on current state
+     * @return true if recovery succeeded
+     */
+    fun recoverNetworkAuto(): Boolean {
+        return try {
+            Libbox.recoverNetworkAuto()
+        } catch (e: Exception) {
+            Log.w(TAG, "recoverNetworkAuto kernel call failed, fallback to manual", e)
+            recoverNetworkManual()
+        }
+    }
+
+    /**
+     * Quick network recovery - Only close old connections
+     * For short background resume scenarios
+     */
+    fun recoverNetworkQuick(): Boolean {
+        return try {
+            Libbox.recoverNetworkQuick()
+        } catch (e: Exception) {
+            Log.w(TAG, "recoverNetworkQuick kernel call failed, fallback", e)
+            resetAllConnections(true)
+        }
+    }
+
+    /**
+     * Full network recovery
+     * Complete recovery flow: wake -> close connections -> clear DNS -> reset network stack
+     */
+    fun recoverNetworkFull(): Boolean {
+        return try {
+            Libbox.recoverNetworkFull()
+        } catch (e: Exception) {
+            Log.w(TAG, "recoverNetworkFull kernel call failed, fallback to manual", e)
+            recoverNetworkManual()
+        }
+    }
+
+    /**
+     * Deep network recovery
+     * Most aggressive recovery mode, for long background or complete network interruption
+     */
+    fun recoverNetworkDeep(): Boolean {
+        return try {
+            Libbox.recoverNetworkDeep()
+        } catch (e: Exception) {
+            Log.w(TAG, "recoverNetworkDeep kernel call failed, fallback to manual", e)
+            recoverNetworkManual()
+        }
+    }
+
+    /**
+     * Proactive network recovery (RECOMMENDED for foreground resume)
+     * Includes network probe to ensure network is actually available
+     * This "prewarms" the connection path and DNS cache
+     */
+    fun recoverNetworkProactive(): Boolean {
+        return try {
+            Libbox.recoverNetworkProactive()
+        } catch (e: Exception) {
+            Log.w(TAG, "recoverNetworkProactive kernel call failed, fallback to full", e)
+            recoverNetworkFull()
+        }
+    }
+
+    /**
+     * Check if network recovery is needed
+     */
+    fun isNetworkRecoveryNeeded(): Boolean {
+        return try {
+            Libbox.checkNetworkRecoveryNeeded()
+        } catch (e: Exception) {
+            isPausedNow()
+        }
+    }
+
+    /**
+     * Manual network recovery (fallback)
+     * Used when kernel-level recovery is not available
+     */
+    private fun recoverNetworkManual(): Boolean {
+        return try {
+            // Step 1: 唤醒
+            if (isPausedNow()) {
+                resume()
+            }
+            // Step 2: 关闭连接
+            resetAllConnections(true)
+            // Step 3: 重置网络栈
+            resetNetwork()
+            Log.i(TAG, "recoverNetworkManual completed")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "recoverNetworkManual failed", e)
+            false
+        }
+    }
+
     /**
      * URL 测试单个节点
      */

@@ -378,6 +378,17 @@ class SingBoxService : VpnService() {
             override fun notifyRemoteStateUpdate(force: Boolean) {
                 this@SingBoxService.requestRemoteStateUpdate(force)
             }
+            override suspend fun performNetworkRecovery(mode: Int) {
+                // ===== 核心修复：执行内核级网络恢复 =====
+                val success = when (mode) {
+                    1 -> BoxWrapperManager.recoverNetworkQuick()
+                    2 -> BoxWrapperManager.recoverNetworkFull()
+                    3 -> BoxWrapperManager.recoverNetworkDeep()
+                    4 -> BoxWrapperManager.recoverNetworkProactive() // New: Proactive mode with network probe
+                    else -> BoxWrapperManager.recoverNetworkAuto()
+                }
+                Log.i(TAG, "performNetworkRecovery mode=$mode success=$success")
+            }
         })
         Log.i(TAG, "ScreenStateManager initialized")
 
