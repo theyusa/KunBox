@@ -49,10 +49,8 @@ planning-with-files/
 *.tmp
 *~
 
-# 构建脚本临时文件
-buildScript/tasks/*.py
-buildScript/tasks/remove_*.ps1
-buildScript/singbox-build/box_ext.go
+# 构建脚本目录（本地编译用，无需提交）
+buildScript/
 docs/
 temp/
 META-INF/
