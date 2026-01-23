@@ -347,13 +347,17 @@ class NodeLinkParser(private val gson: Gson) {
                     host = if (host.isNotBlank()) listOf(host) else null,
                     path = path
                 )
+                "xhttp", "splithttp" -> TransportConfig(
+                    type = "xhttp",
+                    path = if (path.isBlank()) "/" else path,
+                    host = if (host.isNotBlank()) listOf(host) else null
+                )
                 else -> null
             }
 
-            // 注意：sing-box 不支持 alter_id，只支持 AEAD 加密的 VMess (alterId=0)
-            // 如果订阅中的 alterId != 0，该节点可能无法正常工作
+            // sing-box 1.9+ 支持 alter_id (legacy VMess MD5)
             if (aid != 0) {
-                Log.w("NodeLinkParser", "VMess node '$ps' has alterId=$aid, sing-box only supports alterId=0 (AEAD)")
+                Log.d("NodeLinkParser", "VMess node '$ps' uses legacy protocol (alterId=$aid)")
             }
 
             return Outbound(
@@ -362,6 +366,7 @@ class NodeLinkParser(private val gson: Gson) {
                 server = add,
                 serverPort = port,
                 uuid = id,
+                alterId = if (aid > 0) aid else null,
                 security = "auto",
                 tls = tlsConfig,
                 transport = transport
@@ -395,31 +400,26 @@ class NodeLinkParser(private val gson: Gson) {
             val fingerprint = params["fp"]?.takeIf { it.isNotBlank() }
             val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
             val flow = params["flow"]?.takeIf { it.isNotBlank() }
-            val packetEncoding = params["packetEncoding"]?.takeIf { it.isNotBlank() } ?: "xudp"
-
-            val finalAlpnList = if ((security == "tls" || security == "reality") && (alpnList == null || alpnList.isEmpty())) {
-                if (transportType == "ws") listOf("http/1.1") else listOf("h2", "http/1.1")
-            } else {
-                alpnList
-            }
+            val packetEncoding = params["packetEncoding"]?.takeIf { it.isNotBlank() }
 
             val tlsConfig = when (security) {
                 "tls" -> TlsConfig(
                     enabled = true,
                     serverName = sni,
                     insecure = insecure,
-                    alpn = finalAlpnList,
+                    alpn = alpnList,
                     utls = (fingerprint ?: "chrome").let { UtlsConfig(enabled = true, fingerprint = it) }
                 )
                 "reality" -> TlsConfig(
                     enabled = true,
                     serverName = sni,
                     insecure = insecure,
-                    alpn = finalAlpnList,
+                    alpn = alpnList,
                     reality = RealityConfig(
                         enabled = true,
                         publicKey = params["pbk"],
                         shortId = params["sid"]
+                        // Note: spiderX (spx) is Xray-core specific, not supported by sing-box
                     ),
                     utls = (fingerprint ?: "chrome").let { UtlsConfig(enabled = true, fingerprint = it) }
                 )
@@ -435,6 +435,13 @@ class NodeLinkParser(private val gson: Gson) {
                 "grpc" -> TransportConfig(
                     type = "grpc",
                     serviceName = params["serviceName"] ?: params["sn"] ?: ""
+                )
+                "xhttp", "splithttp" -> TransportConfig(
+                    type = "xhttp",
+                    path = params["path"] ?: "/",
+                    host = params["host"]?.let { listOf(it) },
+                    mode = params["mode"],
+                    xPaddingBytes = params["xPaddingBytes"]
                 )
                 else -> null
             }

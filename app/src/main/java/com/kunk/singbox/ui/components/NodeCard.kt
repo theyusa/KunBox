@@ -120,15 +120,6 @@ fun NodeCard(
 
                         Spacer(modifier = Modifier.width(8.dp))
 
-                        if (trafficUsed > 0) {
-                            Text(
-                                text = formatTraffic(trafficUsed),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                        }
-
                         if (isTesting) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(12.dp),
@@ -167,8 +158,22 @@ fun NodeCard(
                 }
             }
 
-            Box(modifier = Modifier.wrapContentSize(Alignment.TopStart)) {
-                IconButton(
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 8.dp)
+            ) {
+                if (trafficUsed > 0) {
+                    Text(
+                        text = formatTraffic(trafficUsed),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF9575CD)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+
+                Box(modifier = Modifier.wrapContentSize(Alignment.TopStart)) {
+                    IconButton(
                     onClick = { showMenu = true },
                     modifier = Modifier.size(32.dp)
                 ) {
@@ -236,6 +241,7 @@ fun NodeCard(
                         )
                     }
                 }
+            }
             }
         }
     }

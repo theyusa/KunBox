@@ -9,8 +9,6 @@ import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.*
 import java.net.InetSocketAddress
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -32,11 +30,11 @@ class NetworkSwitchManager(
         private const val TAG = "NetworkSwitchManager"
 
         // 配置参数
-        private const val STARTUP_WINDOW_MS = 1000L          // 启动窗口期 (从 3000ms 缩短)
-        private const val EVENT_AGGREGATION_MS = 300L        // 事件聚合时间
+        private const val STARTUP_WINDOW_MS = 1000L // 启动窗口期 (从 3000ms 缩短)
+        private const val EVENT_AGGREGATION_MS = 300L // 事件聚合时间
         private const val UNDERLYING_NETWORK_DELAY_MS = 200L // underlyingNetworks 生效延迟
-        private const val HEALTH_CHECK_TIMEOUT_MS = 2000L    // 健康检查超时
-        private const val MIN_SWITCH_INTERVAL_MS = 500L      // 最小切换间隔
+        private const val HEALTH_CHECK_TIMEOUT_MS = 2000L // 健康检查超时
+        private const val MIN_SWITCH_INTERVAL_MS = 500L // 最小切换间隔
     }
 
     // 回调接口

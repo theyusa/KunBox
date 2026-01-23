@@ -48,7 +48,6 @@ import com.kunk.singbox.model.BackgroundPowerSavingDelay
 import com.kunk.singbox.utils.L
 import com.kunk.singbox.utils.NetworkClient
 import io.nekohasekai.libbox.*
-import io.nekohasekai.libbox.Libbox
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged

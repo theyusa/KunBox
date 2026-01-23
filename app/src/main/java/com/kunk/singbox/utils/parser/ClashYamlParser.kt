@@ -252,6 +252,22 @@ class ClashYamlParser : SubscriptionParser {
                 val host = asString(map["host"])?.let { listOf(it) } ?: asStringList(h2Opts?.get("host"))
                 TransportConfig(type = "http", path = path, host = host)
             }
+            "xhttp", "splithttp" -> {
+                val xhttpOpts = map["xhttp-opts"] as? Map<*, *>
+                    ?: map["splithttp-opts"] as? Map<*, *>
+                val path = asString(xhttpOpts?.get("path")) ?: "/"
+                val host = asString(xhttpOpts?.get("host"))?.let { listOf(it) }
+                val mode = asString(xhttpOpts?.get("mode"))
+                val xPaddingBytes = asString(xhttpOpts?.get("xPaddingBytes"))
+                    ?: asString(xhttpOpts?.get("x-padding-bytes"))
+                TransportConfig(
+                    type = "xhttp",
+                    path = path,
+                    host = host,
+                    mode = mode,
+                    xPaddingBytes = xPaddingBytes
+                )
+            }
             else -> null
         }
 
@@ -275,18 +291,26 @@ class ClashYamlParser : SubscriptionParser {
     private fun parseVMess(map: Map<*, *>, name: String, server: String?, port: Int?, globalFingerprint: String? = null, globalTlsMinVersion: String? = null): Outbound? {
         if (server == null || port == null) return null
         val uuid = asString(map["uuid"]) ?: return null
-        // 注意：sing-box 不支持 alter_id，只支持 AEAD 加密的 VMess (alterId=0)
+        // 注意：sing-box 1.9+ 支持 alter_id (legacy VMess MD5)
         val alterId = asInt(map["alterId"]) ?: 0
-        if (alterId != 0) {
-            android.util.Log.w("ClashYamlParser", "VMess node '$name' has alterId=$alterId, sing-box only supports alterId=0 (AEAD)")
-        }
+        android.util.Log.i("ClashYamlParser", "VMess node '$name': alterId=$alterId (raw=${map["alterId"]})")
         val cipher = asString(map["cipher"]) ?: "auto"
         val network = asString(map["network"])?.lowercase()
         val tlsEnabled = asBool(map["tls"]) == true
         val serverName = asString(map["servername"]) ?: asString(map["sni"]) ?: server
         // 优先使用节点配置的指纹，否则使用全局指纹
         val fingerprint = asString(map["client-fingerprint"]) ?: globalFingerprint
-        val insecure = asBool(map["skip-cert-verify"]) == true
+        // 对于 VMess，如果没有明确设置 skip-cert-verify，默认跳过证书验证
+        // 因为很多 VMess 节点使用自签名证书或动态域名
+        // 即使设置了 skip-cert-verify: false，对于看起来像动态域名的也强制跳过
+        val skipCertVerifyValue = map["skip-cert-verify"]
+        val insecure = when {
+            skipCertVerifyValue == null -> true
+            asBool(skipCertVerifyValue) == true -> true
+            // 对于动态域名（包含多个连字符的随机子域名），强制跳过证书验证
+            server.count { it == '-' } >= 2 && server.split(".").firstOrNull()?.length ?: 0 > 10 -> true
+            else -> false
+        }
         val alpn = asStringList(map["alpn"])
         val packetEncoding = asString(map["packet-encoding"]) ?: "xudp"
 
@@ -349,6 +373,22 @@ class ClashYamlParser : SubscriptionParser {
                 val host = asStringList(h2Opts?.get("host"))
                 TransportConfig(type = "http", path = path, host = host)
             }
+            "xhttp", "splithttp" -> {
+                val xhttpOpts = map["xhttp-opts"] as? Map<*, *>
+                    ?: map["splithttp-opts"] as? Map<*, *>
+                val path = asString(xhttpOpts?.get("path")) ?: "/"
+                val host = asString(xhttpOpts?.get("host"))?.let { listOf(it) }
+                val mode = asString(xhttpOpts?.get("mode"))
+                val xPaddingBytes = asString(xhttpOpts?.get("xPaddingBytes"))
+                    ?: asString(xhttpOpts?.get("x-padding-bytes"))
+                TransportConfig(
+                    type = "xhttp",
+                    path = path,
+                    host = host,
+                    mode = mode,
+                    xPaddingBytes = xPaddingBytes
+                )
+            }
             else -> null
         }
 
@@ -361,7 +401,8 @@ class ClashYamlParser : SubscriptionParser {
             server = server,
             serverPort = port,
             uuid = uuid,
-            // alterId 字段已从 Outbound 模型中移除，sing-box 不支持
+            alterId = if (alterId > 0) alterId else null,
+            // alterId 字段已添加到 Outbound 模型，sing-box 1.9+ 支持 legacy VMess
             security = cipher,
             tls = tlsConfig,
             transport = transport,
@@ -593,6 +634,22 @@ class ClashYamlParser : SubscriptionParser {
                 val grpcOpts = map["grpc-opts"] as? Map<*, *>
                 val serviceName = asString(grpcOpts?.get("grpc-service-name")) ?: ""
                 TransportConfig(type = "grpc", serviceName = serviceName)
+            }
+            "xhttp", "splithttp" -> {
+                val xhttpOpts = map["xhttp-opts"] as? Map<*, *>
+                    ?: map["splithttp-opts"] as? Map<*, *>
+                val path = asString(xhttpOpts?.get("path")) ?: "/"
+                val host = asString(xhttpOpts?.get("host"))?.let { listOf(it) }
+                val mode = asString(xhttpOpts?.get("mode"))
+                val xPaddingBytes = asString(xhttpOpts?.get("xPaddingBytes"))
+                    ?: asString(xhttpOpts?.get("x-padding-bytes"))
+                TransportConfig(
+                    type = "xhttp",
+                    path = path,
+                    host = host,
+                    mode = mode,
+                    xPaddingBytes = xPaddingBytes
+                )
             }
             else -> null
         }

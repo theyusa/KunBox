@@ -828,12 +828,7 @@ fun NodeDetailScreen(
                                     icon = Icons.Rounded.Tag,
                                     onValueChange = { editingOutbound = outbound.copy(tls = tls.copy(reality = reality.copy(shortId = it))) }
                                 )
-                                EditableTextItem(
-                                    title = "Reality SpiderX",
-                                    value = reality.spiderX ?: "",
-                                    icon = Icons.Rounded.Waves,
-                                    onValueChange = { editingOutbound = outbound.copy(tls = tls.copy(reality = reality.copy(spiderX = it))) }
-                                )
+                                // Note: spiderX is Xray-core specific, not supported by sing-box
                             }
 
                             // ECH

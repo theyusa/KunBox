@@ -147,7 +147,7 @@ data class Outbound(
     // VMess/VLESS 字段
     @SerializedName("uuid") val uuid: String? = null,
     @SerializedName(value = "security", alternate = ["cipher"]) val security: String? = null,
-    // 注意：sing-box 不支持 alter_id 字段，只支持 AEAD 加密的 VMess (alterId=0)
+    @SerializedName("alter_id") val alterId: Int? = null, // 0=AEAD, >0=legacy VMess MD5
     @SerializedName("flow") val flow: String? = null,
     @SerializedName("packet_encoding") val packetEncoding: String? = null,
 
@@ -272,8 +272,8 @@ data class UtlsConfig(
 data class RealityConfig(
     @SerializedName("enabled") val enabled: Boolean? = null,
     @SerializedName("public_key") val publicKey: String? = null,
-    @SerializedName("short_id") val shortId: String? = null,
-    @SerializedName("spider_x") val spiderX: String? = null
+    @SerializedName("short_id") val shortId: String? = null
+    // Note: spiderX is Xray-core specific, not supported by sing-box
 )
 
 @Keep
@@ -284,7 +284,14 @@ data class TransportConfig(
     @SerializedName("service_name") val serviceName: String? = null,
     @SerializedName("host") val host: List<String>? = null,
     @SerializedName("early_data_header_name") val earlyDataHeaderName: String? = null,
-    @SerializedName("max_early_data") val maxEarlyData: Int? = null
+    @SerializedName("max_early_data") val maxEarlyData: Int? = null,
+    @SerializedName("mode") val mode: String? = null,
+    @SerializedName("scMaxEachPostBytes") val scMaxEachPostBytes: Long? = null,
+    @SerializedName("scMinPostsIntervalMs") val scMinPostsIntervalMs: Long? = null,
+    @SerializedName("scMaxBufferedPosts") val scMaxBufferedPosts: Long? = null,
+    @SerializedName("xPaddingBytes") val xPaddingBytes: String? = null,
+    @SerializedName("noGRPCHeader") val noGRPCHeader: Boolean? = null,
+    @SerializedName("noSSEHeader") val noSSEHeader: Boolean? = null
 )
 
 @Keep

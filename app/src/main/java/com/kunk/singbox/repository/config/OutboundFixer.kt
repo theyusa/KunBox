@@ -197,6 +197,7 @@ object OutboundFixer {
                 server = fixed.server,
                 serverPort = fixed.serverPort,
                 uuid = fixed.uuid,
+                alterId = fixed.alterId,
                 security = fixed.security,
                 packetEncoding = fixed.packetEncoding,
                 tls = fixed.tls,

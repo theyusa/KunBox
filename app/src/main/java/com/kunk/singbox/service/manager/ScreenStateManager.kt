@@ -35,7 +35,7 @@ class ScreenStateManager(
         const val RECOVERY_MODE_QUICK = 1
         const val RECOVERY_MODE_FULL = 2
         const val RECOVERY_MODE_DEEP = 3
-        const val RECOVERY_MODE_PROACTIVE = 4  // New: includes network probe
+        const val RECOVERY_MODE_PROACTIVE = 4 // New: includes network probe
     }
 
     interface Callbacks {

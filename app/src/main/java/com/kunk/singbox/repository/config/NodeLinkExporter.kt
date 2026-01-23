@@ -34,7 +34,7 @@ object NodeLinkExporter {
         return if (query.isNotEmpty()) "?$query" else ""
     }
 
-    @Suppress("CyclomaticComplexMethod", "CognitiveComplexMethod", "NestedBlockDepth")
+    @Suppress("CyclomaticComplexMethod", "CognitiveComplexMethod", "NestedBlockDepth", "LongMethod")
     private fun generateVLessLink(outbound: Outbound): String {
         val uuid = outbound.uuid ?: return ""
         val server = outbound.server?.let { formatServerHost(it) } ?: return ""
@@ -91,6 +91,17 @@ object NodeLinkExporter {
             "http", "h2" -> {
                 outbound.transport.path?.let { params.add("path=${encodeUrlComponent(it)}") }
                 outbound.transport.host?.firstOrNull()?.let { params.add("host=${encodeUrlComponent(it)}") }
+            }
+            "xhttp", "splithttp" -> {
+                outbound.transport.path?.let { params.add("path=${encodeUrlComponent(it)}") }
+                outbound.transport.host?.firstOrNull()?.let { params.add("host=${encodeUrlComponent(it)}") }
+                outbound.transport.mode?.let { params.add("mode=${encodeUrlComponent(it)}") }
+                outbound.transport.xPaddingBytes?.let { params.add("xPaddingBytes=${encodeUrlComponent(it)}") }
+                outbound.transport.scMaxEachPostBytes?.let { params.add("scMaxEachPostBytes=$it") }
+                outbound.transport.scMinPostsIntervalMs?.let { params.add("scMinPostsIntervalMs=$it") }
+                outbound.transport.scMaxBufferedPosts?.let { params.add("scMaxBufferedPosts=$it") }
+                if (outbound.transport.noGRPCHeader == true) params.add("noGRPCHeader=1")
+                if (outbound.transport.noSSEHeader == true) params.add("noSSEHeader=1")
             }
         }
 

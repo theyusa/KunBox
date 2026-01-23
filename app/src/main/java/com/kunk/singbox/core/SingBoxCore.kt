@@ -457,7 +457,6 @@ class SingBoxCore private constructor(private val context: Context) {
     private suspend fun testOutboundsLatencyOfflineWithTemporaryService(
         outbounds: List<Outbound>,
         targetUrl: String,
-        fallbackUrl: String? = null,
         timeoutMs: Int,
         method: LatencyTestMethod,
         onResult: (tag: String, latency: Long) -> Unit
@@ -473,14 +472,13 @@ class SingBoxCore private constructor(private val context: Context) {
 
         outbounds.chunked(batchSize).forEach { batch ->
             // 对每一批节点启动一次服务
-            testOutboundsLatencyBatchInternal(batch, targetUrl, fallbackUrl, timeoutMs, concurrency, onResult)
+            testOutboundsLatencyBatchInternal(batch, targetUrl, timeoutMs, concurrency, onResult)
         }
     }
 
     private suspend fun testOutboundsLatencyBatchInternal(
         batchOutbounds: List<Outbound>,
         targetUrl: String,
-        fallbackUrl: String?,
         timeoutMs: Int,
         concurrency: Int,
         onResult: (tag: String, latency: Long) -> Unit
@@ -681,50 +679,26 @@ class SingBoxCore private constructor(private val context: Context) {
                 }
 
                 // 4. 并发测试（使用精确延迟测试器）
+                // 优化: 移除重试和 fallback 机制，避免超时时间叠加
+                // 原问题: 2次重试 × 2个URL = 4倍超时时间（5s → 20s）
                 val semaphore = Semaphore(concurrency)
 
                 coroutineScope {
                     val jobs = portToTagMap.map { (port, originalTag) ->
                         async {
                             semaphore.withPermit {
-                                // 使用精确延迟测试器进行批量测试
-                                suspend fun runPreciseTest(url: String): Long {
-                                    val result = PreciseLatencyTester.test(
-                                        proxyPort = port,
-                                        url = url,
-                                        timeoutMs = timeoutMs,
-                                        standard = PreciseLatencyTester.Standard.RTT,
-                                        warmup = false
-                                    )
-                                    return if (result.isSuccess && result.latencyMs <= timeoutMs) {
-                                        result.latencyMs
-                                    } else {
-                                        -1L
-                                    }
-                                }
-
-                                // 带重试的精确测试
-                                suspend fun runWithRetry(url: String, maxRetries: Int = 2): Long {
-                                    var lastResult = -1L
-                                    for (attempt in 0 until maxRetries) {
-                                        lastResult = runPreciseTest(url)
-                                        if (lastResult >= 0) {
-                                            return lastResult
-                                        }
-                                        if (attempt < maxRetries - 1) {
-                                            delay(100L * (attempt + 1))
-                                        }
-                                    }
-                                    return lastResult
-                                }
-
-                                // 执行精确延迟测试（带 fallback）
-                                var latency = runWithRetry(targetUrl)
-                                if (latency < 0 && fallbackUrl != null && fallbackUrl != targetUrl) {
-                                    latency = runWithRetry(fallbackUrl)
-                                    if (latency < 0) {
-                                        Log.w(TAG, "Batch test node $originalTag: both URLs failed")
-                                    }
+                                // 单次精确延迟测试，不重试
+                                val result = PreciseLatencyTester.test(
+                                    proxyPort = port,
+                                    url = targetUrl,
+                                    timeoutMs = timeoutMs,
+                                    standard = PreciseLatencyTester.Standard.RTT,
+                                    warmup = false
+                                )
+                                val latency = if (result.isSuccess && result.latencyMs <= timeoutMs) {
+                                    result.latencyMs
+                                } else {
+                                    -1L
                                 }
 
                                 if (latency > 0) {
@@ -884,14 +858,7 @@ class SingBoxCore private constructor(private val context: Context) {
         // This works whether VPN is running or not, as it uses separate ports and protects sockets.
         val url = adjustUrlForMode(settings.latencyTestUrl, settings.latencyTestMethod)
         val timeoutMs = settings.latencyTestTimeout
-        val fallbackUrl = try {
-            if (settings.latencyTestMethod == com.kunk.singbox.model.LatencyTestMethod.TCP) {
-                adjustUrlForMode("http://www.gstatic.com/generate_204", settings.latencyTestMethod)
-            } else {
-                adjustUrlForMode("https://www.gstatic.com/generate_204", settings.latencyTestMethod)
-            }
-        } catch (_: Exception) { url }
-        testOutboundsLatencyOfflineWithTemporaryService(outbounds, url, fallbackUrl, timeoutMs, settings.latencyTestMethod, onResult)
+        testOutboundsLatencyOfflineWithTemporaryService(outbounds, url, timeoutMs, settings.latencyTestMethod, onResult)
     }
 
     private fun allocateLocalPort(): Int {
