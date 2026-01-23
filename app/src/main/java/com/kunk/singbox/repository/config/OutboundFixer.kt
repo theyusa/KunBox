@@ -150,12 +150,13 @@ object OutboundFixer {
             val up = result.upMbps
             val down = result.downMbps
             val defaultMbps = 50
-            val cleanedPorts = result.ports?.takeIf { it.isNotBlank() }
+            // 清理空的 serverPorts 列表
+            val cleanedServerPorts = result.serverPorts?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() }
             val cleanedHopInterval = result.hopInterval?.takeIf { it.isNotBlank() }
             result = result.copy(
                 upMbps = up ?: defaultMbps,
                 downMbps = down ?: defaultMbps,
-                ports = cleanedPorts,
+                serverPorts = cleanedServerPorts,
                 hopInterval = cleanedHopInterval
             )
         }
@@ -256,7 +257,7 @@ object OutboundFixer {
                 recvWindow = fixed.recvWindow,
                 disableMtuDiscovery = fixed.disableMtuDiscovery,
                 hopInterval = fixed.hopInterval,
-                ports = fixed.ports,
+                serverPorts = fixed.serverPorts,
                 tls = fixed.tls,
                 multiplex = fixed.multiplex
             )

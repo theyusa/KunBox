@@ -160,7 +160,7 @@ data class Outbound(
     @SerializedName("recv_window") val recvWindow: Int? = null,
     @SerializedName("disable_mtu_discovery") val disableMtuDiscovery: Boolean? = null,
     @SerializedName("hop_interval") val hopInterval: String? = null,
-    @SerializedName("ports") val ports: String? = null,
+    @SerializedName("server_ports") val serverPorts: List<String>? = null,
 
     // AnyTLS 字段
     @SerializedName("idle_session_check_interval") val idleSessionCheckInterval: String? = null,

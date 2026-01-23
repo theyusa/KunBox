@@ -633,8 +633,9 @@ class ClashYamlParser : SubscriptionParser {
         val upMbps = asInt(map["up"]) ?: asInt(map["up-mbps"])
         val downMbps = asInt(map["down"]) ?: asInt(map["down-mbps"])
 
-        // 端口跳跃 - 空字符串需要转换为 null，否则 sing-box 验证会失败
-        val ports = asString(map["ports"])?.takeIf { it.isNotBlank() }
+        // 端口跳跃 - 转换为 List<String> 格式
+        val portsStr = asString(map["ports"])?.takeIf { it.isNotBlank() }
+        val serverPorts = portsStr?.let { listOf(it) }
         val hopInterval = asString(map["hop-interval"])?.takeIf { it.isNotBlank() }
 
         return Outbound(
@@ -646,7 +647,7 @@ class ClashYamlParser : SubscriptionParser {
             network = network,
             upMbps = upMbps,
             downMbps = downMbps,
-            ports = ports,
+            serverPorts = serverPorts,
             hopInterval = hopInterval,
             tls = TlsConfig(
                 enabled = true,
@@ -799,6 +800,11 @@ class ClashYamlParser : SubscriptionParser {
         // TLS 版本限制
         val tlsMinVersion = asString(map["tls-version"]) ?: asString(map["min-tls-version"]) ?: globalTlsMinVersion
 
+        // 端口跳跃 - 转换为 List<String> 格式 (sing-box 1.12.0+)
+        val portsStr = asString(map["ports"])?.takeIf { it.isNotBlank() }
+        val serverPorts = portsStr?.let { listOf(it) }
+        val hopInterval = asString(map["hop-interval"])?.takeIf { it.isNotBlank() }
+
         return Outbound(
             type = "hysteria",
             tag = name,
@@ -807,6 +813,8 @@ class ClashYamlParser : SubscriptionParser {
             authStr = authStr,
             upMbps = upMbps,
             downMbps = downMbps,
+            serverPorts = serverPorts,
+            hopInterval = hopInterval,
             tls = TlsConfig(
                 enabled = true,
                 serverName = sni,

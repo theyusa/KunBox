@@ -2872,6 +2872,56 @@ class ConfigRepository(private val context: Context) {
             )
         }
 
+        // Fake IP 排除规则: 证书固定服务必须使用真实 DNS，避免 TLS 证书验证失败
+        // 这些域名使用 Certificate Pinning，如果返回 Fake IP 会导致 Google 登录等服务报证书错误
+        if (settings.fakeDnsEnabled) {
+            val fakeIpExcludeDomains = buildList {
+                // 用户自定义排除列表
+                settings.fakeIpExcludeDomains
+                    .split(",")
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .forEach { add(it) }
+
+                // 默认排除列表 (仅当用户列表中没有时才添加)
+                val defaultExcludes = listOf(
+                    // Google 服务 (OAuth 登录、API 认证)
+                    "googleapis.com",
+                    "google.com",
+                    "googleusercontent.com",
+                    "gstatic.com",
+                    "ggpht.com",
+                    // Apple 服务 (系统服务、App Store)
+                    "apple.com",
+                    "icloud.com",
+                    "cdn-apple.com",
+                    "mzstatic.com",
+                    // Microsoft 服务 (账户认证)
+                    "microsoft.com",
+                    "microsoftonline.com",
+                    "live.com",
+                    "office.com",
+                    "office365.com",
+                    // 本地/局域网
+                    "lan",
+                    "local",
+                    "localhost",
+                    "localdomain",
+                    "arpa"
+                )
+                defaultExcludes.filter { it !in this }.forEach { add(it) }
+            }.distinct()
+
+            if (fakeIpExcludeDomains.isNotEmpty()) {
+                dnsRules.add(
+                    DnsRule(
+                        domainSuffix = fakeIpExcludeDomains,
+                        server = "remote"
+                    )
+                )
+            }
+        }
+
         // Fake DNS 兜底
         if (settings.fakeDnsEnabled) {
             dnsRules.add(
