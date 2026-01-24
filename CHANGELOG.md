@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.2](https://github.com/roseforljh/KunBox/compare/v2.6.1...v2.6.2) (2026-01-23)
+
+
+### Bug Fixes
+
+* **latency:** remove retry and fallback in batch latency test ([2deac44](https://github.com/roseforljh/KunBox/commit/2deac4457673cea8cd766868ce5ececc280b64b0))
+
 ## [2.6.1](https://github.com/roseforljh/KunBox/compare/v2.6.0...v2.6.1) (2026-01-23)
 
 
