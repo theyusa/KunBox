@@ -3295,7 +3295,8 @@ class ConfigRepository(private val context: Context) {
                         "10.0.0.0/8",
                         "172.16.0.0/12",
                         "192.168.0.0/16",
-                        "fc00::/7",
+                        "fd00::/8", // 避免与 FakeIP IPv6 默认范围 (fc00::/18) 冲突
+
                         "127.0.0.0/8",
                         "::1/128"
                     ),
