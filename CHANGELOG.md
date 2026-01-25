@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.6.3](https://github.com/roseforljh/KunBox/compare/v2.6.2...v2.6.3) (2026-01-25)
+
+
+### Bug Fixes
+
+* 增强稳定性 ([223c19f](https://github.com/roseforljh/KunBox/commit/223c19f2f004701afef7988c8f9a2358c026d07e))
+* 尝试修复fakeip的问题 ([3ffc626](https://github.com/roseforljh/KunBox/commit/3ffc6268fb68b220d691d398e0ca4dc24091668e))
+* 常规优化 ([5a8f38d](https://github.com/roseforljh/KunBox/commit/5a8f38d056e2b0eaa26fd4a12cba6636cf7d5b2b))
+* 新内核 ([a1bcad1](https://github.com/roseforljh/KunBox/commit/a1bcad131ffc42bf68a7caf0f578a6c23f588893))
+
 ## [2.6.2](https://github.com/roseforljh/KunBox/compare/v2.6.1...v2.6.2) (2026-01-23)
 
 
