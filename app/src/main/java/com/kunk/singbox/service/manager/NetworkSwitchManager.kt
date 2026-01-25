@@ -257,9 +257,9 @@ class NetworkSwitchManager(
                 var connected = false
                 for ((host, port) in testTargets) {
                     try {
-                        val socket = network.socketFactory.createSocket()
-                        socket.connect(InetSocketAddress(host, port), 2000)
-                        socket.close()
+                        network.socketFactory.createSocket().use { socket ->
+                            socket.connect(InetSocketAddress(host, port), 2000)
+                        }
                         connected = true
                         Log.i(TAG, "Connectivity verified via $host:$port")
                         break

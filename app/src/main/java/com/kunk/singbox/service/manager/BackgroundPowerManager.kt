@@ -117,7 +117,11 @@ class BackgroundPowerManager(
      * 更新后台省电阈值
      */
     fun setThreshold(thresholdMs: Long) {
-        backgroundThresholdMs = thresholdMs.coerceIn(MIN_THRESHOLD_MS, MAX_THRESHOLD_MS)
+        backgroundThresholdMs = if (thresholdMs == Long.MAX_VALUE) {
+            Long.MAX_VALUE
+        } else {
+            thresholdMs.coerceIn(MIN_THRESHOLD_MS, MAX_THRESHOLD_MS)
+        }
         Log.i(TAG, "Threshold updated to ${backgroundThresholdMs / 1000 / 60}min")
 
         // 如果用户已离开，重新计算定时器

@@ -21,6 +21,9 @@ class CoreNetworkResetManager(
         private const val TAG = "CoreNetworkResetManager"
         private const val MAX_CONSECUTIVE_FAILURES = 3
         private const val FAILURE_TIMEOUT_MS = 30000L
+
+        // Avoid restart storms when multiple triggers keep failing.
+        private const val RESTART_COOLDOWN_MS = 120000L
     }
 
     interface Callbacks {
@@ -33,12 +36,64 @@ class CoreNetworkResetManager(
     private val lastResetAtMs = AtomicLong(0L)
     private val lastSuccessfulResetAtMs = AtomicLong(0L)
     private val failureCounter = AtomicInteger(0)
+    private val lastRestartAtMs = AtomicLong(0L)
     private var resetJob: Job? = null
 
     var debounceMs: Long = 500L
 
     fun init(callbacks: Callbacks) {
         this.callbacks = callbacks
+    }
+
+    /**
+     * Execute a reset immediately (no delayed scheduling).
+     *
+     * This is intended for callers that already coalesce/serialize recovery operations.
+     */
+    suspend fun resetNow(reason: String, force: Boolean = false, skipIntervalCheck: Boolean = false) {
+        val now = SystemClock.elapsedRealtime()
+
+        // Check whether we should restart due to repeated failures.
+        val lastSuccess = lastSuccessfulResetAtMs.get()
+        val hasEverSucceeded = lastSuccess > 0L
+        val timeSinceLastSuccess = if (hasEverSucceeded) now - lastSuccess else 0L
+        val failures = failureCounter.get()
+
+        if (failures >= MAX_CONSECUTIVE_FAILURES && hasEverSucceeded && timeSinceLastSuccess > FAILURE_TIMEOUT_MS) {
+            val lastRestart = lastRestartAtMs.get()
+            if (now - lastRestart >= RESTART_COOLDOWN_MS && callbacks?.isServiceRunning() == true) {
+                lastRestartAtMs.set(now)
+                Log.w(TAG, "Too many reset failures ($failures), requesting service restart")
+                callbacks?.restartVpnService("Excessive network reset failures")
+            } else {
+                Log.w(TAG, "Too many reset failures ($failures) but restart is in cooldown or service not running")
+            }
+            return
+        }
+
+        if (callbacks?.isServiceRunning() != true) {
+            Log.w(TAG, "Service not running, skip resetNow")
+            return
+        }
+
+        if (!skipIntervalCheck) {
+            val last = lastResetAtMs.get()
+            val minInterval = if (force) 100L else debounceMs
+            if (now - last < minInterval) {
+                return
+            }
+        }
+
+        // NOTE: Do not cancel resetJob here.
+        // requestReset() may call resetNow() from inside resetJob itself (delayed path).
+        // Callers that need cancellation should invoke cancelPendingReset() before resetNow().
+        lastResetAtMs.set(now)
+
+        if (force) {
+            performForceReset(reason)
+        } else {
+            performReset(reason)
+        }
     }
 
     /**
@@ -50,10 +105,22 @@ class CoreNetworkResetManager(
 
         // 检查是否需要完全重启
         val lastSuccess = lastSuccessfulResetAtMs.get()
-        val timeSinceLastSuccess = now - lastSuccess
+        val hasEverSucceeded = lastSuccess > 0L
+        val timeSinceLastSuccess = if (hasEverSucceeded) now - lastSuccess else 0L
         val failures = failureCounter.get()
 
-        if (failures >= MAX_CONSECUTIVE_FAILURES && timeSinceLastSuccess > FAILURE_TIMEOUT_MS) {
+        if (failures >= MAX_CONSECUTIVE_FAILURES && hasEverSucceeded && timeSinceLastSuccess > FAILURE_TIMEOUT_MS) {
+            val lastRestart = lastRestartAtMs.get()
+            if (now - lastRestart < RESTART_COOLDOWN_MS) {
+                Log.w(TAG, "Too many reset failures ($failures) but restart is in cooldown, skipping")
+                return
+            }
+            if (callbacks?.isServiceRunning() != true) {
+                Log.w(TAG, "Too many reset failures ($failures) but service not running, skip restart")
+                return
+            }
+
+            lastRestartAtMs.set(now)
             Log.w(TAG, "Too many reset failures ($failures), restarting service")
             serviceScope.launch {
                 callbacks?.restartVpnService("Excessive network reset failures")
@@ -69,7 +136,7 @@ class CoreNetworkResetManager(
             resetJob?.cancel()
             resetJob = null
             serviceScope.launch {
-                performForceReset(reason)
+                resetNow(reason, force = true, skipIntervalCheck = true)
             }
             return
         }
@@ -80,7 +147,7 @@ class CoreNetworkResetManager(
             resetJob?.cancel()
             resetJob = null
             serviceScope.launch {
-                performReset(reason)
+                resetNow(reason, force = false, skipIntervalCheck = true)
             }
             return
         }
@@ -92,7 +159,7 @@ class CoreNetworkResetManager(
             val last2 = lastResetAtMs.get()
             if (t - last2 < debounceMs) return@launch
             lastResetAtMs.set(t)
-            performReset(reason)
+            resetNow(reason, force = false, skipIntervalCheck = true)
         }
     }
 

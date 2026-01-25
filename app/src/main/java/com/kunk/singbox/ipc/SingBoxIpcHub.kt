@@ -35,6 +35,10 @@ object SingBoxIpcHub {
     @Volatile
     private var powerManager: BackgroundPowerManager? = null
 
+    // Foreground recovery handler (set by SingBoxService) to avoid calling libbox concurrently.
+    @Volatile
+    private var foregroundRecoveryHandler: (() -> Unit)? = null
+
     // 2025-fix-v6: 状态更新时间戳，用于检测回调通道是否正常
     private val lastStateUpdateAtMs = AtomicLong(0L)
 
@@ -47,6 +51,11 @@ object SingBoxIpcHub {
     fun setPowerManager(manager: BackgroundPowerManager?) {
         powerManager = manager
         Log.d(TAG, "PowerManager ${if (manager != null) "set" else "cleared"}")
+    }
+
+    fun setForegroundRecoveryHandler(handler: (() -> Unit)?) {
+        foregroundRecoveryHandler = handler
+        Log.d(TAG, "ForegroundRecoveryHandler ${if (handler != null) "set" else "cleared"}")
     }
 
     /**
@@ -78,20 +87,27 @@ object SingBoxIpcHub {
                     lastForegroundAtMs.set(now)
 
                     Log.i(TAG, "[Foreground] VPN running, triggering network recovery")
-                    // 2025-fix-v8: Use recoverNetworkAuto which calls CloseAllTrackedConnections
-                    // This properly sends RST/FIN to apps, fixing "TG stuck loading" issue
-                    val success = BoxWrapperManager.recoverNetworkAuto()
-                    if (success) {
-                        Log.i(TAG, "[Foreground] recoverNetworkAuto success")
+                    val handler = foregroundRecoveryHandler
+                    if (handler != null) {
+                        runCatching { handler.invoke() }
+                            .onFailure { e -> Log.w(TAG, "[Foreground] recovery handler failed", e) }
                     } else {
-                        Log.w(TAG, "[Foreground] recoverNetworkAuto failed, VPN may have stale connections")
-                    }
+                        // Fallback for early startup or tests.
+                        // 2025-fix-v8: Use recoverNetworkAuto which calls CloseAllTrackedConnections
+                        // This properly sends RST/FIN to apps, fixing "TG stuck loading" issue
+                        val success = BoxWrapperManager.recoverNetworkAuto()
+                        if (success) {
+                            Log.i(TAG, "[Foreground] recoverNetworkAuto success")
+                        } else {
+                            Log.w(TAG, "[Foreground] recoverNetworkAuto failed, VPN may have stale connections")
+                        }
 
-                    // 2025-fix-v9: Also close idle connections to fix "TG image loading slow"
-                    // Close connections idle for more than 60 seconds
-                    val closedIdle = BoxWrapperManager.closeIdleConnections(60)
-                    if (closedIdle > 0) {
-                        Log.i(TAG, "[Foreground] closeIdleConnections: closed $closedIdle idle connections")
+                        // 2025-fix-v9: Also close idle connections to fix "TG image loading slow"
+                        // Close connections idle for more than 60 seconds
+                        val closedIdle = BoxWrapperManager.closeIdleConnections(60)
+                        if (closedIdle > 0) {
+                            Log.i(TAG, "[Foreground] closeIdleConnections: closed $closedIdle idle connections")
+                        }
                     }
                 } else {
                     Log.d(TAG, "[Foreground] skipped reset (debounce, elapsed=${elapsed}ms)")

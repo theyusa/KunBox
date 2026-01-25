@@ -52,7 +52,13 @@ class ScreenStateManager(
          * 执行网络恢复
          * mode: 0=自动, 1=快速, 2=完整, 3=深度
          */
-        suspend fun performNetworkRecovery(mode: Int)
+        suspend fun performNetworkRecovery(mode: Int, reason: String)
+
+        /**
+         * 设备进入 Doze 时的内核降频/暂停处理。
+         * 必须走串行协调器，避免与恢复/重置并发。
+         */
+        suspend fun enterDeviceIdle(reason: String)
     }
 
     private var callbacks: Callbacks? = null
@@ -102,7 +108,7 @@ class ScreenStateManager(
                                     Log.i(TAG, "[ScreenOn] Early recovery triggered")
                                     try {
                                         // 使用快速恢复模式，不阻塞用户解锁
-                                        callbacks?.performNetworkRecovery(RECOVERY_MODE_QUICK)
+                                        callbacks?.performNetworkRecovery(RECOVERY_MODE_QUICK, "screen_on")
                                     } catch (e: Exception) {
                                         Log.w(TAG, "[ScreenOn] Early recovery failed", e)
                                     }
@@ -125,6 +131,15 @@ class ScreenStateManager(
                             serviceScope.launch {
                                 delay(800) // Reduced from 1200ms for faster response
                                 callbacks?.performScreenOnCheck()
+
+                                // 参考 NekoBox: 唤醒后按需重置出站连接，避免应用(如 Telegram)卡在旧连接上等待超时
+                                val settings = runCatching {
+                                    SettingsRepository.getInstance(context).settings.value
+                                }.getOrNull()
+                                if (callbacks?.isRunning == true && settings?.wakeResetConnections == true) {
+                                    Log.i(TAG, "[Unlock] wakeResetConnections enabled, resetting connections")
+                                    callbacks?.resetConnectionsOptimal("user_present", false)
+                                }
                             }
                         }
                         PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> {
@@ -255,13 +270,7 @@ class ScreenStateManager(
         if (callbacks?.isRunning != true) return
 
         try {
-            val success = BoxWrapperManager.sleep()
-            if (success) {
-                Log.i(TAG, "[Doze] Device idle - called sleep() successfully")
-            } else {
-                Log.w(TAG, "[Doze] Device idle - sleep() returned false, trying pause()")
-                BoxWrapperManager.pause()
-            }
+            callbacks?.enterDeviceIdle("doze_enter")
         } catch (e: Exception) {
             Log.e(TAG, "[Doze] handleDeviceIdle failed", e)
         }
@@ -279,22 +288,19 @@ class ScreenStateManager(
             // ===== 核心修复：Doze 唤醒时使用深度恢复 =====
             // 深度恢复包含：唤醒 pause.Manager -> 关闭连接 -> 清除 DNS -> 重置网络栈
             try {
-                callbacks?.performNetworkRecovery(3) // 3 = 深度恢复
+                callbacks?.performNetworkRecovery(RECOVERY_MODE_DEEP, "doze_exit")
             } catch (e: Exception) {
-                Log.w(TAG, "[Doze] Deep recovery failed, falling back to manual recovery", e)
-                // 回退到原有逻辑
-                val success = BoxWrapperManager.wake()
-                if (success) {
-                    Log.i(TAG, "[Doze] Device wake - called wake() successfully")
-                } else {
-                    Log.w(TAG, "[Doze] Device wake - wake() returned false, trying resume()")
-                    BoxWrapperManager.resume()
-                }
-
-                val settings = SettingsRepository.getInstance(context).settings.value
-                if (settings.wakeResetConnections) {
-                    Log.i(TAG, "[Doze] wakeResetConnections enabled, resetting connections")
-                    callbacks?.resetConnectionsOptimal("doze_exit", false)
+                Log.w(TAG, "[Doze] Deep recovery failed, falling back to full recovery", e)
+                runCatching {
+                    callbacks?.performNetworkRecovery(RECOVERY_MODE_FULL, "doze_exit_fallback")
+                }.onFailure { e2 ->
+                    Log.w(TAG, "[Doze] Full recovery also failed", e2)
+                    // As the last fallback, only do connection reset if explicitly enabled.
+                    val settings = SettingsRepository.getInstance(context).settings.value
+                    if (settings.wakeResetConnections) {
+                        Log.i(TAG, "[Doze] wakeResetConnections enabled, resetting connections")
+                        callbacks?.resetConnectionsOptimal("doze_exit", false)
+                    }
                 }
             }
 

@@ -74,6 +74,9 @@ class CoreManager(
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
+    @Volatile
+    private var wifiLockSuppressed: Boolean = false
+
     // 回调接口
     private var platformInterface: PlatformInterface? = null
 
@@ -139,18 +142,34 @@ class CoreManager(
      */
     fun acquireLocks(): Result<Unit> {
         return runCatching {
-            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "KunBox:VpnService")
-            wakeLock?.setReferenceCounted(false)
-            wakeLock?.acquire(24 * 60 * 60 * 1000L)
-
-            val wm = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            @Suppress("DEPRECATION")
-            wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "KunBox:VpnService")
-            wifiLock?.setReferenceCounted(false)
-            wifiLock?.acquire()
+            acquireWakeLock()
+            acquireWifiLockIfAllowed()
             Log.i(TAG, "WakeLock and WifiLock acquired")
         }
+    }
+
+    private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
+
+        val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "KunBox:VpnService")
+        wakeLock?.setReferenceCounted(false)
+        // Keep a long timeout as a safety net. We rely on explicit release in stopFully().
+        wakeLock?.acquire(24 * 60 * 60 * 1000L)
+    }
+
+    private fun acquireWifiLockIfAllowed() {
+        if (wifiLockSuppressed) {
+            Log.i(TAG, "WifiLock suppressed (power saving), skip acquire")
+            return
+        }
+        if (wifiLock?.isHeld == true) return
+
+        val wm = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        @Suppress("DEPRECATION")
+        wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "KunBox:VpnService")
+        wifiLock?.setReferenceCounted(false)
+        wifiLock?.acquire()
     }
 
     /**
@@ -160,10 +179,37 @@ class CoreManager(
         return runCatching {
             if (wakeLock?.isHeld == true) wakeLock?.release()
             wakeLock = null
-            if (wifiLock?.isHeld == true) wifiLock?.release()
-            wifiLock = null
+            releaseWifiLockInternal()
             Log.i(TAG, "WakeLock and WifiLock released")
         }
+    }
+
+    /**
+     * Reduce battery usage in background power-saving mode.
+     * Stability-first: we only suppress WifiLock here (WakeLock kept as before).
+     */
+    fun enterPowerSavingMode(): Result<Unit> {
+        return runCatching {
+            wifiLockSuppressed = true
+            releaseWifiLockInternal()
+            Log.i(TAG, "Entered power saving mode: WifiLock suppressed")
+        }
+    }
+
+    /**
+     * Resume normal mode. WifiLock will be re-acquired when VPN is running.
+     */
+    fun exitPowerSavingMode(): Result<Unit> {
+        return runCatching {
+            wifiLockSuppressed = false
+            acquireWifiLockIfAllowed()
+            Log.i(TAG, "Exited power saving mode: WifiLock allowed")
+        }
+    }
+
+    private fun releaseWifiLockInternal() {
+        if (wifiLock?.isHeld == true) wifiLock?.release()
+        wifiLock = null
     }
 
     /**

@@ -43,6 +43,7 @@ import com.kunk.singbox.service.manager.ForeignVpnMonitor
 import com.kunk.singbox.service.manager.CoreNetworkResetManager
 import com.kunk.singbox.service.manager.NodeSwitchManager
 import com.kunk.singbox.service.manager.BackgroundPowerManager
+import com.kunk.singbox.service.manager.RecoveryCoordinator
 import com.kunk.singbox.service.manager.ServiceStateHolder
 import com.kunk.singbox.model.BackgroundPowerSavingDelay
 import com.kunk.singbox.utils.L
@@ -133,6 +134,11 @@ class SingBoxService : VpnService() {
         CoreNetworkResetManager(serviceScope)
     }
 
+    // Single entry point to serialize recovery/reset/restart operations.
+    private val recoveryCoordinator: RecoveryCoordinator by lazy {
+        RecoveryCoordinator(serviceScope)
+    }
+
     // 节点切换管理器
     private val nodeSwitchManager: NodeSwitchManager by lazy {
         NodeSwitchManager(this, serviceScope)
@@ -141,6 +147,9 @@ class SingBoxService : VpnService() {
     private val backgroundPowerManager: BackgroundPowerManager by lazy {
         BackgroundPowerManager(serviceScope)
     }
+
+    @Volatile
+    private var backgroundPowerSavingThresholdMs: Long = BackgroundPowerSavingDelay.MINUTES_30.delayMs
 
     // PlatformInterfaceImpl 回调实现
     private val platformCallbacks = object : PlatformInterfaceImpl.Callbacks {
@@ -175,7 +184,7 @@ class SingBoxService : VpnService() {
             this@SingBoxService.requestCoreNetworkReset(reason, force)
         }
         override fun resetConnectionsOptimal(reason: String, skipDebounce: Boolean) {
-            serviceScope.launch { this@SingBoxService.resetConnectionsOptimal(reason, skipDebounce) }
+            recoveryCoordinator.request(RecoveryCoordinator.Request.ResetConnections(reason, skipDebounce))
         }
         override fun setUnderlyingNetworks(networks: Array<Network>?) {
             this@SingBoxService.setUnderlyingNetworks(networks)
@@ -350,17 +359,83 @@ class SingBoxService : VpnService() {
                 }
 
                 override fun restartVpnService(reason: String) {
-                    serviceScope.launch {
-                        this@SingBoxService.restartVpnService(reason)
-                    }
+                    recoveryCoordinator.request(RecoveryCoordinator.Request.Restart("health:$reason"))
                 }
 
                 override fun addLog(message: String) {
-                    LogRepository.getInstance().addLog(message)
+                    runCatching { LogRepository.getInstance().addLog(message) }
                 }
             }
         }
         Log.i(TAG, "HealthMonitorWrapper initialized")
+
+        // 6. 初始化恢复协调器（串行化 recover/reset/restart，防止并发打到内核）
+        recoveryCoordinator.init(object : RecoveryCoordinator.Callbacks {
+            override val isRunning: Boolean
+                get() = SingBoxService.isRunning
+            override val isStopping: Boolean
+                get() = coreManager.isStopping
+
+            override suspend fun recoverNetwork(mode: Int, reason: String): Boolean {
+                // Keep mapping consistent with Go side constants.
+                val ok = when (mode) {
+                    ScreenStateManager.RECOVERY_MODE_QUICK -> BoxWrapperManager.recoverNetworkQuick()
+                    ScreenStateManager.RECOVERY_MODE_FULL -> BoxWrapperManager.recoverNetworkFull()
+                    ScreenStateManager.RECOVERY_MODE_DEEP -> BoxWrapperManager.recoverNetworkDeep()
+                    ScreenStateManager.RECOVERY_MODE_PROACTIVE -> BoxWrapperManager.recoverNetworkProactive()
+                    else -> BoxWrapperManager.recoverNetworkAuto()
+                }
+
+                // Foreground recovery historically also closes idle connections.
+                if (mode == ScreenStateManager.RECOVERY_MODE_AUTO && reason.contains("app_foreground")) {
+                    runCatching {
+                        val closed = BoxWrapperManager.closeIdleConnections(60)
+                        if (closed > 0) {
+                            Log.i(TAG, "[Foreground] closeIdleConnections: closed $closed idle connections")
+                            runCatching { LogRepository.getInstance().addLog("INFO [Foreground] closeIdleConnections closed=$closed") }
+                        }
+                    }
+                }
+
+                Log.i(TAG, "recoverNetwork mode=$mode ok=$ok reason=$reason")
+                return ok
+            }
+
+            override suspend fun enterDeviceIdle(reason: String): Boolean {
+                return try {
+                    val ok = BoxWrapperManager.sleep()
+                    if (ok) {
+                        Log.i(TAG, "[Doze] enterDeviceIdle: sleep() ok")
+                        true
+                    } else {
+                        Log.w(TAG, "[Doze] enterDeviceIdle: sleep() returned false, trying pause()")
+                        BoxWrapperManager.pause()
+                        true
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "[Doze] enterDeviceIdle failed", e)
+                    false
+                }
+            }
+
+            override suspend fun resetConnectionsOptimal(reason: String, skipDebounce: Boolean) {
+                this@SingBoxService.resetConnectionsOptimal(reason, skipDebounce)
+            }
+
+            override suspend fun resetCoreNetwork(reason: String, force: Boolean) {
+                coreNetworkResetManager.cancelPendingReset()
+                coreNetworkResetManager.resetNow(reason, force)
+            }
+
+            override suspend fun restartVpnService(reason: String) {
+                this@SingBoxService.restartVpnService(reason)
+            }
+
+            override fun addLog(message: String) {
+                runCatching { LogRepository.getInstance().addLog(message) }
+            }
+        })
+        Log.i(TAG, "RecoveryCoordinator initialized")
 
         // 7. 初始化屏幕状态管理器
         screenStateManager.init(object : ScreenStateManager.Callbacks {
@@ -373,21 +448,17 @@ class SingBoxService : VpnService() {
                 healthMonitorWrapper.performAppForegroundCheck()
             }
             override suspend fun resetConnectionsOptimal(reason: String, skipDebounce: Boolean) {
-                this@SingBoxService.resetConnectionsOptimal(reason, skipDebounce)
+                recoveryCoordinator.request(RecoveryCoordinator.Request.ResetConnections(reason, skipDebounce))
             }
             override fun notifyRemoteStateUpdate(force: Boolean) {
                 this@SingBoxService.requestRemoteStateUpdate(force)
             }
-            override suspend fun performNetworkRecovery(mode: Int) {
-                // ===== 核心修复：执行内核级网络恢复 =====
-                val success = when (mode) {
-                    1 -> BoxWrapperManager.recoverNetworkQuick()
-                    2 -> BoxWrapperManager.recoverNetworkFull()
-                    3 -> BoxWrapperManager.recoverNetworkDeep()
-                    4 -> BoxWrapperManager.recoverNetworkProactive() // New: Proactive mode with network probe
-                    else -> BoxWrapperManager.recoverNetworkAuto()
-                }
-                Log.i(TAG, "performNetworkRecovery mode=$mode success=$success")
+            override suspend fun performNetworkRecovery(mode: Int, reason: String) {
+                recoveryCoordinator.request(RecoveryCoordinator.Request.Recover(mode, reason))
+            }
+
+            override suspend fun enterDeviceIdle(reason: String) {
+                recoveryCoordinator.request(RecoveryCoordinator.Request.EnterDeviceIdle(reason))
             }
         })
         Log.i(TAG, "ScreenStateManager initialized")
@@ -418,7 +489,7 @@ class SingBoxService : VpnService() {
         coreNetworkResetManager.init(object : CoreNetworkResetManager.Callbacks {
             override fun isServiceRunning() = coreManager.isServiceRunning()
             override suspend fun restartVpnService(reason: String) {
-                this@SingBoxService.restartVpnService(reason)
+                recoveryCoordinator.request(RecoveryCoordinator.Request.Restart("core_reset:$reason"))
             }
         })
         coreNetworkResetManager.debounceMs = coreResetDebounceMs
@@ -455,15 +526,7 @@ class SingBoxService : VpnService() {
     }
 
     private fun initBackgroundPowerManager() {
-        val thresholdMs = runBlocking {
-            try {
-                val settings = SettingsRepository.getInstance(this@SingBoxService).settings.first()
-                settings.backgroundPowerSavingDelay.delayMs
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to read power saving delay setting, using default", e)
-                BackgroundPowerSavingDelay.MINUTES_30.delayMs
-            }
-        }
+        val initialThresholdMs = backgroundPowerSavingThresholdMs
 
         backgroundPowerManager.init(
             callbacks = object : BackgroundPowerManager.Callbacks {
@@ -475,7 +538,14 @@ class SingBoxService : VpnService() {
                     commandManager.suspendNonEssential()
                     trafficMonitor.pause()
                     healthMonitorWrapper.enterPowerSavingMode()
-                    LogRepository.getInstance().addLog("INFO: Entered power saving mode (background ${thresholdMs / 1000 / 60}min)")
+                    runCatching {
+                        coreManager.enterPowerSavingMode()
+                    }.onFailure { e ->
+                        Log.w(TAG, "[PowerSaving] Failed to suppress WifiLock", e)
+                    }
+                    LogRepository.getInstance().addLog(
+                        "INFO: Entered power saving mode (background ${backgroundPowerSavingThresholdMs / 1000 / 60}min)"
+                    )
                 }
 
                 override fun resumeNonEssentialProcesses() {
@@ -483,14 +553,38 @@ class SingBoxService : VpnService() {
                     commandManager.resumeNonEssential()
                     trafficMonitor.resume()
                     healthMonitorWrapper.exitPowerSavingMode()
+                    runCatching {
+                        coreManager.exitPowerSavingMode()
+                    }.onFailure { e ->
+                        Log.w(TAG, "[PowerSaving] Failed to restore WifiLock", e)
+                    }
                     LogRepository.getInstance().addLog("INFO: Exited power saving mode (user returned)")
                 }
             },
-            thresholdMs = thresholdMs
+            thresholdMs = initialThresholdMs
         )
+
+        // Load user setting asynchronously to avoid blocking service initialization.
+        serviceScope.launch {
+            val thresholdMs = runCatching {
+                val settings = SettingsRepository.getInstance(this@SingBoxService).settings.first()
+                settings.backgroundPowerSavingDelay.delayMs
+            }.getOrElse { e ->
+                Log.w(TAG, "Failed to read power saving delay setting, using default", e)
+                BackgroundPowerSavingDelay.MINUTES_30.delayMs
+            }
+            backgroundPowerSavingThresholdMs = thresholdMs
+            backgroundPowerManager.setThreshold(thresholdMs)
+        }
 
         // 设置 IPC Hub 的 PowerManager 引用，用于接收主进程的生命周期通知
         SingBoxIpcHub.setPowerManager(backgroundPowerManager)
+        // Serialize foreground recovery via RecoveryCoordinator to avoid concurrent libbox calls.
+        SingBoxIpcHub.setForegroundRecoveryHandler {
+            recoveryCoordinator.request(
+                RecoveryCoordinator.Request.Recover(ScreenStateManager.RECOVERY_MODE_AUTO, "app_foreground")
+            )
+        }
         // 设置 ScreenStateManager 的 PowerManager 引用，用于接收屏幕状态通知
         screenStateManager.setPowerManager(backgroundPowerManager)
     }
@@ -964,23 +1058,26 @@ class SingBoxService : VpnService() {
                 )
                 stallRefreshAttempts = 0
                 trafficMonitor.resetStallCounter()
-                serviceScope.launch {
-                    withContext(Dispatchers.Main) {
-                        restartVpnService(reason = "Persistent connection stall")
-                    }
-                }
+                recoveryCoordinator.request(
+                    RecoveryCoordinator.Request.Restart("traffic_stall_persistent")
+                )
             } else {
                 // 尝试刷新连接
                 serviceScope.launch {
                     try {
                         coreManager.wakeService()
                         delay(30)
-                        resetConnectionsOptimal(reason = "traffic_stall", skipDebounce = true)
-                        Log.i(TAG, "Cleared stale connections after stall")
+                        // Use full recovery: wake -> close connections -> DNS -> reset network stack.
+                        recoveryCoordinator.request(
+                            RecoveryCoordinator.Request.Recover(
+                                ScreenStateManager.RECOVERY_MODE_FULL,
+                                "traffic_stall"
+                            )
+                        )
+                        Log.i(TAG, "Triggered full recovery after stall")
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to clear connections after stall", e)
                     }
-                    requestCoreNetworkReset(reason = "traffic_stall", force = true)
                     trafficMonitor.resetStallCounter()
                 }
             }
@@ -988,13 +1085,16 @@ class SingBoxService : VpnService() {
 
         override fun onProxyIdle(idleDurationMs: Long) {
             Log.i(TAG, "Proxy idle detected (${idleDurationMs / 1000}s), preemptively resetting connections")
-            serviceScope.launch {
-                resetConnectionsOptimal(reason = "proxy_idle_${idleDurationMs / 1000}s", skipDebounce = false)
-            }
+            recoveryCoordinator.request(
+                RecoveryCoordinator.Request.ResetConnections(
+                    reason = "proxy_idle_${idleDurationMs / 1000}s",
+                    skipDebounce = false
+                )
+            )
         }
     }
 
-    // ⭐ P1修复: 连续stall刷新失败后自动重启服务
+    //  P1修复: 连续stall刷新失败后自动重启服务
     private var stallRefreshAttempts: Int = 0
     private val maxStallRefreshAttempts: Int = 3 // 连续3次stall刷新后仍无流量则重启服务
 
@@ -1018,7 +1118,7 @@ class SingBoxService : VpnService() {
     }
 
     private fun requestCoreNetworkReset(reason: String, force: Boolean = false) {
-        coreNetworkResetManager.requestReset(reason, force)
+        recoveryCoordinator.request(RecoveryCoordinator.Request.ResetCoreNetwork(reason, force))
     }
 
     /**
@@ -1122,7 +1222,9 @@ class SingBoxService : VpnService() {
                 noPhysicalNetworkWarningLogged = false
             },
             requestCoreReset = { reason, force -> requestCoreNetworkReset(reason, force) },
-            resetConnections = { reason, skip -> serviceScope.launch { resetConnectionsOptimal(reason, skip) } }
+            resetConnections = { reason, skip ->
+                recoveryCoordinator.request(RecoveryCoordinator.Request.ResetConnections(reason, skip))
+            }
         )
     }
 
@@ -1746,8 +1848,11 @@ class SingBoxService : VpnService() {
 
         // 清理省电管理器引用
         SingBoxIpcHub.setPowerManager(null)
+        SingBoxIpcHub.setForegroundRecoveryHandler(null)
         screenStateManager.setPowerManager(null)
         backgroundPowerManager.cleanup()
+
+        recoveryCoordinator.cleanup()
 
         screenStateManager.unregisterActivityLifecycleCallbacks(application)
 
