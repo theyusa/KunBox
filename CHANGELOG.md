@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.6.5](https://github.com/roseforljh/KunBox/compare/v2.6.4...v2.6.5) (2026-01-27)
+
+
+### Bug Fixes
+
+* 一些已知问题 ([2622695](https://github.com/roseforljh/KunBox/commit/2622695a3d9565d76b1007f9c3401ff7b5f87b61))
+* 修复首次前台误触发DEEP恢复导致连接卡住 ([ed7a774](https://github.com/roseforljh/KunBox/commit/ed7a774c073c715fa58b9bb579a6976502e1fe3c))
+
 ## [2.6.4](https://github.com/roseforljh/KunBox/compare/v2.6.3...v2.6.4) (2026-01-26)
 
 
