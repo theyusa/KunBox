@@ -407,11 +407,28 @@ class VpnTunManager(
 
     private fun isNumericAddress(address: String): Boolean {
         if (address.isBlank()) return false
+
+        // 跳过 URL 格式 (DoH/DoT)，避免 DNS 解析超时
+        if (address.contains("://") || address.contains("/") || address.contains(":") && !isIpv6Literal(address)) {
+            return false
+        }
+
         return try {
             val addr = InetAddress.getByName(address)
             addr.hostAddress == address
         } catch (_: Exception) {
             false
         }
+    }
+
+    private fun isIpv6Literal(address: String): Boolean {
+        // IPv6 地址格式: xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx
+        // 或简写格式如 ::1, fe80::1 等
+        // 不包含 http/https 协议前缀
+        if (address.startsWith("[") || address.startsWith("::")) return true
+        val colonCount = address.count { it == ':' }
+        val dotCount = address.count { it == '.' }
+        // IPv6 至少有 2 个冒号，且没有点（除非是 IPv4-mapped IPv6）
+        return colonCount >= 2 && dotCount == 0
     }
 }

@@ -7,10 +7,12 @@ import android.content.Context
 import android.content.Intent
 import android.net.Network
 import android.net.VpnService
+import android.os.SystemClock
 import android.util.Log
 import com.google.gson.Gson
 import com.kunk.singbox.model.AppSettings
 import com.kunk.singbox.model.SingBoxConfig
+import com.kunk.singbox.repository.LogRepository
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.service.notification.VpnNotificationManager
@@ -39,6 +41,12 @@ class StartupManager(
     }
 
     private val gson = Gson()
+    private val logRepo by lazy { LogRepository.getInstance() }
+
+    private fun log(msg: String) {
+        Log.i(TAG, msg)
+        logRepo.addLog("INFO [Startup] $msg")
+    }
 
     /**
      * 启动回调接口
@@ -120,20 +128,28 @@ class StartupManager(
         connectManager: ConnectManager,
         callbacks: Callbacks
     ): StartResult = withContext(Dispatchers.IO) {
+        val startupBeginMs = SystemClock.elapsedRealtime()
         PerfTracer.begin(PerfTracer.Phases.VPN_STARTUP)
+        log("========== VPN STARTUP BEGIN ==========")
 
         try {
             // 等待前一个清理任务完成
+            var stepStart = SystemClock.elapsedRealtime()
             callbacks.waitForCleanupJob()
+            log("[STEP] waitForCleanupJob: ${SystemClock.elapsedRealtime() - stepStart}ms")
 
             callbacks.onStarting()
 
             // 1. 获取锁和注册监听器
+            stepStart = SystemClock.elapsedRealtime()
             coreManager.acquireLocks()
             callbacks.registerScreenStateReceiver()
+            log("[STEP] acquireLocks+registerReceiver: ${SystemClock.elapsedRealtime() - stepStart}ms")
 
             // 2. 检查 VPN 权限
+            stepStart = SystemClock.elapsedRealtime()
             val prepareIntent = VpnService.prepare(context)
+            log("[STEP] VpnService.prepare: ${SystemClock.elapsedRealtime() - stepStart}ms")
             if (prepareIntent != null) {
                 handlePermissionRequired(prepareIntent, callbacks)
                 return@withContext StartResult.NeedPermission
@@ -142,22 +158,25 @@ class StartupManager(
             callbacks.startForeignVpnMonitor()
 
             // 3. 并行初始化（包括配置读取和 DNS 预热）
+            stepStart = SystemClock.elapsedRealtime()
             PerfTracer.begin(PerfTracer.Phases.PARALLEL_INIT)
             val initResult = parallelInit(configPath, callbacks)
             PerfTracer.end(PerfTracer.Phases.PARALLEL_INIT)
+            log("[STEP] parallelInit: ${SystemClock.elapsedRealtime() - stepStart}ms")
 
             // 记录 DNS 预热结果
             initResult.dnsPrewarmResult?.let { result ->
-                Log.i(
-                    TAG,
-                    "DNS prewarm: ${result.resolvedDomains}/${result.totalDomains} resolved " +
-                        "in ${result.durationMs}ms"
+                log(
+                    "[STEP] DNS prewarm: ${result.resolvedDomains} resolved, " +
+                        "${result.cachedDomains} cached, ${result.failedDomains} failed " +
+                        "of ${result.totalDomains} total in ${result.durationMs}ms"
                 )
-            }
+            } ?: log("[STEP] DNS prewarm: skipped")
 
             if (initResult.network == null) {
                 throw IllegalStateException("No usable physical network before VPN start")
             }
+            log("[STEP] network ready: ${initResult.network}")
 
             // 更新网络状态
             callbacks.setLastKnownNetwork(initResult.network)
@@ -170,16 +189,21 @@ class StartupManager(
 
             // 4. 清理缓存（如果需要）
             if (cleanCache) {
+                stepStart = SystemClock.elapsedRealtime()
                 coreManager.cleanCacheDb()
+                log("[STEP] cleanCacheDb: ${SystemClock.elapsedRealtime() - stepStart}ms")
             }
 
             // 5. 创建并启动 CommandServer (必须在 startLibbox 之前)
+            stepStart = SystemClock.elapsedRealtime()
             callbacks.createAndStartCommandServer().getOrThrow()
+            log("[STEP] createAndStartCommandServer: ${SystemClock.elapsedRealtime() - stepStart}ms")
 
             // 6. 启动 Libbox
+            stepStart = SystemClock.elapsedRealtime()
             when (val result = coreManager.startLibbox(configContent)) {
                 is CoreManager.StartResult.Success -> {
-                    Log.i(TAG, "Libbox started in ${result.durationMs}ms")
+                    log("[STEP] startLibbox: ${SystemClock.elapsedRealtime() - stepStart}ms (internal: ${result.durationMs}ms)")
                 }
                 is CoreManager.StartResult.Failed -> {
                     throw Exception("Libbox start failed: ${result.error}", result.exception)
@@ -190,34 +214,43 @@ class StartupManager(
             }
 
             // 8. 初始化后续组件
+            stepStart = SystemClock.elapsedRealtime()
             if (!coreManager.isServiceRunning()) {
                 throw IllegalStateException("Service is not running after successful start")
             }
 
             callbacks.startCommandClients()
             callbacks.initSelectorManager(configContent)
+            log("[STEP] postInit (clients+selector): ${SystemClock.elapsedRealtime() - stepStart}ms")
 
             // 9. 标记运行状态
+            stepStart = SystemClock.elapsedRealtime()
             callbacks.setIsRunning(true)
             callbacks.setLastError(null)
             callbacks.persistVpnState(true)
             callbacks.stopForeignVpnMonitor()
+            log("[STEP] markRunning: ${SystemClock.elapsedRealtime() - stepStart}ms")
 
             // 10. 启动监控和辅助组件
+            stepStart = SystemClock.elapsedRealtime()
             callbacks.startTrafficMonitor()
             callbacks.startHealthMonitor()
             callbacks.scheduleKeepaliveWorker()
             callbacks.startRouteGroupAutoSelect(configContent)
             callbacks.scheduleAsyncRuleSetUpdate()
+            log("[STEP] startMonitors: ${SystemClock.elapsedRealtime() - stepStart}ms")
 
             // 11. 更新 UI 状态
+            stepStart = SystemClock.elapsedRealtime()
             callbacks.persistVpnPending("")
             callbacks.updateTileState()
+            log("[STEP] updateUI: ${SystemClock.elapsedRealtime() - stepStart}ms")
 
             callbacks.onStarted(configContent)
 
             val totalMs = PerfTracer.end(PerfTracer.Phases.VPN_STARTUP)
-            Log.i(TAG, "VPN startup completed in ${totalMs}ms")
+            val actualTotal = SystemClock.elapsedRealtime() - startupBeginMs
+            log("========== VPN STARTUP COMPLETE: ${actualTotal}ms ==========")
 
             StartResult.Success(configContent, totalMs)
         } catch (e: CancellationException) {
@@ -238,49 +271,77 @@ class StartupManager(
         configPath: String,
         callbacks: Callbacks
     ): ParallelInitResult = coroutineScope {
+        val parallelStart = SystemClock.elapsedRealtime()
+        log("[parallelInit] BEGIN")
+
         // 1. 读取配置文件（同步，因为后续任务依赖它）
+        var stepStart = SystemClock.elapsedRealtime()
         val configFile = File(configPath)
         if (!configFile.exists()) {
             throw IllegalStateException("Config file not found: $configPath")
         }
         val rawConfigContent = configFile.readText()
+        log("[parallelInit] readConfig: ${SystemClock.elapsedRealtime() - stepStart}ms, size=${rawConfigContent.length}")
 
         // 2. 启动并行任务
         val networkDeferred = async {
+            val t = SystemClock.elapsedRealtime()
             callbacks.ensureNetworkCallbackReady(1500L)
-            callbacks.waitForUsablePhysicalNetwork(3000L)
+            val afterCallback = SystemClock.elapsedRealtime()
+            log("[parallelInit] ensureNetworkCallbackReady: ${afterCallback - t}ms")
+            val network = callbacks.waitForUsablePhysicalNetwork(3000L)
+            log("[parallelInit] waitForUsablePhysicalNetwork: ${SystemClock.elapsedRealtime() - afterCallback}ms, network=$network")
+            network
         }
 
         val ruleSetDeferred = async {
-            runCatching {
+            val t = SystemClock.elapsedRealtime()
+            val result = runCatching {
                 RuleSetRepository.getInstance(context).ensureRuleSetsReady(
                     forceUpdate = false,
                     allowNetwork = false
                 ) { }
             }.getOrDefault(false)
+            log("[parallelInit] ruleSetReady: ${SystemClock.elapsedRealtime() - t}ms, ready=$result")
+            result
         }
 
         val settingsDeferred = async {
-            SettingsRepository.getInstance(context).settings.first()
+            val t = SystemClock.elapsedRealtime()
+            val settings = SettingsRepository.getInstance(context).settings.first()
+            log("[parallelInit] loadSettings: ${SystemClock.elapsedRealtime() - t}ms")
+            settings
         }
 
         // 3. DNS 预热（使用原始配置内容提取域名）
         val dnsPrewarmDeferred = async {
-            runCatching {
+            val t = SystemClock.elapsedRealtime()
+            val result = runCatching {
                 DnsPrewarmer.prewarm(rawConfigContent)
             }.getOrNull()
+            log("[parallelInit] dnsPrewarm: ${SystemClock.elapsedRealtime() - t}ms, domains=${result?.totalDomains ?: 0}")
+            result
         }
 
         // 4. 等待设置加载完成，然后修补配置
+        stepStart = SystemClock.elapsedRealtime()
         val settings = settingsDeferred.await()
         val configContent = patchConfig(rawConfigContent, settings)
+        log("[parallelInit] patchConfig: ${SystemClock.elapsedRealtime() - stepStart}ms")
+
+        // 等待所有并行任务完成
+        val network = networkDeferred.await()
+        val ruleSetReady = ruleSetDeferred.await()
+        val dnsResult = dnsPrewarmDeferred.await()
+
+        log("[parallelInit] END: ${SystemClock.elapsedRealtime() - parallelStart}ms total")
 
         ParallelInitResult(
-            network = networkDeferred.await(),
-            ruleSetReady = ruleSetDeferred.await(),
+            network = network,
+            ruleSetReady = ruleSetReady,
             settings = settings,
             configContent = configContent,
-            dnsPrewarmResult = dnsPrewarmDeferred.await()
+            dnsPrewarmResult = dnsResult
         )
     }
 
@@ -307,8 +368,28 @@ class StartupManager(
                 newConfig = newConfig.copy(inbounds = newInbounds)
             }
 
+            // 为代理节点设置较短的连接超时，减少启动延迟
+            // 非代理类型（direct, block, dns, selector, urltest）不需要设置
+            val proxyTypes = setOf(
+                "shadowsocks", "vmess", "vless", "trojan",
+                "hysteria", "hysteria2", "tuic", "wireguard",
+                "ssh", "shadowtls", "socks", "http", "anytls"
+            )
+            val defaultConnectTimeout = "5s"
+
+            if (newConfig.outbounds != null) {
+                val newOutbounds = newConfig.outbounds.orEmpty().map { outbound ->
+                    if (outbound.type in proxyTypes && outbound.connectTimeout == null) {
+                        outbound.copy(connectTimeout = defaultConnectTimeout)
+                    } else {
+                        outbound
+                    }
+                }
+                newConfig = newConfig.copy(outbounds = newOutbounds)
+            }
+
             configContent = gson.toJson(newConfig)
-            Log.i(TAG, "Patched config: auto_route=${settings.autoRoute}, log_level=$logLevel")
+            Log.i(TAG, "Patched config: auto_route=${settings.autoRoute}, log_level=$logLevel, connect_timeout=$defaultConnectTimeout")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to patch config: ${e.message}")
         }

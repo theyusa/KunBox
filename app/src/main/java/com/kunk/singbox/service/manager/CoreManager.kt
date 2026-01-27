@@ -247,16 +247,25 @@ class CoreManager(
         isStarting = true
         PerfTracer.begin(PerfTracer.Phases.LIBBOX_START)
 
+        val logRepo = com.kunk.singbox.repository.LogRepository.getInstance()
+
         return try {
             val server = commandServer
                 ?: throw IllegalStateException("CommandServer not initialized")
 
+            logRepo.addLog("INFO [Startup] [STEP] startLibbox: ensureLibboxSetup...")
             SingBoxCore.ensureLibboxSetup(context)
+
+            logRepo.addLog("INFO [Startup] [STEP] startLibbox: calling startOrReloadService...")
+            val serviceStartTime = android.os.SystemClock.elapsedRealtime()
 
             withContext(Dispatchers.IO) {
                 val overrideOptions = options ?: OverrideOptions()
                 server.startOrReloadService(configContent, overrideOptions)
             }
+
+            val serviceStartDuration = android.os.SystemClock.elapsedRealtime() - serviceStartTime
+            logRepo.addLog("INFO [Startup] [STEP] startLibbox: startOrReloadService completed in ${serviceStartDuration}ms")
 
             currentConfigContent = configContent
 
@@ -271,6 +280,7 @@ class CoreManager(
         } catch (e: Exception) {
             PerfTracer.end(PerfTracer.Phases.LIBBOX_START)
             Log.e(TAG, "Libbox start failed: ${e.message}", e)
+            logRepo.addLog("ERR [Startup] startLibbox failed: ${e.message}")
             StartResult.Failed(e.message ?: "Unknown error", e)
         } finally {
             isStarting = false
