@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.6.6](https://github.com/roseforljh/KunBox/compare/v2.6.5...v2.6.6) (2026-01-27)
+
+
+### Bug Fixes
+
+* Hysteria2 port range format and code structure issues ([65fbea1](https://github.com/roseforljh/KunBox/commit/65fbea158e3d16118f9c476109db0769a3ec4095))
+* **startup:** filter invalid domains in DNS prewarm ([21f404f](https://github.com/roseforljh/KunBox/commit/21f404f93c6edfbd2a1eb065a301ce10e63de957))
+* **startup:** prevent DoH URL from triggering DNS lookup timeout ([951987a](https://github.com/roseforljh/KunBox/commit/951987ac08df8aa04cb6c7fc435186e5e102a9e3))
+* 大量重构 ([8b99ba1](https://github.com/roseforljh/KunBox/commit/8b99ba1ac1602164e533968bac7f3584e6002b5b))
+
 ## [2.6.5](https://github.com/roseforljh/KunBox/compare/v2.6.4...v2.6.5) (2026-01-27)
 
 
