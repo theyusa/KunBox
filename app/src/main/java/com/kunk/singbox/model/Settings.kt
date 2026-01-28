@@ -218,7 +218,6 @@ enum class AppLanguage(@StringRes val displayNameRes: Int, val localeCode: Strin
     @SerializedName("CHINESE") CHINESE(R.string.language_chinese, "zh"),
     @SerializedName("ENGLISH") ENGLISH(R.string.language_english, "en"),
     @SerializedName("TURKISH") TURKISH(R.string.language_turkish, "tr");
-    
 
     companion object {
         fun fromLocaleCode(code: String): AppLanguage {
@@ -230,6 +229,7 @@ enum class AppLanguage(@StringRes val displayNameRes: Int, val localeCode: Strin
         }
     }
 }
+
 
 enum class GhProxyMirror(val url: String, @StringRes val displayNameRes: Int) {
     @SerializedName("SAGERNET_ORIGIN") SAGERNET_ORIGIN("https://raw.githubusercontent.com/", R.string.gh_mirror_sagernet),
