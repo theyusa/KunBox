@@ -587,5 +587,9 @@
     <string name="ruleset_hub_rule_count">Rules count: %d</string>
 
     <string name="rulesets_selection_mode">%d selected</string>
+    
+    <string name="title_auto_check_update">Auto-check for updates</string>
+<string name="subtitle_auto_check_update">Automatically check for new versions on startup</string>
+    
 
 </resources>
