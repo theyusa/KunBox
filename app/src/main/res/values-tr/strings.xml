@@ -587,5 +587,9 @@
     <string name="ruleset_hub_rule_count">Kural sayısı: %d</string>
 
     <string name="rulesets_selection_mode">%d adet seçildi</string>
+    
+    <string name="title_auto_check_update">Otomatik güncellemeleri kontrol et</string>
+<string name="subtitle_auto_check_update">Uygulama başlatıldığında yeni sürümleri kontrol eder</string>
+    
 
 </resources>
