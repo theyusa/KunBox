@@ -1,32 +1,13 @@
-name: Release & Build (Debug Mode)
+name: Debug Build APK
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch: # Manuel olarak da başlatabilmen için
+  workflow_dispatch:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
-  release-please:
-    runs-on: ubuntu-latest
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-    steps:
-      - uses: google-github-actions/release-please-action@v4
-        id: release
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-
   build:
-    # Bu iş, hem PR onaylandığında hem de sen manuel istediğinde çalışır
-    needs: release-please
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,30 +22,20 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
 
-      # İzin hatasını burada çözüyoruz
       - name: Make Gradlew Executable
         run: chmod +x gradlew
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug
         env:
-          VERSION_NAME: ${{ needs.release-please.outputs.tag_name || 'manual-build' }}
+          VERSION_NAME: "debug-build"
 
-      # APK'yı Actions sekmesine yükle (Her zaman yapar)
-      - name: Upload Artifact
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: KunBox-Debug-APK
           path: app/build/outputs/apk/debug/*.apk
-
-      # Eğer yeni bir sürüm onaylanmışsa, APK'yı Releases sayfasına da koy
-      - name: Upload Release Asset
-        if: ${{ needs.release-please.outputs.release_created }}
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ needs.release-please.outputs.tag_name }}
-          files: app/build/outputs/apk/debug/*.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
