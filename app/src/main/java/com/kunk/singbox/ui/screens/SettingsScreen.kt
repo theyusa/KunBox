@@ -217,11 +217,13 @@ fun SettingsScreen(
                 onClick = { showLanguageDialog = true }
             )
             SettingSwitchItem(
-                title = "自动检查更新",
-                subtitle = "启动应用时自动检查新版本",
+                title = stringResource(id = R.string.title_auto_check_update),
+                subtitle = stringResource(id = R.string.subtitle_auto_check_update),
                 icon = Icons.Rounded.SystemUpdate,
                 checked = settings.autoCheckUpdate,
-                onCheckedChange = { scope.launch { viewModel.setAutoCheckUpdate(it) } }
+                onCheckedChange = { 
+                    scope.launch { viewModel.setAutoCheckUpdate(it) } 
+                }
             )
             SettingItem(
                 title = stringResource(R.string.settings_connection_startup),
