@@ -21,8 +21,12 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Make Gradlew Executable
-        run: chmod +x gradlew
+      # HATA ÇÖZÜMÜ: Dosya formatını Linux'a uygun hale getir ve izin ver
+      - name: Fix gradlew format and permissions
+        run: |
+          sudo apt-get install -y dos2unix
+          dos2unix gradlew
+          chmod +x gradlew
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
