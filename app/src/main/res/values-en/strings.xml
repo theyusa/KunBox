@@ -11,7 +11,7 @@
     <string name="shortcut_scan">Scan QR Code</string>
     <string name="shortcut_scan_short">Scan</string>
 
-    <string name="update_channel_name">App Updates</string>
+    <string name="update_channel_name">Version Update</string>
     <string name="update_channel_description">New version notifications</string>
     <string name="update_notification_title">New Version Available</string>
     <string name="update_notification_content">KunBox %s is released, tap for details</string>
@@ -50,7 +50,7 @@
     <string name="common_no">No</string>
     <string name="common_auto">Auto</string>
     <string name="common_menu">Menu</string>
-    <string name="common_more_options">More</string>
+    <string name="common_more_options">More Options</string>
     <string name="common_view">View</string>
     <string name="common_downloaded">Downloaded</string>
     <string name="common_ready">Ready</string>
@@ -60,18 +60,18 @@
     <string name="common_outbound">Outbound</string>
     <string name="splash_tagline">Secure · Fast · Stable</string>
 
-    <string name="connection_idle">Not Connected</string>
+    <string name="connection_idle">Disconnected</string>
     <string name="connection_connecting">Connecting...</string>
     <string name="connection_connected">Connected</string>
     <string name="connection_disconnecting">Disconnecting...</string>
     <string name="connection_error">Error</string>
-    <string name="connection_failed_check_config">Connection failed, check config</string>
+    <string name="connection_failed_check_config">Connection failed, please check config</string>
 
     <string name="dashboard_routing_mode">Routing Mode</string>
     <string name="dashboard_update_subscription">Update Subscription</string>
     <string name="dashboard_update_subscription_confirm">Update all subscriptions?</string>
     <string name="dashboard_latency_test">Latency Test</string>
-    <string name="dashboard_latency_test_confirm">Test latency for all nodes?</string>
+    <string name="dashboard_latency_test_confirm">Run latency test for all nodes?</string>
     <string name="dashboard_start_test">Start Test</string>
     <string name="dashboard_logs">Logs</string>
     <string name="dashboard_diagnostics">Diagnostics</string>
@@ -83,7 +83,7 @@
     <string name="dashboard_no_nodes_available">No nodes available</string>
     <string name="dashboard_test_complete">Test Complete</string>
     <string name="dashboard_config_generation_failed">Config generation failed</string>
-    <string name="dashboard_system_vpn_running">Another VPN is active</string>
+    <string name="dashboard_system_vpn_running">Another VPN is running</string>
 
     <string name="settings_title">Settings</string>
     <string name="settings_general">General</string>
@@ -91,10 +91,10 @@
     <string name="settings_tools">Tools</string>
     <string name="settings_data_management">Data Management</string>
     <string name="settings_about">About</string>
-    <string name="settings_app_theme">Theme</string>
-    <string name="settings_app_language">Language</string>
+    <string name="settings_app_theme">App Theme</string>
+    <string name="settings_app_language">App Language</string>
     <string name="settings_connection_startup">Connection &amp; Startup</string>
-    <string name="settings_connection_startup_subtitle">Auto-connect, re-connection</string>
+    <string name="settings_connection_startup_subtitle">Auto-connect, keep alive settings</string>
     <string name="settings_routing">Routing Settings</string>
     <string name="settings_routing_subtitle">Mode, Rule Set, default rules</string>
     <string name="settings_dns">DNS Settings</string>
@@ -109,29 +109,29 @@
     <string name="settings_preparing_update">Preparing...</string>
     <string name="settings_update_success">Update successful</string>
     <string name="settings_update_failed">Update failed</string>
-    <string name="settings_ruleset_update_success">Rule Set updated</string>
+    <string name="settings_ruleset_update_success">Rule Set updated successfully</string>
     <string name="settings_ruleset_update_failed">Rule Set update failed</string>
-    <string name="settings_ruleset_auto_update">Auto Update Rule Sets</string>
-    <string name="settings_ruleset_auto_update_enabled">Auto update every %d minutes</string>
+    <string name="settings_ruleset_auto_update">Auto-Update Rule Sets</string>
+    <string name="settings_ruleset_auto_update_enabled">Update every %d minutes</string>
     <string name="settings_ruleset_auto_update_disabled">Enable to auto update remote Rule Sets</string>
     <string name="settings_update_interval">Update Interval</string>
     <string name="settings_update_interval_value">%d Minutes</string>
-    <string name="settings_update_interval_min">Minimum interval is 15 mins</string>
+    <string name="settings_update_interval_min">Minimum interval is 15 minutes</string>
     <string name="settings_debug_mode">Debug Mode</string>
-    <string name="settings_debug_mode_subtitle">Detailed logging (Requires restart)</string>
-    <string name="settings_logs">Logs</string>
+    <string name="settings_debug_mode_subtitle">Enable detailed logging (Requires restart)</string>
+    <string name="settings_logs">System Logs</string>
     <string name="settings_network_diagnostics">Network Diagnostics</string>
     <string name="settings_export_data">Export Data</string>
     <string name="settings_export_data_subtitle">Backup all configs and settings</string>
     <string name="settings_import_data">Import Data</string>
-    <string name="settings_import_data_subtitle">Restore from backup file</string>
+    <string name="settings_import_data_subtitle">Restore from a backup file</string>
     <string name="settings_about_app">About App</string>
     <string name="settings_about_kunbox">About KunBox</string>
-    <string name="settings_restart_needed">Restart required to apply settings</string>
+    <string name="settings_restart_needed">Restart required for changes to take effect</string>
 
     <string name="connection_settings_title">Connection &amp; Startup</string>
     <string name="connection_settings_auto_connect">Auto-Connect</string>
-    <string name="connection_settings_auto_connect_subtitle">Start VPN when app opens</string>
+    <string name="connection_settings_auto_connect_subtitle">Start VPN automatically on app launch</string>
     <string name="connection_settings_hide_recent">Hide from Recents</string>
     <string name="connection_settings_hide_recent_subtitle">Hide app from recent tasks list</string>
     <string name="connection_settings_proxy_port">Proxy Port</string>
@@ -145,17 +145,18 @@
     <string name="routing_settings_mode">Routing Mode</string>
     <string name="routing_settings_default_rule">Default Rule</string>
     <string name="routing_settings_latency_test_method">Latency Method</string>
-    <string name="routing_settings_latency_test_url">Latency URL</string>
-    <string name="routing_settings_latency_test_timeout">Timeout</string>
-    <string name="routing_settings_latency_test_timeout_s">%d seconds</string>
+    <string name="routing_settings_latency_test_url">Latency Test URL</string>
+    <string name="routing_settings_latency_test_timeout">Test Timeout</string>
+    <string name="routing_settings_latency_test_timeout_s">%d Seconds</string>
     <string name="routing_settings_subscription_timeout">Subscription Timeout</string>
+    <string name="routing_settings_subscription_timeout_subtitle">Stop update if time exceeds</string>
     <string name="routing_settings_github_mirror">GitHub Mirror</string>
     <string name="routing_settings_block_ads">Block Ads</string>
-    <string name="routing_settings_block_ads_subtitle">Block common ad domains</string>
+    <string name="routing_settings_block_ads_subtitle">Block common advertising domains</string>
     <string name="routing_settings_block_quic">Block QUIC</string>
-    <string name="routing_settings_block_quic_subtitle">Blocking QUIC may improve stability in some networks</string>
+    <string name="routing_settings_block_quic_subtitle">Blocking QUIC may improve HTTP/3 stability</string>
     <string name="routing_settings_bypass_lan">Bypass LAN</string>
-    <string name="routing_settings_bypass_lan_subtitle">Traffic to LAN does not go through proxy</string>
+    <string name="routing_settings_bypass_lan_subtitle">Traffic to local networks will not go through proxy</string>
     <string name="routing_settings_app_routing">App Routing</string>
     <string name="routing_settings_app_routing_rules">%d Rules</string>
     <string name="routing_settings_domain_routing">Domain Routing</string>
@@ -163,31 +164,31 @@
 
     <string name="tun_settings_title">TUN / VPN Settings</string>
     <string name="tun_settings_enable">Enable TUN</string>
-    <string name="tun_settings_enable_subtitle">Create VPN interface to capture traffic</string>
+    <string name="tun_settings_enable_subtitle">Create VPN interface for traffic capture</string>
     <string name="tun_settings_stack">Stack</string>
     <string name="tun_settings_mtu">MTU</string>
     <string name="tun_settings_mtu_auto">Auto MTU</string>
-    <string name="tun_settings_mtu_auto_subtitle">WiFi 1480, Mobile 1400; Automatic for QUIC compliance</string>
+    <string name="tun_settings_mtu_auto_subtitle">WiFi 1480, Mobile 1400; Auto for QUIC compatibility</string>
     <string name="tun_settings_interface_name">Interface Name</string>
     <string name="tun_settings_auto_route">Auto Route</string>
     <string name="tun_settings_auto_route_subtitle">Auto configure system routing table</string>
     <string name="tun_settings_endpoint_independent_nat">Independent NAT</string>
-    <string name="tun_settings_endpoint_independent_nat_subtitle">Improve P2P (Full Cone)</string>
+    <string name="tun_settings_endpoint_independent_nat_subtitle">Improve P2P performance (Full Cone)</string>
     <string name="tun_settings_strict_route">Strict Route</string>
     <string name="tun_settings_strict_route_subtitle">Prevents DNS leakage</string>
-    <string name="tun_settings_route_mode">Route Mode</string>
+    <string name="tun_settings_route_mode">Capture Mode</string>
     <string name="tun_settings_route_cidrs">Route CIDRs</string>
     <string name="tun_settings_route_cidrs_configured">%d configured</string>
     <string name="tun_settings_app_mode">App Mode</string>
-    <string name="tun_settings_allowlist">Allowlist</string>
+    <string name="tun_settings_allowlist">Allowlist (Only)</string>
     <string name="tun_settings_allowlist_configured">%d apps</string>
-    <string name="tun_settings_blocklist">Blocklist</string>
+    <string name="tun_settings_blocklist">Blocklist (Exclude)</string>
     <string name="tun_settings_blocklist_configured">%d apps</string>
-    <string name="tun_settings_select_vpn_apps">Select VPN Apps</string>
-    <string name="tun_settings_select_bypass_apps">Select Bypass Apps</string>
+    <string name="tun_settings_select_vpn_apps">Select Apps for VPN</string>
+    <string name="tun_settings_select_bypass_apps">Select Apps to Bypass</string>
 
     <string name="dns_settings_title">DNS Settings</string>
-    <string name="dns_settings_fake_dns_subtitle">Return Fake IP to speed up domain resolution</string>
+    <string name="dns_settings_fake_dns_subtitle">Speed up resolution by returning Fake IP</string>
     <string name="dns_settings_fake_ip_range">Fake IP Range</string>
     <string name="dns_settings_strategy">DNS Strategy</string>
     <string name="dns_settings_remote_strategy">Remote Strategy</string>
@@ -202,37 +203,37 @@
     <string name="profiles_edit_profile">Edit Profile</string>
     <string name="profiles_subscription_link">Subscription URL</string>
     <string name="profiles_local_file">Local File</string>
-    <string name="profiles_local_file_subtitle">Import from JSON/YAML</string>
+    <string name="profiles_local_file_subtitle">Import from JSON/YAML file</string>
     <string name="profiles_clipboard">Clipboard</string>
     <string name="profiles_clipboard_subtitle">Import from clipboard content</string>
     <string name="profiles_import_clipboard">Import Clipboard</string>
     <string name="profiles_import_clipboard_hint">Profile Name</string>
     <string name="profiles_scan_qrcode">Scan QR Code</string>
-    <string name="profiles_scan_qrcode_subtitle">Scan with camera</string>
+    <string name="profiles_scan_qrcode_subtitle">Scan via camera</string>
     <string name="profiles_qrcode_import">QR Import</string>
     <string name="profiles_qrcode_subscription">QR Subscription</string>
     <string name="profiles_file_import">File Import</string>
     <string name="profiles_clipboard_import">Clipboard Import</string>
     <string name="profiles_file_empty">File is empty</string>
-    <string name="profiles_read_file_failed">File read error: %s</string>
+    <string name="profiles_read_file_failed">Failed to read file: %s</string>
     <string name="profiles_clipboard_empty">Clipboard is empty</string>
     <string name="profiles_name_invalid">Invalid profile name</string>
-    <string name="profiles_camera_permission_required">Camera permission required</string>
-    <string name="profiles_import_success">Imported: %s</string>
+    <string name="profiles_camera_permission_required">Camera permission required for QR</string>
+    <string name="profiles_import_success">Imported successfully: %s</string>
     <string name="profiles_import_failed">Import failed: %s</string>
-    <string name="profiles_parse_failed">Parse error</string>
+    <string name="profiles_parse_failed">Failed to parse content</string>
     <string name="profiles_content_empty">Content is empty</string>
     <string name="profiles_updated">Profile updated</string>
     <string name="profiles_deleted">Profile deleted</string>
     <string name="profiles_auto_update">Auto-Update</string>
     <string name="profiles_auto_update_interval">Update Interval (Min)</string>
-    <string name="profiles_auto_update_hint">30+ mins recommended</string>
+    <string name="profiles_auto_update_hint">Recommended: 30+ mins</string>
     <string name="profiles_name_label">Name</string>
-    <string name="profiles_url_label">Subscription URL</string>
-    <string name="profiles_subscription_node_warning">Do not use subscription link for single nodes, use \'Clipboard\' or \'Add Node\'</string>
+    <string name="profiles_url_label">Subscription Link</string>
+    <string name="profiles_subscription_node_warning">Do not use subscription links for single nodes, use \'Clipboard\' instead</string>
     <string name="profiles_extracting_nodes">Extracting nodes (%1$d/%2$d)...</string>
 
-    <string name="nodes_title">Nodes</string>
+    <string name="nodes_title">Node List</string>
     <string name="nodes_count_suffix">Nodes</string>
     <string name="nodes_sort">Sort</string>
     <string name="nodes_filter">Filter</string>
@@ -244,18 +245,18 @@
     <string name="nodes_export_link">Export Link</string>
     <string name="nodes_copied_to_clipboard">Copied to clipboard</string>
     <string name="nodes_clear_latency">Clear Latency</string>
-    <string name="nodes_latency_cleared">Latency cleared</string>
-    <string name="nodes_test_latency">Test Latency</string>
-    <string name="nodes_testing_progress">Testing...</string>
-    <string name="nodes_test_complete_stats">Test Done: %1$d Success, %2$d Timeout</string>
+    <string name="nodes_latency_cleared">Latency data cleared</string>
+    <string name="nodes_test_latency">Run Latency Test</string>
+    <string name="nodes_testing_progress">Testing speed...</string>
+    <string name="nodes_test_complete_stats">Done: %1$d Success, %2$d Timeout</string>
     <string name="nodes_stop_test">Stop Test</string>
     <string name="nodes_unknown_node">Unknown Node</string>
     <string name="nodes_test_failed">%s Test failed/timeout</string>
     <string name="nodes_filter_applied">Filter applied</string>
     <string name="nodes_filter_cleared">Filter cleared</string>
-    <string name="nodes_unsupported_format">Unsupported format</string>
-    <string name="nodes_add_failed">Add failed</string>
-    <string name="nodes_group_auto_generated">This group is auto-generated, use \'Profile Management\' to delete</string>
+    <string name="nodes_unsupported_format">Unsupported link format</string>
+    <string name="nodes_add_failed">Failed to add node</string>
+    <string name="nodes_group_auto_generated">This group is auto-generated by config</string>
 
     <string name="nodes_sort_default">Default</string>
     <string name="nodes_sort_latency">Latency (Low -> High)</string>
@@ -265,10 +266,10 @@
     <string name="node_filter_title">Node Filter</string>
     <string name="node_filter_mode">Filter Mode</string>
     <string name="node_filter_none">None</string>
-    <string name="node_filter_include">Include Only</string>
+    <string name="node_filter_include">Show Only</string>
     <string name="node_filter_exclude">Exclude</string>
     <string name="node_filter_keywords">Keywords</string>
-    <string name="node_filter_keywords_hint">Separate by comma: TR, US, Proxy</string>
+    <string name="node_filter_keywords_hint">Comma separated: TR, US, Proxy</string>
     <string name="node_filter_keywords_tip">Tip: Keywords are case-insensitive</string>
 
     <string name="nodes_stat_total">%d Nodes</string>
@@ -295,7 +296,7 @@
     <string name="node_detail_username">Username</string>
     <string name="node_detail_private_key">Private Key</string>
     <string name="node_detail_idle_session_check">Idle Check</string>
-    <string name="node_detail_idle_session_timeout">Idle Timeout</string>
+    <string name="node_detail_idle_session_timeout">Session Timeout</string>
     <string name="node_detail_min_idle_sessions">Min Idle Sessions</string>
     <string name="node_detail_auth_string">Auth String</string>
     <string name="node_detail_transport_settings">Transport Settings</string>
@@ -350,8 +351,8 @@
     <string name="app_rules_delete_confirm">Delete rules for \"%s\"?</string>
     <string name="app_rules_not_selected">Not selected</string>
     <string name="app_rules_unknown_profile">Unknown Profile</string>
-    <string name="app_rules_tabs_groups">App Groups</string>
-    <string name="app_rules_tabs_individual">Individual Rules</string>
+    <string name="app_rules_tabs_groups">Groups</string>
+    <string name="app_rules_tabs_individual">Individual</string>
     <string name="app_rules_empty_groups">No groups found</string>
     <string name="app_rules_empty_groups_hint">Press + to create a group</string>
     <string name="app_rules_empty_individual">No individual rules found</string>
@@ -359,13 +360,13 @@
     <string name="app_rules_select_app">Select App</string>
     <string name="app_rules_click_to_select">Click to select...</string>
     <string name="app_rules_select_target">Select Target</string>
-    <string name="app_groups_description">Group multiple apps to assign a single rule</string>
+    <string name="app_groups_description">Group apps to assign a single rule</string>
 
     <string name="app_groups_add">Add Group</string>
     <string name="app_groups_create">Create Group</string>
     <string name="app_groups_edit">Edit Group</string>
     <string name="app_groups_delete_title">Delete Group</string>
-    <string name="app_groups_delete_confirm">Delete group \"%1$s\"? (%2$d apps inside)</string>
+    <string name="app_groups_delete_confirm">Delete group \"%1$s\"? (%2$d apps)</string>
     <string name="app_groups_empty">No groups</string>
     <string name="app_groups_name">Group Name</string>
     <string name="app_groups_select_apps">Select Apps</string>
@@ -395,7 +396,7 @@
     <string name="logs_export">Export</string>
     <string name="logs_clear">Clear</string>
     <string name="logs_debug_disabled">Debug mode disabled</string>
-    <string name="logs_debug_disabled_hint">Logs not recorded for performance</string>
+    <string name="logs_debug_disabled_hint">Logs are not recorded for performance</string>
 
     <string name="diagnostics_title">Network Diagnostics</string>
     <string name="diagnostics_view_config">View Running Config</string>
@@ -476,7 +477,7 @@
     <string name="connection_settings_show_notification_speed">Show Speed in Notification</string>
     <string name="connection_settings_show_notification_speed_subtitle">Show real-time up/down speed</string>
     <string name="connection_settings_network_change_reset">Reset on Network Change</string>
-    <string name="connection_settings_network_change_reset_subtitle">Reset connections when WiFi/Data switches</string>
+    <string name="connection_settings_network_change_reset_subtitle">Reset connections when network switches</string>
     <string name="connection_settings_wake_reset">Reset on Wake</string>
     <string name="connection_settings_wake_reset_subtitle">Reset connections when device wakes up</string>
 
@@ -554,12 +555,12 @@
 
     <string name="update_status_no_subscription">No subscriptions to update</string>
     <string name="update_status_failed">Update failed</string>
-    <string name="update_status_success_changes">Successful, %d updated</string>
-    <string name="update_status_success_no_changes">Complete, no changes</string>
+    <string name="update_status_success_changes">Success, %d updated</string>
+    <string name="update_status_success_no_changes">Update complete, no changes</string>
     <string name="update_status_partial">Done, %1$d success, %2$d failed</string>
     <string name="update_status_complete">Update finished</string>
 
-    <string name="date_infinite">Infinite</string>
+    <string name="date_infinite">No Expiry</string>
 
     <string name="power_saving_delay_5min">5 Minutes</string>
     <string name="power_saving_delay_15min">15 Minutes</string>
@@ -569,7 +570,7 @@
     <string name="power_saving_delay_never">Never</string>
 
     <string name="connection_settings_power_saving">Background Power Saving</string>
-    <string name="connection_settings_power_saving_subtitle">Delay to stop non-core processes after app enters background</string>
+    <string name="connection_settings_power_saving_subtitle">Delay to stop non-core processes in background</string>
 
     <string name="node_switch_success">Switched to %s</string>
     <string name="node_switch_not_running">Switched to %s (Service not running)</string>
@@ -581,8 +582,6 @@
     <string name="subscription_update_success_no_changes">No changes (%d nodes)</string>
     <string name="ruleset_update_network_error">Network error, update failed</string>
 
-    <string name="app_rules_tabs_groups">Groups</string>
-    <string name="app_rules_tabs_individual">Individual</string>
     <string name="app_groups_name_placeholder">e.g. Social, Games</string>
 
     <string name="ruleset_hub_rule_count">Rules count: %d</string>
