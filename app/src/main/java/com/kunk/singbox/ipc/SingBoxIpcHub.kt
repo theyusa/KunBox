@@ -35,6 +35,9 @@ object SingBoxIpcHub {
 
     private val callbacks = RemoteCallbackList<ISingBoxServiceCallback>()
 
+    private fun getStateName(ordinal: Int): String =
+        ServiceState.values().getOrNull(ordinal)?.name ?: "UNKNOWN"
+
     private val broadcastLock = Any()
     @Volatile private var broadcasting: Boolean = false
     @Volatile private var broadcastPending: Boolean = false
@@ -215,7 +218,7 @@ object SingBoxIpcHub {
             val n = callbacks.beginBroadcast()
             Log.d(
                 TAG,
-                "[IPC] broadcasting to $n callbacks, state=${ServiceState.values().getOrNull(snapshot.stateOrdinal)?.name}"
+                "[IPC] broadcasting to $n callbacks, state=${getStateName(snapshot.stateOrdinal)}"
             )
             try {
                 for (i in 0 until n) {

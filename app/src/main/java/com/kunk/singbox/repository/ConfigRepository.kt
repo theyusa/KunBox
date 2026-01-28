@@ -3508,7 +3508,8 @@ class ConfigRepository(private val context: Context) {
             RoutingMode.GLOBAL_PROXY -> sniffRule + hijackDnsRule
             RoutingMode.GLOBAL_DIRECT -> sniffRule + hijackDnsRule + listOf(RouteRule(outbound = "direct"))
             RoutingMode.RULE -> {
-                sniffRule + hijackDnsRule + quicRule + bypassLanRules + customDomainRules + appRoutingRules + customRuleSetRules + defaultRuleCatchAll
+                sniffRule + hijackDnsRule + quicRule + bypassLanRules +
+                    customDomainRules + appRoutingRules + customRuleSetRules + defaultRuleCatchAll
             }
         }
 

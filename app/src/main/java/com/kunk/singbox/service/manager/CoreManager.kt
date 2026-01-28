@@ -265,7 +265,9 @@ class CoreManager(
             }
 
             val serviceStartDuration = android.os.SystemClock.elapsedRealtime() - serviceStartTime
-            logRepo.addLog("INFO [Startup] [STEP] startLibbox: startOrReloadService completed in ${serviceStartDuration}ms")
+            logRepo.addLog(
+                "INFO [Startup] [STEP] startLibbox: startOrReloadService done in ${serviceStartDuration}ms"
+            )
 
             currentConfigContent = configContent
 

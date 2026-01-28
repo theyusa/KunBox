@@ -20,6 +20,9 @@ class VpnHealthMonitor(
         private const val POWER_SAVING_INTERVAL_MS = 120_000L
         private const val MAX_CONSECUTIVE_FAILURES = 3
         private const val HEALTHY_COUNT_THRESHOLD = 5
+
+        private const val DATA_PLANE_CHECK_INTERVAL = 4
+        private const val MAX_DATA_PLANE_FAILURES = 2
     }
 
     /**
@@ -34,6 +37,8 @@ class VpnHealthMonitor(
         suspend fun wakeBoxService()
         fun restartVpnService(reason: String)
         fun addLog(message: String)
+        suspend fun verifyDataPlaneConnectivity(): Int
+        fun triggerNetworkRecovery(reason: String)
     }
 
     private var periodicHealthCheckJob: Job? = null
@@ -49,6 +54,12 @@ class VpnHealthMonitor(
 
     @Volatile
     private var isPowerSavingMode: Boolean = false
+
+    @Volatile
+    private var healthCheckCycleCount: Int = 0
+
+    @Volatile
+    private var dataPlaneFailureCount: Int = 0
 
     /**
      * 启动周期性健康检查
@@ -92,6 +103,12 @@ class VpnHealthMonitor(
                                 Log.i(TAG, "Health check recovered, failures reset to 0")
                                 consecutiveHealthCheckFailures = 0
                             }
+
+                            healthCheckCycleCount++
+                            if (!isPowerSavingMode && healthCheckCycleCount % DATA_PLANE_CHECK_INTERVAL == 0) {
+                                performDataPlaneCheck()
+                            }
+
                             onSuccess()
                         } catch (e: Exception) {
                             Log.e(TAG, "Health check failed: boxService method call threw exception", e)
@@ -121,6 +138,31 @@ class VpnHealthMonitor(
     fun resetCounters() {
         consecutiveHealthCheckFailures = 0
         consecutiveHealthyChecks = 0
+        healthCheckCycleCount = 0
+        dataPlaneFailureCount = 0
+    }
+
+    private suspend fun performDataPlaneCheck() {
+        try {
+            val latency = context.verifyDataPlaneConnectivity()
+            if (latency >= 0) {
+                Log.d(TAG, "[DataPlane] Connectivity OK, latency=${latency}ms")
+                dataPlaneFailureCount = 0
+            } else {
+                dataPlaneFailureCount++
+                Log.w(TAG, "[DataPlane] Connectivity FAILED, failure #$dataPlaneFailureCount")
+                context.addLog("WARN [Health] DataPlane check failed #$dataPlaneFailureCount")
+
+                if (dataPlaneFailureCount >= MAX_DATA_PLANE_FAILURES) {
+                    Log.w(TAG, "[DataPlane] Max failures reached, triggering recovery")
+                    context.addLog("WARN [Health] DataPlane max failures, triggering recovery")
+                    context.triggerNetworkRecovery("data_plane_check_failed")
+                    dataPlaneFailureCount = 0
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "[DataPlane] Check exception: ${e.message}")
+        }
     }
 
     /**

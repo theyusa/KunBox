@@ -207,7 +207,8 @@ class StartupManager(
             when (val result = coreManager.startLibbox(configContent)) {
                 is CoreManager.StartResult.Success -> {
                     log(
-                        "[STEP] startLibbox: ${SystemClock.elapsedRealtime() - stepStart}ms (internal: ${result.durationMs}ms)"
+                        "[STEP] startLibbox: ${SystemClock.elapsedRealtime() - stepStart}ms " +
+                            "(internal: ${result.durationMs}ms)"
                     )
                 }
                 is CoreManager.StartResult.Failed -> {
@@ -330,7 +331,8 @@ class StartupManager(
         log("[parallelInit] ensureNetworkCallbackReady: ${afterCallback - t}ms")
         val network = callbacks.waitForUsablePhysicalNetwork(3000L)
         log(
-            "[parallelInit] waitForUsablePhysicalNetwork: ${SystemClock.elapsedRealtime() - afterCallback}ms, network=$network"
+            "[parallelInit] waitForUsablePhysicalNetwork: " +
+                "${SystemClock.elapsedRealtime() - afterCallback}ms, network=$network"
         )
         return network
     }
@@ -402,7 +404,11 @@ class StartupManager(
             }
 
             configContent = gson.toJson(newConfig)
-            Log.i(TAG, "Patched config: auto_route=${settings.autoRoute}, log_level=$logLevel, connect_timeout=$defaultConnectTimeout")
+            Log.i(
+                TAG,
+                "Patched config: auto_route=${settings.autoRoute}, " +
+                    "log_level=$logLevel, connect_timeout=$defaultConnectTimeout"
+            )
         } catch (e: Exception) {
             Log.w(TAG, "Failed to patch config: ${e.message}")
         }

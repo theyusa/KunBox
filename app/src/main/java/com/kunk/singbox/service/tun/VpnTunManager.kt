@@ -412,7 +412,9 @@ class VpnTunManager(
         if (address.isBlank()) return false
 
         // 跳过 URL 格式 (DoH/DoT)，避免 DNS 解析超时
-        if (address.contains("://") || address.contains("/") || address.contains(":") && !isIpv6Literal(address)) {
+        val hasUrlFormat = address.contains("://") || address.contains("/")
+        val hasNonIpv6Colon = address.contains(":") && !isIpv6Literal(address)
+        if (hasUrlFormat || hasNonIpv6Colon) {
             return false
         }
 

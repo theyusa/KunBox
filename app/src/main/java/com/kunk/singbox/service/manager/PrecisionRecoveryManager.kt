@@ -2,11 +2,6 @@ package com.kunk.singbox.service.manager
 
 import android.content.Context
 import android.content.Intent
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
-import android.os.Build
 import android.util.Log
 import com.kunk.singbox.core.SingBoxCore
 import com.kunk.singbox.ipc.VpnStateStore
@@ -17,7 +12,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -39,12 +33,6 @@ class PrecisionRecoveryManager private constructor(
 ) {
     companion object {
         private const val TAG = "PrecisionRecoveryManager"
-
-        // 恢复超时（毫秒）
-        private const val RECOVERY_TIMEOUT_MS = 5000L
-
-        // 最大重试次数
-        private const val MAX_RETRY_COUNT = 3
 
         // 恢复冷却时间（毫秒）
         private const val RECOVERY_COOLDOWN_MS = 1000L
@@ -160,7 +148,6 @@ class PrecisionRecoveryManager private constructor(
                 }
 
                 lastRecoveryTime.set(System.currentTimeMillis())
-
             } catch (e: Exception) {
                 Log.e(TAG, "Recovery failed", e)
             } finally {
@@ -203,7 +190,6 @@ class PrecisionRecoveryManager private constructor(
 
             val message = if (success) "Recovered successfully" else "Recovery failed"
             return RecoveryResult(packageName, success, duration, message)
-
         } catch (e: Exception) {
             val duration = System.currentTimeMillis() - startTime
             Log.e(TAG, "Recovery error for $packageName", e)
@@ -242,7 +228,6 @@ class PrecisionRecoveryManager private constructor(
 
             Log.w(TAG, "Failed to close connections for $packageName")
             false
-
         } catch (e: Exception) {
             Log.e(TAG, "Error closing connections for $packageName", e)
             false

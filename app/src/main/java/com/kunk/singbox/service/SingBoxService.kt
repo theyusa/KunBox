@@ -374,7 +374,6 @@ class SingBoxService : VpnService() {
     }
 
     private fun initHealthMonitorWrapper() {
-        // 5. 初始化健康监控管理器包装器
         healthMonitorWrapper.init {
             object : HealthMonitor.HealthContext {
                 override val isRunning: Boolean
@@ -395,6 +394,31 @@ class SingBoxService : VpnService() {
 
                 override fun addLog(message: String) {
                     runCatching { LogRepository.getInstance().addLog(message) }
+                }
+
+                override suspend fun verifyDataPlaneConnectivity(): Int {
+                    return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        try {
+                            val selected = BoxWrapperManager.getSelectedOutbound()
+                            if (selected.isNullOrBlank()) return@withContext -1
+                            BoxWrapperManager.urlTestOutbound(
+                                selected,
+                                "https://www.gstatic.com/generate_204",
+                                5000
+                            )
+                        } catch (_: Exception) {
+                            -1
+                        }
+                    }
+                }
+
+                override fun triggerNetworkRecovery(reason: String) {
+                    recoveryCoordinator.request(
+                        RecoveryCoordinator.Request.Recover(
+                            ScreenStateManager.RECOVERY_MODE_FULL,
+                            reason
+                        )
+                    )
                 }
             }
         }
@@ -615,7 +639,7 @@ class SingBoxService : VpnService() {
     }
 
     private fun initBackgroundPowerManager() {
-        val initialThresholdMs = backgroundPowerSavingThresholdMs 
+        val initialThresholdMs = backgroundPowerSavingThresholdMs
 
         backgroundPowerManager.init(
             callbacks = object : BackgroundPowerManager.Callbacks {
@@ -1231,7 +1255,7 @@ class SingBoxService : VpnService() {
 
             Log.i(
                 TAG,
-                "Proxy idle detected (${idleSeconds}s), resetting connections (connCount=$connCount needRecovery=$needRecovery)"
+                "Proxy idle ($idleSeconds s), reset conn (cnt=$connCount need=$needRecovery)"
             )
             recoveryCoordinator.request(
                 RecoveryCoordinator.Request.ResetConnections(
@@ -1272,6 +1296,7 @@ class SingBoxService : VpnService() {
      * 重启 VPN 服务以彻底清理网络状态
      * 用于处理网络栈重置无效的严重情况
      */
+    @Suppress("UnusedPrivateMember")
     private suspend fun restartVpnService(reason: String) = withContext(Dispatchers.Main) {
         L.vpn("Restart", "Restarting: $reason")
 

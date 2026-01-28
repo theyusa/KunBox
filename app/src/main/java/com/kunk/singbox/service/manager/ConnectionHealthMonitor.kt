@@ -134,8 +134,7 @@ class ConnectionHealthMonitor private constructor(
                 try {
                     performHealthCheck()
                     delay(CHECK_INTERVAL_MS)
-                } catch (e: CancellationException) {
-                    Log.d(TAG, "Monitoring cancelled")
+                } catch (_: CancellationException) {
                     break
                 } catch (e: Exception) {
                     Log.e(TAG, "Health check error", e)
@@ -198,7 +197,6 @@ class ConnectionHealthMonitor private constructor(
             )
 
             Log.d(TAG, "Health check result: $result")
-
         } catch (e: Exception) {
             Log.e(TAG, "Health check failed", e)
             _healthScore.value = 0
@@ -264,7 +262,6 @@ class ConnectionHealthMonitor private constructor(
             appConnectionStates.entries.removeIf { (_, state) ->
                 state.lastActiveTime < staleThreshold
             }
-
         } catch (e: Exception) {
             Log.e(TAG, "Connection activity check failed", e)
         }

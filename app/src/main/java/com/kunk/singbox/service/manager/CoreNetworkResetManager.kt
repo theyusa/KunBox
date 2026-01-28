@@ -114,6 +114,7 @@ class CoreNetworkResetManager(
         }
     }
 
+    @Suppress("ReturnCount")
     private fun handleServiceRestartIfNeeded(now: Long): Boolean {
         val lastSuccess = lastSuccessfulResetAtMs.get()
         val hasEverSucceeded = lastSuccess > 0L

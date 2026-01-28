@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * 智能恢复引擎 - 完美方案第三层：决策性防御
@@ -39,9 +38,6 @@ class SmartRecoveryEngine private constructor(
 
         // 最大恢复频率（每分钟）
         private const val MAX_RECOVERY_PER_MINUTE = 6
-
-        // 学习窗口大小（次）
-        private const val LEARNING_WINDOW_SIZE = 10
 
         @Volatile
         private var instance: SmartRecoveryEngine? = null
@@ -136,8 +132,7 @@ class SmartRecoveryEngine private constructor(
                 try {
                     makeDecision()
                     delay(5000) // 每5秒决策一次
-                } catch (e: CancellationException) {
-                    Log.d(TAG, "Decision loop cancelled")
+                } catch (_: CancellationException) {
                     break
                 } catch (e: Exception) {
                     Log.e(TAG, "Decision loop error", e)
@@ -211,7 +206,6 @@ class SmartRecoveryEngine private constructor(
                     Log.d(TAG, "Decision: IGNORE - no action needed")
                 }
             }
-
         } catch (e: Exception) {
             Log.e(TAG, "Decision making failed", e)
         } finally {
@@ -354,6 +348,7 @@ class SmartRecoveryEngine private constructor(
     /**
      * 更新应用行为数据
      */
+    @Suppress("CognitiveComplexMethod")
     fun updateAppBehavior(packageName: String, recovered: Boolean) {
         val behavior = appBehaviorData[packageName]
         val currentTime = System.currentTimeMillis()

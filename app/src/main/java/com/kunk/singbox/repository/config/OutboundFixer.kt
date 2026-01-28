@@ -222,6 +222,7 @@ object OutboundFixer {
      * 构建运行时 Outbound，只保留必要字段
      * @param context Android Context，用于读取 TCP Keepalive 配置
      */
+    @Suppress("LongMethod")
     fun buildForRuntime(context: android.content.Context, outbound: Outbound): Outbound {
         val fixed = fix(outbound)
 

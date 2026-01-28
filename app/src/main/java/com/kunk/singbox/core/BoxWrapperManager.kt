@@ -462,6 +462,7 @@ object BoxWrapperManager {
 
             val map = mutableMapOf<String, Int>()
             val count = result.len()
+            @Suppress("LoopWithTooManyJumpStatements")
             for (i in 0 until count) {
                 val item = result.get(i) ?: continue
                 val tag = item.tag

@@ -89,7 +89,10 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                     val effectiveMtu = resolveEffectiveMtu(settings, networkType)
                     val effectiveTunStack = resolveTunStack(settings)
 
-                    _resultMessage.value = buildDiagnosticMessage(realPath, settings, runConfig, networkType, effectiveMtu, effectiveTunStack)
+                    _resultMessage.value = buildDiagnosticMessage(
+                        realPath, settings, runConfig,
+                        networkType, effectiveMtu, effectiveTunStack
+                    )
                 }
             } catch (e: Exception) {
                 _resultMessage.value = "读取运行配置失败: ${e.message}"
@@ -142,6 +145,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    @Suppress("LongParameterList")
     private fun buildDiagnosticMessage(
         realPath: String,
         settings: AppSettings,
@@ -226,6 +230,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    @Suppress("CognitiveComplexMethod")
     fun runConnectivityCheck() {
         if (_isConnectivityLoading.value) return
         viewModelScope.launch {

@@ -52,6 +52,7 @@ class SingBoxCore private constructor(private val context: Context) {
 
     // Global lock for libbox operations to prevent native concurrency issues
     // 注意: 这个 mutex 只用于需要独占资源的操作(如 HTTP proxy fallback)
+    @Suppress("UnusedPrivateProperty")
     private val libboxMutex = kotlinx.coroutines.sync.Mutex()
 
     // 优化: 使用 Semaphore 限制 HTTP 代理并发数,允许一定程度的并发
@@ -554,6 +555,7 @@ class SingBoxCore private constructor(private val context: Context) {
         }
     }
 
+    @Suppress("UnusedPrivateMember")
     private fun restoreNetworkBinding(vpnRunning: Boolean, cm: ConnectivityManager, network: Network?) {
         if (!vpnRunning) {
             try {
@@ -564,6 +566,7 @@ class SingBoxCore private constructor(private val context: Context) {
         }
     }
 
+    @Suppress("LongMethod")
     private fun buildBatchTestConfig(
         batchOutbounds: List<Outbound>,
         ports: List<Int>
@@ -1100,6 +1103,7 @@ class SingBoxCore private constructor(private val context: Context) {
      * 用于精准恢复机制
      * 注意：当前 libbox 不支持此 API，始终返回 false
      */
+    @Suppress("UnusedParameter", "FunctionOnlyReturningConstant")
     fun closeConnections(packageName: String, uid: Int): Boolean {
         // libbox 不支持 closeConnectionsByPackage API
         // 保留方法签名以兼容现有代码，但始终返回 false

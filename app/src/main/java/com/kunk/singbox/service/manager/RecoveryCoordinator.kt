@@ -359,9 +359,9 @@ class RecoveryCoordinator(
                         "INFO [Recovery] recover(mode=${req.mode}) ok=$ok " +
                             "cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}"
                     )
-                    if (ok && shouldVerifyAfterRecovery(req.reason)) {
-                        scheduleConnectivityVerification(req.reason, req.mode)
-                    }
+                    // 2025-fix-v20: 无论 ok 是 true 还是 false 都验证连通性
+                    // 因为 recoverNetwork 返回 true 不代表数据面真正恢复
+                    scheduleConnectivityVerification(req.reason, req.mode)
                 }
 
                 is Request.EnterDeviceIdle -> {
@@ -414,8 +414,11 @@ class RecoveryCoordinator(
                         "INFO [Recovery] networkBump ok=$ok " +
                             "cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}"
                     )
-                    if (ok && shouldVerifyAfterRecovery(req.reason)) {
+                    // 2025-fix-v20: 简化逻辑，成功则验证连通性，失败则升级恢复
+                    if (ok) {
                         scheduleConnectivityVerification(req.reason, -1)
+                    } else {
+                        scheduleNetworkBumpEscalation(req.reason, cb)
                     }
                 }
 
@@ -429,10 +432,6 @@ class RecoveryCoordinator(
         }
     }
 
-    private fun shouldVerifyAfterRecovery(reason: String): Boolean {
-        return COOLDOWN_EXEMPT_KEYWORDS.any { reason.contains(it, ignoreCase = true) }
-    }
-
     private fun scheduleConnectivityVerification(reason: String, currentMode: Int) {
         scope.launch {
             kotlinx.coroutines.delay(500)
@@ -441,6 +440,15 @@ class RecoveryCoordinator(
                 escalateOnFailure = true,
                 currentRecoveryMode = currentMode
             ))
+        }
+    }
+
+    private fun scheduleNetworkBumpEscalation(reason: String, cb: Callbacks) {
+        Log.w(TAG, "[NetworkBump] Failed, scheduling retry with Recover mode=2")
+        cb.addLog("WARN [Recovery] networkBump failed, escalating to Recover")
+        scope.launch {
+            kotlinx.coroutines.delay(1000)
+            request(Request.Recover(2, "networkbump_failed:$reason"))
         }
     }
 

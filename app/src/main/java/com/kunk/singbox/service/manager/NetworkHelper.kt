@@ -322,6 +322,10 @@ class NetworkHelper(
     /**
      * 更新默认接口
      */
+    @Suppress(
+        "UnusedParameter", "LongParameterList",
+        "CyclomaticComplexMethod", "CognitiveComplexMethod", "NestedBlockDepth"
+    )
     fun updateDefaultInterface(
         network: Network,
         vpnStartedAtMs: Long,

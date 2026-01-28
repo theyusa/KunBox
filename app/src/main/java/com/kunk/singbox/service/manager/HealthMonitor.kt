@@ -30,6 +30,8 @@ class HealthMonitor(
         suspend fun wakeBoxService()
         fun restartVpnService(reason: String)
         fun addLog(message: String)
+        suspend fun verifyDataPlaneConnectivity(): Int
+        fun triggerNetworkRecovery(reason: String)
     }
 
     /**
@@ -60,6 +62,12 @@ class HealthMonitor(
 
                 override fun addLog(message: String) =
                     contextProvider().addLog(message)
+
+                override suspend fun verifyDataPlaneConnectivity(): Int =
+                    contextProvider().verifyDataPlaneConnectivity()
+
+                override fun triggerNetworkRecovery(reason: String) =
+                    contextProvider().triggerNetworkRecovery(reason)
             }
 
             delegate = VpnHealthMonitor(adapter, serviceScope)

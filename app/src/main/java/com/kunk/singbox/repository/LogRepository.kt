@@ -67,6 +67,7 @@ class LogRepository private constructor() {
         }
     }
 
+    @Suppress("CyclomaticComplexMethod", "ComplexCondition")
     fun addLog(message: String) {
         val timestamp = synchronized(dateFormat) { dateFormat.format(Date()) }
         // 过滤掉过于频繁的无用日志，保留关键的启动和状态日志
