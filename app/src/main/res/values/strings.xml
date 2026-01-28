@@ -645,4 +645,8 @@
     <!-- RuleSets Screen -->
     <string name="rulesets_selection_mode">已选择 %d 个</string>
 
+    <string name="string_title_auto_check_update">自动检查更新</string>
+    <string name="string_subtitle_auto_check_update">启动应用时自动检查新版本</string>
+
+
 </resources>
