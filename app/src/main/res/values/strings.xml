@@ -544,6 +544,8 @@
     <string name="language_system">跟随系统</string>
     <string name="language_chinese">简体中文</string>
     <string name="language_english">English</string>
+    <string name="language_turkish">Türkçe</string>
+    
 
     <!-- Enum: TunStack -->
     <string name="tun_stack_system">System</string>
