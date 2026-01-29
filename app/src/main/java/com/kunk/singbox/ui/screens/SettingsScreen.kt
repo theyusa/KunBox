@@ -128,21 +128,22 @@ fun SettingsScreen(
         )
     }
 
-    if (showLanguageDialog) {
-        val languageOptions = AppLanguage.entries
+        if (showLanguageDialog) {
+        val languages = AppLanguage.entries
         SingleSelectDialog(
             title = stringResource(R.string.settings_app_language),
-            options = languageOptions.map { stringResource(it.displayNameRes) },
-            selectedIndex = languageOptions.indexOf(settings.appLanguage),
+            options = languages.map { stringResource(it.displayNameRes) },
+            selectedIndex = languages.indexOf(settings.appLanguage),
             onSelect = { index ->
-                val selectedLanguage = languageOptions[index]
-                viewModel.setAppLanguage(selectedLanguage)
+                val selected = languages[index]
+                viewModel.setAppLanguage(selected)
                 showLanguageDialog = false
                 (context as? android.app.Activity)?.recreate()
             },
             onDismiss = { showLanguageDialog = false }
         )
     }
+
     
 
         
