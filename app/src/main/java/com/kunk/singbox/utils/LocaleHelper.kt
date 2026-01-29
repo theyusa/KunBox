@@ -12,8 +12,9 @@ object LocaleHelper {
     fun setLocale(context: Context, language: AppLanguage): Context {
         val locale = when (language) {
             AppLanguage.SYSTEM -> getSystemLocale()
-        
-            else -> Locale(language.localeCode) 
+            AppLanguage.CHINESE -> Locale.SIMPLIFIED_CHINESE
+            AppLanguage.ENGLISH -> Locale.ENGLISH
+            AppLanguage.TURKISH -> Locale("tr")
         }
 
         return updateResources(context, locale)
@@ -39,6 +40,15 @@ object LocaleHelper {
         configuration.setLocale(locale)
 
         return context.createConfigurationContext(configuration)
+    }
+
+    fun getLanguageDisplayName(language: AppLanguage): String {
+        return when (language) {
+            AppLanguage.SYSTEM -> "跟随系统"
+            AppLanguage.CHINESE -> "简体中文"
+            AppLanguage.ENGLISH -> "English"
+            AppLanguage.TURKISH -> "Türkçe"
+        }
     }
 
     fun wrap(context: Context, language: AppLanguage): Context {
