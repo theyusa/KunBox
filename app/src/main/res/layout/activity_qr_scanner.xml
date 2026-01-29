@@ -11,7 +11,6 @@
         android:layout_height="match_parent"
         app:zxing_scanner_layout="@layout/custom_barcode_scanner" />
 
-    <!-- 顶部工具栏 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -28,14 +27,14 @@
             android:layout_height="48dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:src="@android:drawable/ic_menu_close_clear_cancel"
-            android:contentDescription="返回"
+            android:contentDescription="@string/common_back"
             android:padding="12dp" />
 
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="扫描二维码"
+            android:text="@string/shortcut_scan"
             android:textColor="@android:color/white"
             android:textSize="18sp"
             android:gravity="center" />
@@ -46,7 +45,7 @@
             android:layout_height="48dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:src="@android:drawable/ic_menu_gallery"
-            android:contentDescription="相册"
+            android:contentDescription="@string/common_gallery"
             android:padding="12dp" />
 
         <ImageButton
@@ -55,19 +54,18 @@
             android:layout_height="48dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:src="@android:drawable/ic_menu_view"
-            android:contentDescription="闪光灯"
+            android:contentDescription="@string/common_flash"
             android:padding="12dp" />
 
     </LinearLayout>
 
-    <!-- 底部提示文字 -->
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:layout_marginBottom="100dp"
         android:gravity="center"
-        android:text="将二维码放入框内，即可自动扫描"
+        android:text="@string/qr_scanner_hint"
         android:textColor="#B0FFFFFF"
         android:textSize="14sp" />
 
