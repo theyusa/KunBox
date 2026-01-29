@@ -130,25 +130,23 @@ fun SettingsScreen(
     }
 
     if (showLanguageDialog) {
-    val activity = LocalContext.current as? Activity
-    
-    SingleSelectDialog(
-        title = stringResource(R.string.settings_app_language),
-        options = AppLanguage.entries.map { stringResource(it.displayNameRes) },
-        selectedIndex = AppLanguage.entries.indexOf(settings.appLanguage),
-        onSelect = { index ->
-            
-            viewModel.setAppLanguage(AppLanguage.entries[index]
+        val activity = LocalContext.current as? Activity
         
-            showLanguageDialog = false
-            
-            scope.launch 
-                kotlinx.coroutines.delay(150)
-                activity?.recreate()
-            }
-        },
-        onDismiss = { showLanguageDialog = false }
-    )
+        SingleSelectDialog(
+            title = stringResource(R.string.settings_app_language),
+            options = AppLanguage.entries.map { stringResource(it.displayNameRes) },
+            selectedIndex = AppLanguage.entries.indexOf(settings.appLanguage),
+            onSelect = { index ->
+                viewModel.setAppLanguage(AppLanguage.entries[index])
+                showLanguageDialog = false
+                
+                scope.launch {
+                    kotlinx.coroutines.delay(150)
+                    activity?.recreate()
+                }
+            },
+            onDismiss = { showLanguageDialog = false }
+        )
     }
 
     // 导出状态对话框
