@@ -82,22 +82,22 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun attachBaseContext(newBase: Context) {
-        // 从 SharedPreferences 读取语言设置
-        val prefs = newBase.getSharedPreferences("settings", Context.MODE_PRIVATE)
-        val languageName = prefs.getString("app_language_cache", null)
-        val language = if (languageName != null) {
-            try {
-                AppLanguage.valueOf(languageName)
-            } catch (e: Exception) {
-                AppLanguage.SYSTEM
-            }
-        } else {
+    val prefs = newBase.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    val languageName = prefs.getString("app_language_cache", null)
+    
+    val language = if (languageName != null && languageName != "SYSTEM") {
+        try {
+            AppLanguage.valueOf(languageName)
+        } catch (e: Exception) {
             AppLanguage.SYSTEM
         }
-
-        val context = LocaleHelper.wrap(newBase, language)
-        super.attachBaseContext(context)
+    } else {
+        AppLanguage.SYSTEM
     }
+
+    val context = LocaleHelper.wrap(newBase, language)
+    super.attachBaseContext(context)
+}
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // 在 super.onCreate 之前启用边到边显示
