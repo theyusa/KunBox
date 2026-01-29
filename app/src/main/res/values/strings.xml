@@ -544,6 +544,8 @@
     <string name="language_system">跟随系统</string>
     <string name="language_chinese">简体中文</string>
     <string name="language_english">English</string>
+    <string name="language_turkish">Türkçe</string>
+    
 
     <!-- Enum: TunStack -->
     <string name="tun_stack_system">System</string>
@@ -644,5 +646,9 @@
 
     <!-- RuleSets Screen -->
     <string name="rulesets_selection_mode">已选择 %d 个</string>
+
+    <string name="title_auto_check_update">自动检查更新</string>
+    <string name="subtitle_auto_check_update">启动应用时自动检查新版本</string>
+
 
 </resources>
