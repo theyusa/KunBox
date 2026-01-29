@@ -589,7 +589,11 @@
     <string name="rulesets_selection_mode">%d adet seçildi</string>
     
     <string name="title_auto_check_update">Otomatik güncellemeleri kontrol et</string>
-<string name="subtitle_auto_check_update">Uygulama başlatıldığında yeni sürümleri kontrol eder</string>
+    <string name="subtitle_auto_check_update">Uygulama başlatıldığında yeni sürümleri kontrol eder</string>
+    <string name="common_gallery">Galeri</string>
+    <string name="common_flash">Flaş</string>
+    <string name="qr_scanner_hint">Karekodu çerçevenin içine yerleştirin, otomatik olarak taranacaktır</string>
+    
     
 
 </resources>
