@@ -589,7 +589,11 @@
     <string name="rulesets_selection_mode">%d selected</string>
     
     <string name="title_auto_check_update">Auto-check for updates</string>
-<string name="subtitle_auto_check_update">Automatically check for new versions on startup</string>
+    <string name="subtitle_auto_check_update">Automatically check for new versions on startup</string>
+    <string name="common_gallery">Gallery</string>
+    <string name="common_flash">Flashlight</string>
+    <string name="qr_scanner_hint">Place the QR code inside the frame to scan automatically</string>
+    
     
 
 </resources>
