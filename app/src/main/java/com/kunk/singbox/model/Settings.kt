@@ -232,6 +232,7 @@ enum class AppLanguage(@StringRes val displayNameRes: Int, val localeCode: Strin
 
 
 
+
 enum class GhProxyMirror(val url: String, @StringRes val displayNameRes: Int) {
     @SerializedName("SAGERNET_ORIGIN") SAGERNET_ORIGIN("https://raw.githubusercontent.com/", R.string.gh_mirror_sagernet),
     @SerializedName("JSDELIVR_CDN") JSDELIVR_CDN("https://cdn.jsdelivr.net/gh/", R.string.gh_mirror_jsdelivr);
