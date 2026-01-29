@@ -128,19 +128,24 @@ fun SettingsScreen(
         )
     }
 
-        if (showLanguageDialog) {
+    //
+    if (showLanguageDialog) {
+        val languageOptions = AppLanguage.entries
         SingleSelectDialog(
             title = stringResource(R.string.settings_app_language),
-            options = AppLanguage.entries.map { stringResource(it.displayNameRes) },
-            selectedIndex = AppLanguage.entries.indexOf(settings.appLanguage),
+            options = languageOptions.map { stringResource(it.displayNameRes) },
+            selectedIndex = languageOptions.indexOf(settings.appLanguage),
             onSelect = { index ->
-                viewModel.setAppLanguage(AppLanguage.entries[index])
+                val selectedLanguage = languageOptions[index]
+                viewModel.setAppLanguage(selectedLanguage)
                 showLanguageDialog = false
                 (context as? android.app.Activity)?.recreate()
             },
             onDismiss = { showLanguageDialog = false }
         )
     }
+
+        
 
 
     // 导出状态对话框
