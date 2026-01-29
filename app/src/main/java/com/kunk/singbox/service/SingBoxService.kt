@@ -481,15 +481,20 @@ class SingBoxService : VpnService() {
             }
 
             override suspend fun performNetworkBump(reason: String): Boolean {
+                // 2025-fix-v21: 先确保内核已唤醒，再执行网络操作
+                val isWakeScenario = reason.contains("doze_exit", true) ||
+                    reason.contains("screen_on", true) ||
+                    reason.contains("app_foreground", true)
+
+                if (isWakeScenario && BoxWrapperManager.isPausedNow()) {
+                    Log.i(TAG, "[NetworkBump] Waking core before network bump")
+                    BoxWrapperManager.wake()
+                    delay(50)
+                }
+
                 var network = connectManager.getCurrentNetwork()
 
-                // 2025-fix-v18: 网络未就绪时等待并重试，而非直接跳过
-                // 设备从 Doze 唤醒后，WiFi/蜂窝通常需要 0.5~3 秒才能完全恢复
                 if (network == null) {
-                    val isWakeScenario = reason.contains("doze_exit", true) ||
-                        reason.contains("screen_on", true) ||
-                        reason.contains("app_foreground", true)
-
                     if (isWakeScenario) {
                         Log.i(TAG, "[NetworkBump] Network not ready, waiting...")
                         network = connectManager.waitForNetwork(3000L).getOrNull()
@@ -508,9 +513,22 @@ class SingBoxService : VpnService() {
                     Log.i(TAG, "[NetworkBump] Starting: $reason")
 
                     setUnderlyingNetworks(null)
-                    delay(50)
+                    delay(200)
                     setUnderlyingNetworks(arrayOf(network))
-                    runCatching { BoxWrapperManager.resetAllConnections(true) }
+
+                    // 2025-fix-v22: 分级连接重置
+                    // doze_exit 或最近从暂停恢复 → 强制 RST (CloseAllTrackedConnections)
+                    // 其他场景 → 温和关闭 (resetAllConnections)
+                    val needHardReset = reason.contains("doze_exit", true) ||
+                        (isWakeScenario && BoxWrapperManager.wasPausedRecently(30_000L))
+
+                    if (needHardReset) {
+                        val closed = BoxWrapperManager.closeAllTrackedConnections()
+                        Log.i(TAG, "[NetworkBump] Hard reset: closed $closed connections (reason=$reason)")
+                    } else {
+                        runCatching { BoxWrapperManager.resetAllConnections(true) }
+                        Log.i(TAG, "[NetworkBump] Soft reset (reason=$reason)")
+                    }
 
                     Log.i(TAG, "[NetworkBump] completed: $reason")
                     true
@@ -571,6 +589,16 @@ class SingBoxService : VpnService() {
 
             override suspend fun performNetworkBump(reason: String) {
                 recoveryCoordinator.request(RecoveryCoordinator.Request.NetworkBump(reason))
+            }
+
+            override suspend fun wakeCore(reason: String): Boolean {
+                return try {
+                    Log.i(TAG, "[WakeCore] Waking sing-box core: $reason")
+                    BoxWrapperManager.wake()
+                } catch (e: Exception) {
+                    Log.e(TAG, "[WakeCore] Failed to wake core", e)
+                    false
+                }
             }
         })
         Log.i(TAG, "ScreenStateManager initialized")
@@ -648,6 +676,14 @@ class SingBoxService : VpnService() {
 
                 override fun suspendNonEssentialProcesses() {
                     Log.i(TAG, "[PowerSaving] Suspending non-essential processes...")
+
+                    // 2025-fix-v22: 进入省电模式时强制关闭所有连接
+                    // 这确保当用户后来打开其他应用（如 TG）时，不会使用死连接
+                    val closedCount = BoxWrapperManager.closeAllTrackedConnections()
+                    if (closedCount > 0) {
+                        Log.i(TAG, "[PowerSaving] Closed $closedCount tracked connections")
+                    }
+
                     commandManager.suspendNonEssential()
                     trafficMonitor.pause()
                     healthMonitorWrapper.enterPowerSavingMode()
@@ -1853,6 +1889,7 @@ class SingBoxService : VpnService() {
                         }
 
                         requestNotificationUpdate(force = true)
+                        requestRemoteStateUpdate(force = true)
                     }
                 }
             }

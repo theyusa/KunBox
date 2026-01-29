@@ -236,28 +236,27 @@ class ConnectionHealthMonitor private constructor(
         val connectionStates = mutableMapOf<String, ConnectionState>()
 
         try {
-            // 获取活跃连接列表
             val activeConnections = singBoxCore.getActiveConnections()
 
-            // 统计每个应用的连接状态
             activeConnections.forEach { conn ->
                 val packageName = conn.packageName ?: "unknown"
                 val existingState = appConnectionStates[packageName]
+                
+                val isStale = !conn.hasRecentData && conn.oldestConnMs > CONNECTION_TIMEOUT_MS
 
                 val newState = ConnectionState(
                     packageName = packageName,
-                    lastActiveTime = currentTime,
-                    isActive = true,
-                    connectionCount = (existingState?.connectionCount ?: 0) + 1,
-                    errorCount = existingState?.errorCount ?: 0,
-                    lastErrorTime = existingState?.lastErrorTime ?: 0L
+                    lastActiveTime = if (conn.hasRecentData) currentTime else currentTime - conn.oldestConnMs,
+                    isActive = !isStale,
+                    connectionCount = conn.connectionCount,
+                    errorCount = if (isStale) (existingState?.errorCount ?: 0) + 1 else (existingState?.errorCount ?: 0),
+                    lastErrorTime = if (isStale) currentTime else (existingState?.lastErrorTime ?: 0L)
                 )
 
                 connectionStates[packageName] = newState
                 appConnectionStates[packageName] = newState
             }
 
-            // 清理不活跃的连接状态
             val staleThreshold = currentTime - CONNECTION_TIMEOUT_MS
             appConnectionStates.entries.removeIf { (_, state) ->
                 state.lastActiveTime < staleThreshold
@@ -307,12 +306,9 @@ class ConnectionHealthMonitor private constructor(
      */
     private fun detectStaleConnections(connectionStates: Map<String, ConnectionState>): List<String> {
         val staleApps = mutableListOf<String>()
-        val currentTime = System.currentTimeMillis()
 
         connectionStates.values.forEach { state ->
-            // 检查连接是否长时间无响应
-            val inactiveTime = currentTime - state.lastActiveTime
-            if (inactiveTime > CONNECTION_TIMEOUT_MS && state.isActive) {
+            if (!state.isActive && state.connectionCount > 0) {
                 staleApps.add(state.packageName)
             }
         }

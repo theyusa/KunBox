@@ -1093,34 +1093,71 @@ class SingBoxCore private constructor(private val context: Context) {
      * 注意：当前 libbox 不支持此 API，始终返回空列表
      */
     fun getActiveConnections(): List<ActiveConnection> {
-        // libbox 不支持 getActiveConnections API
-        // 保留方法签名以兼容现有代码，但始终返回空列表
-        return emptyList()
+        if (!libboxAvailable) return emptyList()
+        
+        return try {
+            val iterator = Libbox.getActiveConnectionStates() ?: return emptyList()
+            val result = mutableListOf<ActiveConnection>()
+            
+            while (iterator.hasNext()) {
+                val state = iterator.next() ?: continue
+                result.add(
+                    ActiveConnection(
+                        packageName = state.packageName,
+                        uid = 0,
+                        network = "tcp",
+                        remoteAddr = "",
+                        remotePort = 0,
+                        state = if (state.hasRecentData) "active" else "stale",
+                        connectionCount = state.connectionCount,
+                        totalUpload = state.totalUpload,
+                        totalDownload = state.totalDownload,
+                        oldestConnMs = state.oldestConnMs,
+                        newestConnMs = state.newestConnMs,
+                        hasRecentData = state.hasRecentData
+                    )
+                )
+            }
+            result
+        } catch (e: Exception) {
+            Log.w(TAG, "getActiveConnections failed: ${e.message}")
+            emptyList()
+        }
     }
 
-    /**
-     * 关闭指定应用的连接
-     * 用于精准恢复机制
-     * 注意：当前 libbox 不支持此 API，始终返回 false
-     */
+    fun closeConnectionsForApp(packageName: String): Int {
+        if (!libboxAvailable) return 0
+        
+        return try {
+            val count = Libbox.closeConnectionsForApp(packageName)
+            if (count > 0) {
+                Log.i(TAG, "Closed $count connections for $packageName")
+            }
+            count
+        } catch (e: Exception) {
+            Log.w(TAG, "closeConnectionsForApp failed: ${e.message}")
+            0
+        }
+    }
+
     @Suppress("UnusedParameter", "FunctionOnlyReturningConstant")
     fun closeConnections(packageName: String, uid: Int): Boolean {
-        // libbox 不支持 closeConnectionsByPackage API
-        // 保留方法签名以兼容现有代码，但始终返回 false
-        // 实际连接重置通过 CommandClient.closeConnections() 实现
-        return false
+        return closeConnectionsForApp(packageName) > 0
     }
 
-    /**
-     * 活跃连接数据类
-     */
     data class ActiveConnection(
         val packageName: String?,
         val uid: Int,
         val network: String,
         val remoteAddr: String,
         val remotePort: Int,
-        val state: String
+        val state: String,
+        val connectionCount: Int = 0,
+        val totalUpload: Long = 0,
+        val totalDownload: Long = 0,
+        val oldestConnMs: Long = 0,
+        val newestConnMs: Long = 0,
+        val hasRecentData: Boolean = true
     )
 
     fun cleanup() {

@@ -65,6 +65,12 @@ class ScreenStateManager(
          * 执行网络闪断，触发应用重建连接
          */
         suspend fun performNetworkBump(reason: String)
+
+        /**
+         * 显式唤醒 sing-box 内核
+         * 2025-fix-v21: 在 Doze 唤醒时确保内核完全活跃
+         */
+        suspend fun wakeCore(reason: String): Boolean
     }
 
     private var callbacks: Callbacks? = null
@@ -300,6 +306,7 @@ class ScreenStateManager(
 
     /**
      * 设备退出空闲模式
+     * 2025-fix-v21: 添加显式 wake 调用，确保内核完全活跃后再执行恢复
      */
     private suspend fun handleDeviceWake() {
         if (callbacks?.isRunning != true) return
@@ -314,13 +321,24 @@ class ScreenStateManager(
             }
 
             lastDozeExitRecoveryAtMs = now
-            Log.i(TAG, "[Doze] Device wake - performing network bump + deep recovery")
+            Log.i(TAG, "[Doze] Device wake - step 1: wake core explicitly")
 
-            // 2025-fix-v14: Doze 退出时触发 NetworkBump，强制应用重建连接
-            // 参考 v2rayNG: 在网络状态变化时调用 setUnderlyingNetworks
+            // 2025-fix-v21: Step 1 - 显式唤醒内核
+            // 这是解决"息屏久了亮屏后 VPN 连着但没网络"的关键
+            // 必须在任何网络操作之前确保内核完全活跃
+            val wakeOk = runCatching { callbacks?.wakeCore("doze_exit") }.getOrNull() == true
+            if (!wakeOk) {
+                Log.w(TAG, "[Doze] wakeCore failed, but continuing with recovery")
+            }
+
+            // Step 2: 短暂等待让内核初始化完成
+            delay(100)
+
+            Log.i(TAG, "[Doze] Device wake - step 2: network bump")
             callbacks?.performNetworkBump("doze_exit")
 
-            // 深度恢复：唤醒 pause.Manager -> 关闭连接 -> 清除 DNS -> 重置网络栈
+            // Step 3: 深度恢复
+            Log.i(TAG, "[Doze] Device wake - step 3: deep recovery")
             try {
                 callbacks?.performNetworkRecovery(RECOVERY_MODE_DEEP, "doze_exit")
             } catch (e: Exception) {

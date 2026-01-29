@@ -2,6 +2,7 @@ package com.kunk.singbox.service.manager
 
 import android.content.Context
 import android.util.Log
+import com.kunk.singbox.core.BoxWrapperManager
 import com.kunk.singbox.ipc.VpnStateStore
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -9,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * 智能恢复引擎 - 完美方案第三层：决策性防御
@@ -38,6 +40,12 @@ class SmartRecoveryEngine private constructor(
 
         // 最大恢复频率（每分钟）
         private const val MAX_RECOVERY_PER_MINUTE = 6
+
+        // 流量模式检测阈值
+        private const val TRAFFIC_STALL_THRESHOLD_MS = 30_000L // 30秒无下载流量视为可能僵死
+        private const val TRAFFIC_CHECK_INTERVAL_MS = 10_000L // 每10秒检测一次流量
+
+
 
         @Volatile
         private var instance: SmartRecoveryEngine? = null
@@ -75,6 +83,14 @@ class SmartRecoveryEngine private constructor(
 
     // 是否已初始化
     private val initialized = AtomicBoolean(false)
+
+    // 流量模式检测状态
+    private val lastUploadBytes = AtomicLong(0L)
+    private val lastDownloadBytes = AtomicLong(0L)
+    private val uploadOnlyStartTime = AtomicLong(0L) // 开始只有上传没下载的时间点
+
+    // 定期任务
+    private var trafficMonitorJob: Job? = null
 
     /**
      * 应用行为数据
@@ -121,6 +137,9 @@ class SmartRecoveryEngine private constructor(
 
         // 启动决策循环
         startDecisionLoop()
+
+        // 启动流量模式监控
+        startTrafficMonitor()
     }
 
     /**
@@ -218,12 +237,9 @@ class SmartRecoveryEngine private constructor(
      */
     private fun detectStaleApps(appStates: Map<String, ConnectionHealthMonitor.ConnectionState>): List<String> {
         val staleApps = mutableListOf<String>()
-        val currentTime = System.currentTimeMillis()
 
         appStates.values.forEach { state ->
-            // 检查应用是否长时间无响应
-            val inactiveTime = currentTime - state.lastActiveTime
-            if (inactiveTime > 30000 && state.isActive) { // 30秒无响应
+            if (!state.isActive && state.connectionCount > 0) {
                 staleApps.add(state.packageName)
             }
         }
@@ -404,14 +420,114 @@ class SmartRecoveryEngine private constructor(
     }
 
     /**
+     * 启动流量模式监控
+     * 检测单向流量模式（只有上传没下载），这是 TCP 连接僵死的典型特征
+     */
+    @Suppress("LoopWithTooManyJumpStatements")
+    private fun startTrafficMonitor() {
+        trafficMonitorJob?.cancel()
+        trafficMonitorJob = scope.launch {
+            // 初始化流量基准
+            lastUploadBytes.set(BoxWrapperManager.getUploadTotal().coerceAtLeast(0))
+            lastDownloadBytes.set(BoxWrapperManager.getDownloadTotal().coerceAtLeast(0))
+
+            while (isActive) {
+                try {
+                    delay(TRAFFIC_CHECK_INTERVAL_MS)
+                    if (!VpnStateStore.getActive()) continue
+
+                    checkTrafficPattern()
+                } catch (_: CancellationException) {
+                    break
+                } catch (e: Exception) {
+                    Log.w(TAG, "Traffic monitor error", e)
+                }
+            }
+        }
+    }
+
+    /**
+     * 检查流量模式
+     * 检测两种异常模式：
+     * 1. 完全单向流量：只有上传没有下载
+     * 2. 严重不平衡：上传远大于下载（可能是请求发出去但响应很少）
+     */
+    private fun checkTrafficPattern() {
+        val currentUpload = BoxWrapperManager.getUploadTotal()
+        val currentDownload = BoxWrapperManager.getDownloadTotal()
+        val now = System.currentTimeMillis()
+
+        if (currentUpload < 0 || currentDownload < 0) return // 数据无效
+
+        val prevUpload = lastUploadBytes.getAndSet(currentUpload)
+        val prevDownload = lastDownloadBytes.getAndSet(currentDownload)
+
+        val uploadDelta = currentUpload - prevUpload
+        val downloadDelta = currentDownload - prevDownload
+
+        // 有正常的下载流量（下载量大于上传量的 10%），重置检测状态
+        if (downloadDelta > 0 && downloadDelta > uploadDelta / 10) {
+            uploadOnlyStartTime.set(0)
+            return
+        }
+
+        // 异常模式检测：有显著上传但下载很少或没有
+        // 场景：TG 发送消息请求但服务器无响应
+        if (uploadDelta > 50) { // 降低阈值，更敏感
+            val stallStart = uploadOnlyStartTime.get()
+            if (stallStart == 0L) {
+                // 开始记录异常流量
+                uploadOnlyStartTime.set(now)
+                Log.d(
+                    TAG,
+                    "[Traffic] Imbalanced pattern started (upload=$uploadDelta, download=$downloadDelta)"
+                )
+            } else {
+                val stallDuration = now - stallStart
+                if (stallDuration > TRAFFIC_STALL_THRESHOLD_MS) {
+                    // 异常流量超过阈值，可能是连接僵死
+                    Log.w(
+                        TAG,
+                        "[Traffic] Stall detected: imbalanced traffic for ${stallDuration}ms, " +
+                            "triggering recovery"
+                    )
+                    triggerTrafficStallRecovery()
+                    uploadOnlyStartTime.set(0) // 重置
+                }
+            }
+        }
+    }
+
+    /**
+     * 触发流量停滞恢复
+     */
+    private fun triggerTrafficStallRecovery() {
+        if (!shouldTriggerRecovery()) {
+            Log.d(TAG, "[Traffic] Recovery skipped (rate limit)")
+            return
+        }
+
+        Log.i(TAG, "[Traffic] Triggering idle connection cleanup due to traffic stall")
+        recoveryTimestamps.add(System.currentTimeMillis())
+        _recoveryTriggeredCount.value++
+
+        // 关闭空闲连接，强制应用重建
+        val closed = BoxWrapperManager.closeIdleConnections(30) // 关闭空闲超过30秒的连接
+        Log.i(TAG, "[Traffic] Closed $closed idle connections")
+    }
+
+
+    /**
      * 清理资源
      */
     fun cleanup() {
         Log.i(TAG, "Cleaning up SmartRecoveryEngine")
+        trafficMonitorJob?.cancel()
         scope.cancel()
         appBehaviorData.clear()
         decisionHistory.clear()
         recoveryTimestamps.clear()
+        uploadOnlyStartTime.set(0)
         initialized.set(false)
     }
 }

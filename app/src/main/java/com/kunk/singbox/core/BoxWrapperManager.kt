@@ -33,6 +33,10 @@ object BoxWrapperManager {
     private val _hasSelector = MutableStateFlow(false)
     val hasSelector: StateFlow<Boolean> = _hasSelector.asStateFlow()
 
+    // 2025-fix-v22: 暂停历史跟踪，用于判断是否需要强制关闭连接
+    @Volatile
+    private var lastResumeTimestamp: Long = 0L
+
     /**
      * 初始化 - 绑定 CommandServer
      * 在 CommandServer 创建后调用
@@ -156,6 +160,7 @@ object BoxWrapperManager {
         return try {
             Libbox.resumeService()
             _isPaused.value = false
+            lastResumeTimestamp = System.currentTimeMillis()
             Log.i(TAG, "resume() success")
             true
         } catch (e: Exception) {
@@ -173,6 +178,19 @@ object BoxWrapperManager {
         } catch (e: Exception) {
             _isPaused.value
         }
+    }
+
+    /**
+     * 检查是否最近从暂停状态恢复
+     * 用于判断是否需要在 NetworkBump 时强制关闭连接 (发送 RST)
+     *
+     * @param thresholdMs 阈值毫秒数，默认 30 秒
+     * @return true 如果在阈值时间内从暂停状态恢复过
+     */
+    fun wasPausedRecently(thresholdMs: Long = 30_000L): Boolean {
+        val timestamp = lastResumeTimestamp
+        if (timestamp == 0L) return false
+        return (System.currentTimeMillis() - timestamp) < thresholdMs
     }
 
     /**
@@ -199,6 +217,7 @@ object BoxWrapperManager {
         return try {
             server.wake()
             _isPaused.value = false
+            lastResumeTimestamp = System.currentTimeMillis()
             Log.i(TAG, "wake() success")
             true
         } catch (e: Exception) {
@@ -415,12 +434,23 @@ object BoxWrapperManager {
     /**
      * Manual network recovery (fallback)
      * Used when kernel-level recovery is not available
+     *
+     * 2025-fix-v21: 使用 wake() 替代 resume()
+     * wake() 通过 CommandServer.wake() 更彻底地唤醒内核，
+     * 而 resume() 只调用 Libbox.resumeService()
+     * 这解决了息屏久了亮屏后 VPN 连着但没网络的问题
      */
     private fun recoverNetworkManual(): Boolean {
         return try {
-            // Step 1: 唤醒
+            // Step 1: 唤醒 - 使用 wake() 而非 resume()
+            // wake() 会调用 CommandServer.wake()，更彻底地唤醒 sing-box 内核
             if (isPausedNow()) {
-                resume()
+                Log.i(TAG, "recoverNetworkManual: waking up paused service")
+                wake()
+            } else {
+                // 即使不处于暂停状态，也尝试唤醒，确保内核完全活跃
+                Log.i(TAG, "recoverNetworkManual: wake() for safety even if not paused")
+                wake()
             }
             // Step 2: 关闭连接
             resetAllConnections(true)

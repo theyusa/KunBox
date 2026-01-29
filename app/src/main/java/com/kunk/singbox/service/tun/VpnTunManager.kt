@@ -13,6 +13,7 @@ import android.provider.Settings
 import android.util.Log
 import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.model.AppSettings
+import com.kunk.singbox.model.TunStack
 import com.kunk.singbox.model.VpnAppMode
 import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.repository.LogRepository
@@ -113,6 +114,14 @@ class VpnTunManager(
             appMode = appModeName,
             allowlist = allowlist,
             blocklist = blocklist
+        )
+
+        VpnStateStore.saveTunSettings(
+            tunStack = (settings?.tunStack ?: TunStack.MIXED).name,
+            tunMtu = effectiveMtu,
+            autoRoute = settings?.autoRoute ?: false,
+            strictRoute = settings?.strictRoute ?: true,
+            proxyPort = settings?.proxyPort ?: 2080
         )
 
         // 安全设置

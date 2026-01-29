@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.6.7](https://github.com/roseforljh/KunBox/compare/v2.6.6...v2.6.7) (2026-01-29)
+
+
+### Bug Fixes
+
+* optimize network recovery for faster app reconnection after background ([f6b6c7a](https://github.com/roseforljh/KunBox/commit/f6b6c7a431aeeee87c2e416892859e83a0fa1cfa))
+* **recovery:** implement per-app connection state API for stale connection detection ([d8ad017](https://github.com/roseforljh/KunBox/commit/d8ad01718d6c0b3b57dee33071604647b6d278f2))
+* remove periodic idle connection cleanup to prevent TG reconnection issues ([f7f34b6](https://github.com/roseforljh/KunBox/commit/f7f34b66a27a84cb34ce18140d27789fe155f55d))
+* remove unused import and fix indentation ([37c31a8](https://github.com/roseforljh/KunBox/commit/37c31a89d0f9eb99aab9d77eb4579ce88f469fba))
+* **routing:** 优化规则集排序，特定服务规则优先于国家泛化规则 ([467360e](https://github.com/roseforljh/KunBox/commit/467360e1418b3b00150142c852efc730f7a9c681))
+* **vpn:** add data plane connectivity verification and auto-recovery escalation ([4e66000](https://github.com/roseforljh/KunBox/commit/4e660001117d2a0fc86e1c1d35989cb647be395f))
+* 一些优化 ([a671207](https://github.com/roseforljh/KunBox/commit/a67120767789fa0e4ee949c676edca079dd854f9))
+
 ## [2.6.6](https://github.com/roseforljh/KunBox/compare/v2.6.5...v2.6.6) (2026-01-27)
 
 

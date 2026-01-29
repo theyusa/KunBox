@@ -653,11 +653,32 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
             logRestartDebugInfo(settings)
 
-            if (useTun && SingBoxRemote.isRunning.value && !perAppSettingsChanged) {
-                if (tryHotReload(configResult.path)) return@launch
+            val tunSettingsChanged = VpnStateStore.hasTunSettingsChanged(
+                tunStack = settings.tunStack.name,
+                tunMtu = settings.tunMtu,
+                autoRoute = settings.autoRoute,
+                strictRoute = settings.strictRoute,
+                proxyPort = settings.proxyPort
+            )
+
+            val requiresFullRestart = perAppSettingsChanged || tunSettingsChanged
+
+            if (useTun && SingBoxRemote.isRunning.value && !requiresFullRestart) {
+                Log.i(TAG, "Settings are hot-reloadable, attempting kernel hot reload")
+                if (tryHotReload(configResult.path)) {
+                    Log.i(TAG, "Hot reload succeeded, settings applied without VPN reconnection")
+                    return@launch
+                }
+                Log.w(TAG, "Hot reload failed, falling back to full restart")
+            } else {
+                if (requiresFullRestart) {
+                    Log.i(
+                        TAG,
+                        "Full restart required: perAppChanged=$perAppSettingsChanged, tunChanged=$tunSettingsChanged"
+                    )
+                }
             }
 
-            Log.i(TAG, "Using traditional restart (perAppChanged=$perAppSettingsChanged)")
             performRestart(context, configResult.path, useTun, perAppSettingsChanged)
         }
     }

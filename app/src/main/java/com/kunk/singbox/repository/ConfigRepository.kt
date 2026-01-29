@@ -68,15 +68,6 @@ class ConfigRepository(private val context: Context) {
         private val REGEX_SANITIZE_UUID = Regex("(?i)uuid\\s*[:=]\\s*[^\\\\n]+")
         private val REGEX_SANITIZE_PASSWORD = Regex("(?i)password\\s*[:=]\\s*[^\\\\n]+")
         private val REGEX_SANITIZE_TOKEN = Regex("(?i)token\\s*[:=]\\s*[^\\\\n]+")
-        private val REGEX_INTERVAL_DIGITS = Regex("^\\d+$")
-        private val REGEX_INTERVAL_DECIMAL = Regex("^\\d+\\.\\d+$")
-        private val REGEX_INTERVAL_UNIT = Regex("^\\d+[smhd]$", RegexOption.IGNORE_CASE)
-        private val REGEX_IPV4 = Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$")
-        private val REGEX_IPV6 = Regex("^[0-9a-fA-F:]+$")
-        private val REGEX_ED_PARAM_START = Regex("""\?ed=\d+(&|$)""")
-        private val REGEX_ED_PARAM_MID = Regex("""&ed=\d+""")
-        private val REGEX_ED_EXTRACT = Regex("""[?&]ed=(\d+)""")
-        private val REGEX_SS_OLD_FORMAT = Regex("(.+):(.+)@(.+):(\\d+)")
         private val REGEX_WHITESPACE_DASH = Regex("[\\s\\-_]")
 
         private val TYPE_SAVED_PROFILES_DATA = object : TypeToken<SavedProfilesData>() {}.type
@@ -2345,12 +2336,6 @@ class ConfigRepository(private val context: Context) {
             null
         }
     }
-
-    /**
-     * 运行时修复 Outbound 配置 - 委托给 OutboundFixer
-     */
-    private fun fixOutboundForRuntime(outbound: Outbound): Outbound = OutboundFixer.fix(outbound)
-
     private fun buildOutboundForRuntime(outbound: Outbound): Outbound = OutboundFixer.buildForRuntime(context, outbound)
 
     /**
@@ -2503,16 +2488,20 @@ class ConfigRepository(private val context: Context) {
 
         // 对规则集进行排序：更具体的规则应该排在前面
         // 优先级：单节点/分组 > 代理 > 直连 > 拦截
-        // 同时，特定服务的规则（如 google, youtube）应该优先于泛化规则（如 geolocation-!cn）
+        // 同时，特定服务的规则（如 google, youtube, telegram）应该优先于泛化规则（如 cn, geolocation-!cn）
         // 并且只处理有效的规则集
         val sortedRuleSets = settings.ruleSets.filter { it.enabled && it.tag in validTags }.sortedWith(
             compareBy(
-                // 泛化规则排后面（如 geolocation-!cn, geolocation-cn）
+                // 泛化规则排后面
                 { ruleSet ->
                     when {
-                        ruleSet.tag.contains("geolocation-!cn") -> 100
-                        ruleSet.tag.contains("geolocation-cn") -> 99
-                        ruleSet.tag.contains("!cn") -> 98
+                        // geolocation 系列最后
+                        ruleSet.tag.contains("geolocation-!cn") -> 200
+                        ruleSet.tag.contains("geolocation-cn") -> 199
+                        ruleSet.tag.contains("!cn") -> 198
+                        // 国家/地区泛化规则（geosite-cn, geoip-cn 等）排在特定服务后面
+                        ruleSet.tag.matches(Regex("^geo(site|ip)-[a-z]{2}$")) -> 100
+                        // 特定服务规则优先
                         else -> 0
                     }
                 },
@@ -2729,10 +2718,13 @@ class ConfigRepository(private val context: Context) {
                 return listOf(dnsRouteTo(proxyServerTag, rule))
             }
 
+            // 2025-fix: 只对 A/AAAA 走 fakeip，不再为非 A/AAAA 生成额外规则
+            // 原因：
+            // 1. 非 A/AAAA 查询（HTTPS/SVCB/SRV 等）会走 DNS final server，无需单独规则
+            // 2. 之前的实现会生成两条规则，第二条没有 queryType 限制，导致规则冲突
+            // 3. HTTPS/SVCB 记录查询走代理 DNS 链路会增加图片加载延迟
             return listOf(
-                dnsRouteTo("fakeip-dns", rule.copy(queryType = fakeipQueryTypes)),
-                // 非 A/AAAA 查询（例如 HTTPS/SVCB）必须走真实解析器，fakeip 只支持 A/AAAA
-                dnsRouteTo(proxyFinalServerTag, rule)
+                dnsRouteTo("fakeip-dns", rule.copy(queryType = fakeipQueryTypes))
             )
         }
 
@@ -2749,22 +2741,21 @@ class ConfigRepository(private val context: Context) {
                 }
         }
 
-        fun dnsBehaviorForOutboundMode(mode: RuleSetOutboundMode): Pair<String?, Boolean> {
-            // Returns (serverTag, isReject)
-            // 注意：开启 Fake DNS 时，DNS 规则里不应直接把所有查询都 route 到 fakeip。
-            // fakeip 仅支持 A/AAAA，其他类型（例如 HTTPS/SVCB）必须走真实解析器，否则会导致解析超时。
-            return when (mode) {
-                RuleSetOutboundMode.DIRECT -> directServerTag to false
-                RuleSetOutboundMode.BLOCK -> null to true
-                RuleSetOutboundMode.PROXY,
-                RuleSetOutboundMode.NODE,
-                RuleSetOutboundMode.PROFILE -> proxyFinalServerTag to false
-            }
-        }
+        // 2025-fix: 移除未使用的 dnsBehaviorForOutboundMode 函数（死代码）
 
         // 关键：代理节点服务器域名必须使用直连 DNS 解析，避免循环依赖
         // outbound: ["any"] 匹配所有 outbound 服务器的域名
         dnsRules.add(dnsRouteTo("dns-bootstrap", DnsRule(outboundRaw = listOf("any"))))
+
+        // 2025-fix: 拒绝 HTTPS/SVCB 记录查询，加速图片加载
+        // 原因：
+        // 1. HTTPS/SVCB 记录用于发现 HTTP/3 (QUIC) 支持
+        // 2. 当 Block QUIC 开启时，HTTPS/SVCB 查询完全无用
+        // 3. 这些查询走代理 DNS 链路会显著增加首次连接延迟
+        // 4. 拒绝后浏览器/App 会直接回退到 A/AAAA 记录
+        if (settings.blockQuic) {
+            dnsRules.add(dnsReject(DnsRule(queryType = listOf("HTTPS", "SVCB"))))
+        }
 
         // 0. Bootstrap DNS (必须是 IP，用于解析其他 DoH/DoT 域名)
         // 使用多个 IP 以提高可靠性
@@ -2778,15 +2769,6 @@ class ConfigRepository(private val context: Context) {
                 strategy = bootstrapStrategy
             )
         )
-        dnsServers.add(
-            DnsServer(
-                tag = "dns-bootstrap-backup",
-                address = "119.29.29.29", // DNSPod IP
-                detour = "direct",
-                strategy = bootstrapStrategy
-            )
-        )
-        // 也可以使用一个多地址的 Server (如果内核支持)
 
         // 1. 本地 DNS
         val localDnsAddr = settings.localDns.takeIf { it.isNotBlank() } ?: "https://dns.alidns.com/dns-query"
@@ -2830,31 +2812,11 @@ class ConfigRepository(private val context: Context) {
             )
         }
 
-        // 3. 备用公共 DNS (直接连接，用于 bootstrap 和兜底)
-        dnsServers.add(
-            DnsServer(
-                tag = "google-dns",
-                address = "8.8.8.8",
-                detour = "direct"
-            )
-        )
-        dnsServers.add(
-            DnsServer(
-                tag = "cloudflare-dns",
-                address = "1.1.1.1",
-                detour = "direct"
-            )
-        )
-
-        // 4. 备用国内 DNS
-        dnsServers.add(
-            DnsServer(
-                tag = "dnspod",
-                address = "119.29.29.29",
-                detour = "direct",
-                strategy = mapDnsStrategy(settings.directDnsStrategy)
-            )
-        )
+        // 2025-fix: 移除未使用的备用 DNS 服务器 (google-dns, cloudflare-dns, dnspod)
+        // 原因：
+        // 1. 这些服务器定义了但从未被任何 DNS 规则引用
+        // 2. 减少配置体积和内核解析开销
+        // 3. 真正的 bootstrap 已经使用 223.5.5.5 和 119.29.29.29
 
         // 自定义域名规则的 DNS 处理（优先级最高）
         val customDomainRulesForDns = settings.customRules
@@ -3042,7 +3004,9 @@ class ConfigRepository(private val context: Context) {
         }
 
         // Fake IP 排除规则: 证书固定服务必须使用真实 DNS，避免 TLS 证书验证失败
-        // 这些域名使用 Certificate Pinning，如果返回 Fake IP 会导致 Google 登录等服务报证书错误
+        // 2025-fix: 精简排除列表，只保留真正使用 Certificate Pinning 的认证域名
+        // 移除 CDN 域名（googleusercontent.com、gstatic.com 等），它们走 Fake IP 完全没问题
+        // 之前的排除列表太激进，导致图片 CDN 也走远程 DNS，增加延迟
         if (settings.fakeDnsEnabled) {
             val fakeIpExcludeDomains = buildList {
                 // 用户自定义排除列表
@@ -3052,25 +3016,17 @@ class ConfigRepository(private val context: Context) {
                     .filter { it.isNotEmpty() }
                     .forEach { add(it) }
 
-                // 默认排除列表 (仅当用户列表中没有时才添加)
+                // 默认排除列表 - 只保留真正需要的认证域名
                 val defaultExcludes = listOf(
-                    // Google 服务 (OAuth 登录、API 认证)
-                    "googleapis.com",
-                    "google.com",
-                    "googleusercontent.com",
-                    "gstatic.com",
-                    "ggpht.com",
-                    // Apple 服务 (系统服务、App Store)
-                    "apple.com",
-                    "icloud.com",
-                    "cdn-apple.com",
-                    "mzstatic.com",
-                    // Microsoft 服务 (账户认证)
-                    "microsoft.com",
-                    "microsoftonline.com",
-                    "live.com",
-                    "office.com",
-                    "office365.com",
+                    // Google OAuth/登录 (真正使用 Certificate Pinning)
+                    "accounts.google.com",
+                    "oauth.googleusercontent.com",
+                    // Apple 认证服务
+                    "appleid.apple.com",
+                    "idmsa.apple.com",
+                    // Microsoft 认证
+                    "login.microsoftonline.com",
+                    "login.live.com",
                     // 本地/局域网
                     "lan",
                     "local",
@@ -3082,8 +3038,9 @@ class ConfigRepository(private val context: Context) {
             }.distinct()
 
             if (fakeIpExcludeDomains.isNotEmpty()) {
-                // force real IP for pinned domains
-                dnsRules.add(dnsRouteTo("remote", DnsRule(domainSuffix = fakeIpExcludeDomains)))
+                // 2025-fix: 使用 domain 精确匹配，而不是 domainSuffix
+                // 因为列表中的是完整域名（如 accounts.google.com），不是后缀
+                dnsRules.add(dnsRouteTo("remote", DnsRule(domain = fakeIpExcludeDomains)))
             }
         }
 
@@ -3500,30 +3457,27 @@ class ConfigRepository(private val context: Context) {
         val customDomainRules = buildCustomDomainRules(settings, selectorTag, outbounds, nodeTagResolver)
         val defaultRuleCatchAll = buildDefaultRules(settings, selectorTag)
 
-        val needSniff = hasCustomDomainRouting || hasRuleSetRouting
+        // 2025-fix: 只在规则模式下启用 sniff，全局代理/直连不需要
+        // 原因：
+        // 1. sniff 需要等待首个数据包识别协议，增加延迟
+        // 2. 全局代理时所有流量都走代理，不需要域名分流
+        // 3. 只有规则模式需要 sniff 来匹配域名规则
+        val needSniff = settings.routingMode == RoutingMode.RULE &&
+            (hasCustomDomainRouting || hasRuleSetRouting)
         val sniffRule = if (needSniff) listOf(RouteRule(action = "sniff")) else emptyList()
         val hijackDnsRule = listOf(RouteRule(protocolRaw = listOf("dns"), action = "hijack-dns"))
 
         val allRules = when (settings.routingMode) {
-            RoutingMode.GLOBAL_PROXY -> sniffRule + hijackDnsRule
-            RoutingMode.GLOBAL_DIRECT -> sniffRule + hijackDnsRule + listOf(RouteRule(outbound = "direct"))
+            // 2025-fix: 全局模式不再添加 sniffRule
+            RoutingMode.GLOBAL_PROXY -> hijackDnsRule
+            RoutingMode.GLOBAL_DIRECT -> hijackDnsRule + listOf(RouteRule(outbound = "direct"))
             RoutingMode.RULE -> {
                 sniffRule + hijackDnsRule + quicRule + bypassLanRules +
                     customDomainRules + appRoutingRules + customRuleSetRules + defaultRuleCatchAll
             }
         }
 
-        // 记录所有生成的路由规则
-        allRules.forEachIndexed { index, rule ->
-            val ruleDesc = buildString {
-                rule.protocolRaw?.let { append("protocol=$it ") }
-                rule.ruleSet?.let { append("ruleSet=$it ") }
-                rule.packageName?.let { append("pkg=$it ") }
-                rule.domain?.let { append("domain=$it ") }
-                rule.inbound?.let { append("inbound=$it ") }
-                append("-> ${rule.outbound}")
-            }
-        }
+        // 2025-fix: 移除未使用的规则日志循环（死代码）
 
         return RouteConfig(
             ruleSet = validRuleSets,
