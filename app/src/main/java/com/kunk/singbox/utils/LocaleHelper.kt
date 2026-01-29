@@ -58,6 +58,7 @@ object LocaleHelper {
             AppLanguage.SYSTEM -> "跟随系统"
             AppLanguage.CHINESE -> "简体中文"
             AppLanguage.ENGLISH -> "English"
+            AppLanguage.TURKISH -> "Türkçe"
         }
     }
 
@@ -69,3 +70,4 @@ object LocaleHelper {
         return setLocale(context, language)
     }
 }
+
