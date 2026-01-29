@@ -650,5 +650,9 @@
     <string name="title_auto_check_update">自动检查更新</string>
     <string name="subtitle_auto_check_update">启动应用时自动检查新版本</string>
 
+    <string name="common_gallery">相册</string>
+    <string name="common_flash">闪光灯</string>
+    <string name="qr_scanner_hint">将二维码放入框内，即可自动扫描</string>
+    
 
 </resources>
