@@ -129,22 +129,19 @@ fun SettingsScreen(
     }
 
     if (showLanguageDialog) {
-        SingleSelectDialog(
-            title = stringResource(R.string.settings_app_language),
-            options = AppLanguage.entries.map { stringResource(it.displayNameRes) },
-            selectedIndex = AppLanguage.entries.indexOf(settings.appLanguage),
-            onSelect = { index ->
-                viewModel.setAppLanguage(AppLanguage.entries[index])
-                showLanguageDialog = false
-                // 提示用户需要重启应用
-                Toast.makeText(
-                    context,
-                    context.getString(R.string.settings_restart_needed),
-                    Toast.LENGTH_LONG
-                ).show()
-            },
-            onDismiss = { showLanguageDialog = false }
-        )
+    val activity = LocalContext.current as? Activity
+    
+    SingleSelectDialog(
+        title = stringResource(R.string.settings_app_language),
+        options = AppLanguage.entries.map { stringResource(it.displayNameRes) },
+        selectedIndex = AppLanguage.entries.indexOf(settings.appLanguage),
+        onSelect = { index ->
+            viewModel.setAppLanguage(AppLanguage.entries[index])
+            showLanguageDialog = false
+            activity?.recreate()
+        },
+        onDismiss = { showLanguageDialog = false }
+    )
     }
 
     // 导出状态对话框
