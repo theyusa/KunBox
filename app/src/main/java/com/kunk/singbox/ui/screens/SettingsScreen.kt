@@ -130,6 +130,8 @@ fun SettingsScreen(
     }
 
     if (showLanguageDialog) {
+
+    if (showLanguageDialog) {
         val activity = LocalContext.current as? Activity
         
         SingleSelectDialog(
@@ -137,8 +139,14 @@ fun SettingsScreen(
             options = AppLanguage.entries.map { stringResource(it.displayNameRes) },
             selectedIndex = AppLanguage.entries.indexOf(settings.appLanguage),
             onSelect = { index ->
-                viewModel.setAppLanguage(AppLanguage.entries[index])
+                val selectedLanguage = AppLanguage.entries[index]
+                viewModel.setAppLanguage(selectedLanguage)
                 showLanguageDialog = false
+                
+                if (selectedLanguage == AppLanguage.SYSTEM) {
+                    val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+                    prefs.edit().remove("app_language_cache").apply()
+                }
                 
                 scope.launch {
                     kotlinx.coroutines.delay(150)
