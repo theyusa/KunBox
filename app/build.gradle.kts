@@ -254,7 +254,7 @@ android {
             useSupportLibrary = true
         }
 
-        resConfigs("zh", "en") // 仅保留中文和英文资源，减少体积
+        resConfigs("zh", "en", "tr") // 仅保留中文和英文资源，减少体积
     }
 
     signingConfigs {
