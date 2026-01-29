@@ -17,6 +17,7 @@ object LocaleHelper {
             AppLanguage.SYSTEM -> getSystemLocale()
             AppLanguage.CHINESE -> Locale.SIMPLIFIED_CHINESE
             AppLanguage.ENGLISH -> Locale.ENGLISH
+            AppLanguage.TURKISH -> Locale("tr")
         }
 
         return updateResources(context, locale)
@@ -70,4 +71,5 @@ object LocaleHelper {
         return setLocale(context, language)
     }
 }
+
 
