@@ -128,7 +128,6 @@ fun SettingsScreen(
         )
     }
 
-    //
     if (showLanguageDialog) {
         val languageOptions = AppLanguage.entries
         SingleSelectDialog(
@@ -144,6 +143,7 @@ fun SettingsScreen(
             onDismiss = { showLanguageDialog = false }
         )
     }
+    
 
         
 
