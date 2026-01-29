@@ -27,12 +27,12 @@ object LocaleHelper {
      * 获取系统默认语言
      */
     private fun getSystemLocale(): Locale {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            LocaleList.getDefault().get(0)
-        } else {
-            @Suppress("DEPRECATION")
-            Locale.getDefault()
-        }
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        android.content.res.Resources.getSystem().configuration.locales[0]
+    } else {
+        @Suppress("DEPRECATION")
+        android.content.res.Resources.getSystem().configuration.locale
+    }
     }
 
     /**
@@ -71,4 +71,5 @@ object LocaleHelper {
         return setLocale(context, language)
     }
 }
+
 
