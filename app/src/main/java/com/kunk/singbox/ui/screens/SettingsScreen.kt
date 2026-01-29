@@ -128,7 +128,7 @@ fun SettingsScreen(
         )
     }
 
-    if (showLanguageDialog) {
+        if (showLanguageDialog) {
         SingleSelectDialog(
             title = stringResource(R.string.settings_app_language),
             options = AppLanguage.entries.map { stringResource(it.displayNameRes) },
@@ -136,16 +136,12 @@ fun SettingsScreen(
             onSelect = { index ->
                 viewModel.setAppLanguage(AppLanguage.entries[index])
                 showLanguageDialog = false
-                // 提示用户需要重启应用
-                Toast.makeText(
-                    context,
-                    context.getString(R.string.settings_restart_needed),
-                    Toast.LENGTH_LONG
-                ).show()
+                (context as? android.app.Activity)?.recreate()
             },
             onDismiss = { showLanguageDialog = false }
         )
     }
+
 
     // 导出状态对话框
     ExportProgressDialog(
