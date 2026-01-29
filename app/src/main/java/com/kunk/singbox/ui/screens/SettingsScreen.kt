@@ -139,6 +139,8 @@ fun SettingsScreen(
         onSelect = { index ->
             viewModel.setAppLanguage(AppLanguage.entries[index])
             showLanguageDialog = false
+            
+            
             activity?.recreate()
         },
         onDismiss = { showLanguageDialog = false }
