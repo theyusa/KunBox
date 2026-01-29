@@ -235,7 +235,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         if (_isConnectivityLoading.value) return
         viewModelScope.launch {
             _isConnectivityLoading.value = true
-            _resultTitle.value = "连通性检查"
+            _resultTitle.value = context.getString(R.string.diagnostics_connectivity)
             try {
                 // Dual-channel diagnostics:
                 // - DIRECT: reflects local network quality (this app is excluded from TUN in VPN mode)
