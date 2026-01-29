@@ -2488,16 +2488,20 @@ class ConfigRepository(private val context: Context) {
 
         // 对规则集进行排序：更具体的规则应该排在前面
         // 优先级：单节点/分组 > 代理 > 直连 > 拦截
-        // 同时，特定服务的规则（如 google, youtube）应该优先于泛化规则（如 geolocation-!cn）
+        // 同时，特定服务的规则（如 google, youtube, telegram）应该优先于泛化规则（如 cn, geolocation-!cn）
         // 并且只处理有效的规则集
         val sortedRuleSets = settings.ruleSets.filter { it.enabled && it.tag in validTags }.sortedWith(
             compareBy(
-                // 泛化规则排后面（如 geolocation-!cn, geolocation-cn）
+                // 泛化规则排后面
                 { ruleSet ->
                     when {
-                        ruleSet.tag.contains("geolocation-!cn") -> 100
-                        ruleSet.tag.contains("geolocation-cn") -> 99
-                        ruleSet.tag.contains("!cn") -> 98
+                        // geolocation 系列最后
+                        ruleSet.tag.contains("geolocation-!cn") -> 200
+                        ruleSet.tag.contains("geolocation-cn") -> 199
+                        ruleSet.tag.contains("!cn") -> 198
+                        // 国家/地区泛化规则（geosite-cn, geoip-cn 等）排在特定服务后面
+                        ruleSet.tag.matches(Regex("^geo(site|ip)-[a-z]{2}$")) -> 100
+                        // 特定服务规则优先
                         else -> 0
                     }
                 },

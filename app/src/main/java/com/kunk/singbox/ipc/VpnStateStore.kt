@@ -24,6 +24,7 @@ object VpnStateStore {
     private const val KEY_LAST_APP_MODE = "last_app_mode"
     private const val KEY_LAST_ALLOWLIST_HASH = "last_allowlist_hash"
     private const val KEY_LAST_BLOCKLIST_HASH = "last_blocklist_hash"
+    private const val KEY_LAST_TUN_SETTINGS_HASH = "last_tun_settings_hash"
 
     // Sender-side throttle for ACTION_PREPARE_RESTART to reduce repeated network oscillations.
     private const val KEY_LAST_PREPARE_RESTART_AT_MS = "last_prepare_restart_at_ms"
@@ -122,6 +123,44 @@ object VpnStateStore {
                 "lastAllowHash=$lastAllowHash, currentAllowHash=$currentAllowHash, changed=$changed"
         )
         return changed
+    }
+
+    fun saveTunSettings(tunStack: String, tunMtu: Int, autoRoute: Boolean, strictRoute: Boolean, proxyPort: Int) {
+        val hash = computeTunSettingsHash(tunStack, tunMtu, autoRoute, strictRoute, proxyPort)
+        mmkv.encode(KEY_LAST_TUN_SETTINGS_HASH, hash)
+    }
+
+    fun hasTunSettingsChanged(
+        tunStack: String,
+        tunMtu: Int,
+        autoRoute: Boolean,
+        strictRoute: Boolean,
+        proxyPort: Int
+    ): Boolean {
+        val lastHash = mmkv.decodeInt(KEY_LAST_TUN_SETTINGS_HASH, 0)
+        if (lastHash == 0) {
+            Log.d("VpnStateStore", "hasTunSettingsChanged: no previous hash, returning false")
+            return false
+        }
+        val currentHash = computeTunSettingsHash(tunStack, tunMtu, autoRoute, strictRoute, proxyPort)
+        val changed = lastHash != currentHash
+        Log.d("VpnStateStore", "hasTunSettingsChanged: lastHash=$lastHash, currentHash=$currentHash, changed=$changed")
+        return changed
+    }
+
+    private fun computeTunSettingsHash(
+        tunStack: String,
+        tunMtu: Int,
+        autoRoute: Boolean,
+        strictRoute: Boolean,
+        proxyPort: Int
+    ): Int {
+        var result = tunStack.hashCode()
+        result = 31 * result + tunMtu
+        result = 31 * result + autoRoute.hashCode()
+        result = 31 * result + strictRoute.hashCode()
+        result = 31 * result + proxyPort
+        return result
     }
 
     /**

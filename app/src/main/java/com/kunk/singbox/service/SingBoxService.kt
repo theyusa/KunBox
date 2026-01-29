@@ -1889,6 +1889,7 @@ class SingBoxService : VpnService() {
                         }
 
                         requestNotificationUpdate(force = true)
+                        requestRemoteStateUpdate(force = true)
                     }
                 }
             }
