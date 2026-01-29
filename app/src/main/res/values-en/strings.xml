@@ -589,7 +589,13 @@
     <string name="rulesets_selection_mode">%d selected</string>
     
     <string name="title_auto_check_update">Auto-check for updates</string>
-<string name="subtitle_auto_check_update">Automatically check for new versions on startup</string>
+    <string name="subtitle_auto_check_update">Automatically check for new versions on startup</string>
+
+    
+    <string name="language_chinese">Chinese</string>
+    <string name="language_english">English</string>
+    <string name="language_turkish">Turkish</string>
+    
     
 
 </resources>
