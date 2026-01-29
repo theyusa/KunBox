@@ -137,11 +137,15 @@ fun SettingsScreen(
         options = AppLanguage.entries.map { stringResource(it.displayNameRes) },
         selectedIndex = AppLanguage.entries.indexOf(settings.appLanguage),
         onSelect = { index ->
-            viewModel.setAppLanguage(AppLanguage.entries[index])
+            
+            viewModel.setAppLanguage(AppLanguage.entries[index]
+        
             showLanguageDialog = false
             
-            
-            activity?.recreate()
+            scope.launch 
+                kotlinx.coroutines.delay(150)
+                activity?.recreate()
+            }
         },
         onDismiss = { showLanguageDialog = false }
     )
