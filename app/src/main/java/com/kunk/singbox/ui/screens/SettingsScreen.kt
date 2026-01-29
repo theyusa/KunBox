@@ -129,7 +129,6 @@ fun SettingsScreen(
         )
     }
 
-    if (showLanguageDialog) {
 
     if (showLanguageDialog) {
         val activity = LocalContext.current as? Activity
