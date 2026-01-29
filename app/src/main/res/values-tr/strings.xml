@@ -1,0 +1,595 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">KunBox</string>
+
+    <string name="shortcut_toggle">Değiştir</string>
+    <string name="shortcut_toggle_short">Değiştir</string>
+    <string name="shortcut_toggle_vpn">VPN Aç/Kapat</string>
+    <string name="shortcut_toggle_vpn_short">Switch</string>
+    <string name="shortcut_switch_node">Node Değiştir</string>
+    <string name="shortcut_switch_node_short">Node</string>
+    <string name="shortcut_scan">QR Kod Tara</string>
+    <string name="shortcut_scan_short">Tara</string>
+
+    <string name="update_channel_name">Versiyon Güncelleme</string>
+    <string name="update_channel_description">Yeni versiyon bildirimleri</string>
+    <string name="update_notification_title">Yeni Versiyon Mevcut</string>
+    <string name="update_notification_content">KunBox %s yayınlandı, detaylar için tıklayın</string>
+
+    <string name="common_confirm">Onayla</string>
+    <string name="common_cancel">İptal</string>
+    <string name="common_save">Kaydet</string>
+    <string name="common_delete">Sil</string>
+    <string name="common_edit">Düzenle</string>
+    <string name="common_edit_title">Düzenle: %s</string>
+    <string name="common_select_title">Seç: %s</string>
+    <string name="common_add">Ekle</string>
+    <string name="common_ok">Tamam</string>
+    <string name="common_close">Kapat</string>
+    <string name="common_back">Geri</string>
+    <string name="common_retry">Tekrar Dene</string>
+    <string name="common_search">Ara</string>
+    <string name="common_refresh">Yenile</string>
+    <string name="common_export">Export</string>
+    <string name="common_import">Import</string>
+    <string name="common_update">Güncelle</string>
+    <string name="common_enable">Etkinleştir</string>
+    <string name="common_disable">Devre Dışı Bırak</string>
+    <string name="common_enabled">Etkin</string>
+    <string name="common_disabled">Devre Dışı</string>
+    <string name="common_select_all">Tümünü Seç</string>
+    <string name="common_clear">Temizle</string>
+    <string name="common_copy">Kopyala</string>
+    <string name="common_latency">Latency</string>
+    <string name="common_timeout">Timeout</string>
+    <string name="common_loading">Yükleniyor...</string>
+    <string name="common_unknown">Bilinmiyor</string>
+    <string name="common_none">Yok</string>
+    <string name="common_all">Hepsi</string>
+    <string name="common_yes">Evet</string>
+    <string name="common_no">Hayır</string>
+    <string name="common_auto">Auto</string>
+    <string name="common_menu">Menü</string>
+    <string name="common_more_options">Daha Fazla</string>
+    <string name="common_view">Görüntüle</string>
+    <string name="common_downloaded">İndirildi</string>
+    <string name="common_ready">Hazır</string>
+    <string name="common_system">Sistem</string>
+    <string name="common_background">Background</string>
+    <string name="common_inbound">Inbound</string>
+    <string name="common_outbound">Outbound</string>
+    <string name="splash_tagline">Güvenli · Hızlı · Stabil</string>
+
+    <string name="connection_idle">Bağlı Değil</string>
+    <string name="connection_connecting">Bağlanıyor...</string>
+    <string name="connection_connected">Bağlandı</string>
+    <string name="connection_disconnecting">Bağlantı Kesiliyor...</string>
+    <string name="connection_error">Hata</string>
+    <string name="connection_failed_check_config">Bağlantı hatası, konfigürasyonu kontrol edin</string>
+
+    <string name="dashboard_routing_mode">Routing Modu</string>
+    <string name="dashboard_update_subscription">Subscription Güncelle</string>
+    <string name="dashboard_update_subscription_confirm">Tüm Subscription\'lar güncellensin mi?</string>
+    <string name="dashboard_latency_test">Latency Testi</string>
+    <string name="dashboard_latency_test_confirm">Tüm node\'lar için latency testi yapılsın mı?</string>
+    <string name="dashboard_start_test">Testi Başlat</string>
+    <string name="dashboard_logs">Loglar</string>
+    <string name="dashboard_diagnostics">Network Tanılama</string>
+    <string name="dashboard_select_profile">Profile Seç</string>
+    <string name="dashboard_select_node">Node Seç</string>
+    <string name="dashboard_no_profile_selected">Profile seçilmedi</string>
+    <string name="dashboard_no_node_selected">Node seçilmedi</string>
+    <string name="dashboard_no_profiles_available">Kullanılabilir Profile yok</string>
+    <string name="dashboard_no_nodes_available">Kullanılabilir Node yok</string>
+    <string name="dashboard_test_complete">Test Tamamlandı</string>
+    <string name="dashboard_config_generation_failed">Config oluşturulamadı</string>
+    <string name="dashboard_system_vpn_running">Başka bir VPN aktif görünüyor</string>
+
+    <string name="settings_title">Ayarlar</string>
+    <string name="settings_general">Genel</string>
+    <string name="settings_network">Network</string>
+    <string name="settings_tools">Araçlar</string>
+    <string name="settings_data_management">Veri Yönetimi</string>
+    <string name="settings_about">Hakkında</string>
+    <string name="settings_app_theme">Tema</string>
+    <string name="settings_app_language">Dil</string>
+    <string name="settings_connection_startup">Bağlantı ve Başlangıç</string>
+    <string name="settings_connection_startup_subtitle">Auto-connect, yeniden bağlanma</string>
+    <string name="settings_routing">Routing Ayarları</string>
+    <string name="settings_routing_subtitle">Mod, Rule Set, varsayılan kurallar</string>
+    <string name="settings_dns">DNS Ayarları</string>
+    <string name="settings_dns_auto">Auto</string>
+    <string name="settings_local_dns">Local DNS</string>
+    <string name="settings_remote_dns">Remote DNS</string>
+    <string name="settings_tun_vpn">TUN / VPN</string>
+    <string name="settings_tun_vpn_subtitle">Stack, MTU, Per-app Proxy</string>
+    <string name="settings_update_rulesets">Rule Set Güncelle</string>
+    <string name="settings_update_rulesets_subtitle">Reklam ve routing kurallarını güncelle</string>
+    <string name="settings_updating">İndiriliyor...</string>
+    <string name="settings_preparing_update">Hazırlanıyor...</string>
+    <string name="settings_update_success">Güncelleme başarılı</string>
+    <string name="settings_update_failed">Güncelleme başarısız</string>
+    <string name="settings_ruleset_update_success">Rule Set başarıyla güncellendi</string>
+    <string name="settings_ruleset_update_failed">Rule Set güncellemesi başarısız</string>
+    <string name="settings_ruleset_auto_update">Otomatik Rule Set Güncelleme</string>
+    <string name="settings_ruleset_auto_update_enabled">Her %d dakikada bir otomatik güncelle</string>
+    <string name="settings_ruleset_auto_update_disabled">Remote Rule Set\'leri otomatik güncellemek için açın</string>
+    <string name="settings_update_interval">Güncelleme Aralığı</string>
+    <string name="settings_update_interval_value">%d Dakika</string>
+    <string name="settings_update_interval_min">Minimum aralık 15 dakikadır</string>
+    <string name="settings_debug_mode">Debug Modu</string>
+    <string name="settings_debug_mode_subtitle">Detaylı log tutar (Servis restart gerektirir)</string>
+    <string name="settings_logs">Log Kayıtları</string>
+    <string name="settings_network_diagnostics">Network Tanılama</string>
+    <string name="settings_export_data">Veriyi Dışa Aktar</string>
+    <string name="settings_export_data_subtitle">Tüm config ve ayarları yedekle</string>
+    <string name="settings_import_data">Veriyi İçe Aktar</string>
+    <string name="settings_import_data_subtitle">Yedek dosyasından geri yükle</string>
+    <string name="settings_about_app">Uygulama Hakkında</string>
+    <string name="settings_about_kunbox">KunBox Hakkında</string>
+    <string name="settings_restart_needed">Ayarların etkili olması için restart gerekiyor</string>
+
+    <string name="connection_settings_title">Bağlantı ve Başlangıç</string>
+    <string name="connection_settings_auto_connect">Auto-Connect</string>
+    <string name="connection_settings_auto_connect_subtitle">Uygulama açıldığında VPN\'i başlat</string>
+    <string name="connection_settings_hide_recent">Son görevlerde gizle</string>
+    <string name="connection_settings_hide_recent_subtitle">Uygulama son kullanılanlar listesinde görünmez</string>
+    <string name="connection_settings_proxy_port">Proxy Port</string>
+    <string name="connection_settings_proxy_port_subtitle">Yerel Mixed Port</string>
+    <string name="connection_settings_allow_lan">LAN Bağlantısına İzin Ver</string>
+    <string name="connection_settings_allow_lan_subtitle">Ağdaki diğer cihazlar bu proxy\'yi kullanabilir</string>
+    <string name="connection_settings_append_http_proxy">HTTP Proxy\'yi VPN\'e ekle</string>
+    <string name="connection_settings_append_http_proxy_subtitle">Local HTTP proxy\'yi sistem proxy\'si yap (Android 10+)</string>
+
+    <string name="routing_settings_title">Routing Ayarları</string>
+    <string name="routing_settings_mode">Routing Modu</string>
+    <string name="routing_settings_default_rule">Default Rule</string>
+    <string name="routing_settings_latency_test_method">Latency Test Metodu</string>
+    <string name="routing_settings_latency_test_url">Latency Test URL</string>
+    <string name="routing_settings_latency_test_timeout">Test Timeout Süresi</string>
+    <string name="routing_settings_latency_test_timeout_s">%d saniye</string>
+    <string name="routing_settings_subscription_timeout">Subscription Timeout</string>
+    <string name="routing_settings_subscription_timeout_subtitle">Zaman aşımında güncelleme durdurulur</string>
+    <string name="routing_settings_github_mirror">GitHub Mirror Hızlandırıcı</string>
+    <string name="routing_settings_block_ads">Reklamları Engelle</string>
+    <string name="routing_settings_block_ads_subtitle">Yaygın reklam domainlerini engelle</string>
+    <string name="routing_settings_block_quic">QUIC Blokla</string>
+    <string name="routing_settings_block_quic_subtitle">Stabil olmayan ağlarda QUIC\'i kapatmak HTTP/3 performansını etkileyebilir</string>
+    <string name="routing_settings_bypass_lan">Bypass LAN</string>
+    <string name="routing_settings_bypass_lan_subtitle">Yerel ağ trafiği proxy üzerinden geçmez</string>
+    <string name="routing_settings_app_routing">App Routing</string>
+    <string name="routing_settings_app_routing_rules">%d Kural</string>
+    <string name="routing_settings_domain_routing">Domain Routing</string>
+    <string name="routing_settings_manage_rulesets">Rule Set Yönetimi</string>
+
+    <string name="tun_settings_title">TUN / VPN Ayarları</string>
+    <string name="tun_settings_enable">TUN Etkinleştir</string>
+    <string name="tun_settings_enable_subtitle">Trafiği yakalamak için VPN arayüzü oluştur</string>
+    <string name="tun_settings_stack">Stack</string>
+    <string name="tun_settings_mtu">MTU</string>
+    <string name="tun_settings_mtu_auto">Auto MTU</string>
+    <string name="tun_settings_mtu_auto_subtitle">Wi-Fi 1480, Hücresel 1400; QUIC uyumu için otomatiktir</string>
+    <string name="tun_settings_interface_name">Interface Adı</string>
+    <string name="tun_settings_auto_route">Auto Route</string>
+    <string name="tun_settings_auto_route_subtitle">Sistem routing tablosunu otomatik yapılandır</string>
+    <string name="tun_settings_endpoint_independent_nat">Bağımsız NAT</string>
+    <string name="tun_settings_endpoint_independent_nat_subtitle">P2P bağlantıları iyileştirir (Full Cone)</string>
+    <string name="tun_settings_strict_route">Strict Route</string>
+    <string name="tun_settings_strict_route_subtitle">DNS sızıntısını önler</string>
+    <string name="tun_settings_route_mode">Yakalama Modu</string>
+    <string name="tun_settings_route_cidrs">Yakalama CIDR\'ları</string>
+    <string name="tun_settings_route_cidrs_configured">%d adet ayarlandı</string>
+    <string name="tun_settings_app_mode">App Modu</string>
+    <string name="tun_settings_allowlist">Allowlist (Sadece)</string>
+    <string name="tun_settings_allowlist_configured">%d uygulama</string>
+    <string name="tun_settings_blocklist">Blocklist (Hariç)</string>
+    <string name="tun_settings_blocklist_configured">%d uygulama</string>
+    <string name="tun_settings_select_vpn_apps">VPN kullanacak uygulamaları seçin</string>
+    <string name="tun_settings_select_bypass_apps">VPN kullanmayacak uygulamaları seçin</string>
+
+    <string name="dns_settings_title">DNS Ayarları</string>
+    <string name="dns_settings_fake_dns_subtitle">Domain çözümlemeyi hızlandırmak için Fake IP döner</string>
+    <string name="dns_settings_fake_ip_range">Fake IP Aralığı</string>
+    <string name="dns_settings_strategy">DNS Stratejisi</string>
+    <string name="dns_settings_remote_strategy">Remote Domain Stratejisi</string>
+    <string name="dns_settings_direct_strategy">Direct Domain Stratejisi</string>
+    <string name="dns_settings_server_strategy">Server Adres Stratejisi</string>
+    <string name="dns_settings_cache">DNS Cache</string>
+
+    <string name="profiles_title">Profil Yönetimi</string>
+    <string name="profiles_search">Profile Ara</string>
+    <string name="profiles_search_hint">Anahtar kelime...</string>
+    <string name="profiles_add_subscription">Subscription Ekle</string>
+    <string name="profiles_edit_profile">Profili Düzenle</string>
+    <string name="profiles_subscription_link">Subscription URL</string>
+    <string name="profiles_local_file">Yerel Dosya</string>
+    <string name="profiles_local_file_subtitle">JSON/YAML dosyasından import et</string>
+    <string name="profiles_clipboard">Clipboard</string>
+    <string name="profiles_clipboard_subtitle">Pano içeriğinden import et</string>
+    <string name="profiles_import_clipboard">Clipboard\'dan Import</string>
+    <string name="profiles_import_clipboard_hint">Profil Adı</string>
+    <string name="profiles_scan_qrcode">QR Kod Tara</string>
+    <string name="profiles_scan_qrcode_subtitle">Kamera ile tara</string>
+    <string name="profiles_qrcode_import">QR Import</string>
+    <string name="profiles_qrcode_subscription">QR Subscription</string>
+    <string name="profiles_file_import">Dosyadan Import</string>
+    <string name="profiles_clipboard_import">Pano\'dan Import</string>
+    <string name="profiles_file_empty">Dosya boş</string>
+    <string name="profiles_read_file_failed">Dosya okuma hatası: %s</string>
+    <string name="profiles_clipboard_empty">Pano boş</string>
+    <string name="profiles_name_invalid">Geçersiz profil ismi</string>
+    <string name="profiles_camera_permission_required">QR taramak için kamera izni gerekiyor</string>
+    <string name="profiles_import_success">Başarıyla içe aktarıldı: %s</string>
+    <string name="profiles_import_failed">Import hatası: %s</string>
+    <string name="profiles_parse_failed">İçerik ayrıştırılamadı (Parse error)</string>
+    <string name="profiles_content_empty">İçerik boş</string>
+    <string name="profiles_updated">Profil güncellendi</string>
+    <string name="profiles_deleted">Profil silindi</string>
+    <string name="profiles_auto_update">Auto-Update</string>
+    <string name="profiles_auto_update_interval">Güncelleme Aralığı (Dakika)</string>
+    <string name="profiles_auto_update_hint">30 dakika üstü önerilir</string>
+    <string name="profiles_name_label">İsim</string>
+    <string name="profiles_url_label">Subscription Link</string>
+    <string name="profiles_subscription_node_warning">Tekil node\'lar için Subscription linki kullanmayın, \'Clipboard\' veya \'Node Ekle\' özelliğini kullanın</string>
+    <string name="profiles_extracting_nodes">Node\'lar çıkarılıyor (%1$d/%2$d)...</string>
+
+    <string name="nodes_title">Node Listesi</string>
+    <string name="nodes_count_suffix">Node</string>
+    <string name="nodes_sort">Sırala</string>
+    <string name="nodes_filter">Filtrele</string>
+    <string name="nodes_add">Node Ekle</string>
+    <string name="nodes_add_hint">Link girin (vmess://, vless://, ss://, etc)...</string>
+    <string name="nodes_add_to_profile">Profile Ekle</string>
+    <string name="nodes_add_create_new_profile">Yeni Profil Oluştur</string>
+    <string name="nodes_add_new_profile_name_hint">Yeni profil ismi...</string>
+    <string name="nodes_export_link">Linki Dışa Aktar</string>
+    <string name="nodes_copied_to_clipboard">Panoya kopyalandı</string>
+    <string name="nodes_clear_latency">Latency Temizle</string>
+    <string name="nodes_latency_cleared">Latency verileri temizlendi</string>
+    <string name="nodes_test_latency">Latency Testi Yap</string>
+    <string name="nodes_testing_progress">Hız testi yapılıyor...</string>
+    <string name="nodes_test_complete_stats">Test Bitti: %1$d Başarılı, %2$d Timeout</string>
+    <string name="nodes_stop_test">Testi Durdur</string>
+    <string name="nodes_unknown_node">Bilinmeyen Node</string>
+    <string name="nodes_test_failed">%s Test başarısız/timeout</string>
+    <string name="nodes_filter_applied">Filtre uygulandı</string>
+    <string name="nodes_filter_cleared">Filtre temizlendi</string>
+    <string name="nodes_unsupported_format">Desteklenmeyen link formatı</string>
+    <string name="nodes_add_failed">Ekleme hatası</string>
+    <string name="nodes_group_auto_generated">Bu grup config tarafından oluşturuldu, silmek için \'Profil Yönetimi\'ni kullanın</string>
+
+    <string name="nodes_sort_default">Varsayılan</string>
+    <string name="nodes_sort_latency">Latency (Düşük -> Yüksek)</string>
+    <string name="nodes_sort_name">İsim (A -> Z)</string>
+    <string name="nodes_sort_region">Bölge</string>
+
+    <string name="node_filter_title">Node Filtresi</string>
+    <string name="node_filter_mode">Filtre Modu</string>
+    <string name="node_filter_none">Filtreleme</string>
+    <string name="node_filter_include">Sadece İçerenleri Göster</string>
+    <string name="node_filter_exclude">İçerenleri Hariç Tut</string>
+    <string name="node_filter_keywords">Anahtar Kelimeler</string>
+    <string name="node_filter_keywords_hint">Virgülle ayırın: TR, Global, Proxy</string>
+    <string name="node_filter_keywords_tip">İpucu: Kelimeler büyük/küçük harf duyarlı değildir</string>
+
+    <string name="nodes_stat_total">%d Node</string>
+    <string name="nodes_stat_available">%d Aktif</string>
+    <string name="nodes_stat_avg_latency">%dms</string>
+
+    <string name="node_detail_title">Server Konfigürasyonu</string>
+    <string name="node_detail_saved">Config kaydedildi</string>
+    <string name="node_create_title">Node Oluştur</string>
+    <string name="node_created">Node oluşturuldu</string>
+    <string name="nodes_manual_create">Manuel Oluştur</string>
+    <string name="nodes_select_protocol">Protokol Seçin</string>
+    <string name="node_detail_config_name">Config İsmi</string>
+    <string name="node_detail_server_settings">Server Ayarları</string>
+    <string name="node_detail_server_address">Server Adresi</string>
+    <string name="node_detail_server_port">Server Port</string>
+    <string name="node_detail_encryption">Encryption (Şifreleme)</string>
+    <string name="node_detail_password">Şifre</string>
+    <string name="node_detail_plugin_options">Plugin Parametreleri</string>
+    <string name="node_detail_packet_encoding">Packet Encoding</string>
+    <string name="node_detail_obfs_type">Obfuscation (Obfs) Tipi</string>
+    <string name="node_detail_obfs_password">Obfs Şifresi</string>
+    <string name="node_detail_congestion_control">Congestion Control</string>
+    <string name="node_detail_username">Kullanıcı Adı</string>
+    <string name="node_detail_private_key">Private Key</string>
+    <string name="node_detail_idle_session_check">Boşta Oturum Kontrolü</string>
+    <string name="node_detail_idle_session_timeout">Oturum Timeout</string>
+    <string name="node_detail_min_idle_sessions">Min. Boşta Oturum</string>
+    <string name="node_detail_auth_string">Auth String</string>
+    <string name="node_detail_transport_settings">Transport Ayarları</string>
+    <string name="node_detail_transport_protocol">Transport Protokolü</string>
+    <string name="node_detail_transport_path">Path (Yol)</string>
+    <string name="node_detail_transport_security">Transport Güvenliği (TLS)</string>
+    <string name="node_detail_mux_settings">Mux Ayarları</string>
+    <string name="node_detail_mux_enable">Mux Etkinleştir</string>
+    <string name="node_detail_mux_subtitle">Concurrent bağlantı performansını artırır</string>
+    <string name="node_detail_mux_max_connections">Max. Mux Bağlantısı</string>
+    <string name="node_detail_common_settings">Genel Ayarlar</string>
+
+    <string name="rulesets_title">Rule Set Yönetimi</string>
+    <string name="rulesets_empty">Rule Set bulunamadı</string>
+    <string name="rulesets_add">Rule Set Ekle</string>
+    <string name="rulesets_edit">Rule Set Düzenle</string>
+    <string name="rulesets_default_rule">Default Rule</string>
+    <string name="rulesets_delete_title">Rule Set Sil</string>
+    <string name="rulesets_delete_confirm">\"%s\" Rule Set\'ini silmek istiyor musunuz?</string>
+    <string name="rulesets_delete_batch_confirm">Seçili %d Rule Set silinsin mi?</string>
+    <string name="rulesets_select_outbound">Outbound Modu Seçin</string>
+    <string name="rulesets_select_profile">Profile Seçin</string>
+    <string name="rulesets_select_node">Node Seçin</string>
+    <string name="rulesets_select_inbound">Inbound Seçin</string>
+    <string name="rulesets_type">Tip</string>
+    <string name="rulesets_format">Format</string>
+    <string name="rulesets_url">URL</string>
+    <string name="rulesets_local_path">Yerel Yol</string>
+    <string name="rulesets_nodes_count">%d Node</string>
+    <string name="rulesets_unknown_profile">Bilinmeyen Profile(%s)</string>
+    <string name="rulesets_exists">\"%s\" isimli Rule Set zaten mevcut</string>
+    <string name="rulesets_added_downloaded">\"%s\" eklendi ve indirildi</string>
+    <string name="rulesets_added_failed">\"%s\" eklendi fakat indirme başarısız</string>
+
+    <string name="ruleset_hub_title">Rule Set Hub</string>
+    <string name="ruleset_hub_subtitle">SagerNet tarafından sağlanmaktadır</string>
+
+    <string name="rulesets_add_default">Hazır Rule Set Ekle</string>
+    <string name="rulesets_default_subtitle">Sık kullanılan kurallar</string>
+    <string name="rulesets_geosite_cn_desc">Çin Domainleri (Direct)</string>
+    <string name="rulesets_geosite_not_cn_desc">Global Domainler (Proxy)</string>
+    <string name="rulesets_geosite_ads_desc">Reklam Engelleme (Block)</string>
+    <string name="rulesets_geosite_private_desc">Özel Ağlar (Direct)</string>
+    <string name="rulesets_geosite_apple_desc">Apple Servisleri (Proxy)</string>
+
+    <string name="app_rules_title">App Routing</string>
+    <string name="app_rules_empty">App routing kuralı yok</string>
+    <string name="app_rules_description">Farklı uygulamalar için özel kurallar belirleyin</string>
+    <string name="app_rules_add">App Kuralı Ekle</string>
+    <string name="app_rules_edit">App Kuralı Düzenle</string>
+    <string name="app_rules_delete_title">Kuralı Sil</string>
+    <string name="app_rules_delete_confirm">\"%s\" için kurallar silinsin mi?</string>
+    <string name="app_rules_not_selected">Seçilmedi</string>
+    <string name="app_rules_unknown_profile">Bilinmeyen Profile</string>
+    <string name="app_rules_tabs_groups">Uygulama Grupları</string>
+    <string name="app_rules_tabs_individual">Bireysel Kurallar</string>
+    <string name="app_rules_empty_groups">Grup bulunamadı</string>
+    <string name="app_rules_empty_groups_hint">+ Butonuna basarak grup oluşturun</string>
+    <string name="app_rules_empty_individual">Bireysel kural bulunamadı</string>
+    <string name="app_rules_empty_individual_hint">+ Butonuna basarak kural ekleyin</string>
+    <string name="app_rules_select_app">Uygulama Seç</string>
+    <string name="app_rules_click_to_select">Seçmek için tıkla...</string>
+    <string name="app_rules_select_target">Hedef Seç</string>
+    <string name="app_groups_description">Birden fazla uygulamayı gruplayarak tek bir kural atayın</string>
+
+    <string name="app_groups_add">Grup Ekle</string>
+    <string name="app_groups_create">Grup Oluştur</string>
+    <string name="app_groups_edit">Grubu Düzenle</string>
+    <string name="app_groups_delete_title">Grubu Sil</string>
+    <string name="app_groups_delete_confirm">\"%1$s\" grubunu silmek istiyor musunuz? (%2$d uygulama içeriyor)</string>
+    <string name="app_groups_empty">Grup yok</string>
+    <string name="app_groups_name">Grup Adı</string>
+    <string name="app_groups_select_apps">Uygulamaları Seç</string>
+    <string name="app_groups_click_to_add">Uygulama seçmek için butona basın</string>
+    <string name="app_groups_remove">Kaldır</string>
+
+    <string name="domain_rules_title">Domain Routing</string>
+    <string name="domain_rules_empty">Domain kuralı yok</string>
+    <string name="domain_rules_add">Kural Ekle</string>
+    <string name="domain_rules_edit">Kuralı Düzenle</string>
+    <string name="domain_rules_delete_title">Kuralı Sil</string>
+    <string name="domain_rules_delete_confirm">\"%s\" kuralını silmek istiyor musunuz?</string>
+
+    <string name="custom_rules_title">Özel Kurallar</string>
+    <string name="custom_rules_empty">Özel kural yok</string>
+    <string name="custom_rules_add">Kural Ekle</string>
+    <string name="custom_rules_edit">Kuralı Düzenle</string>
+    <string name="custom_rules_delete_title">Kuralı Sil</string>
+    <string name="custom_rules_delete_confirm">\"%s\" kuralı silinsin mi?</string>
+    <string name="custom_rules_name">İsim</string>
+    <string name="custom_rules_name_hint">Benim Kuralım</string>
+    <string name="custom_rules_type">Kural Tipi</string>
+    <string name="custom_rules_content">İçerik</string>
+    <string name="custom_rules_content_hint">İçerik girin</string>
+
+    <string name="logs_title">Log Kayıtları</string>
+    <string name="logs_export">Export</string>
+    <string name="logs_clear">Temizle</string>
+    <string name="logs_debug_disabled">Debug modu kapalı</string>
+    <string name="logs_debug_disabled_hint">Performans için log kaydı tutulmuyor</string>
+
+    <string name="diagnostics_title">Network Tanılama</string>
+    <string name="diagnostics_view_config">Running Config Özeti</string>
+    <string name="diagnostics_view_config_subtitle">Kuralların oluşturulup oluşturulmadığını kontrol edin</string>
+    <string name="diagnostics_view_config_loading">Oluşturuluyor...</string>
+    <string name="diagnostics_export_config">Running Config Dışa Aktar</string>
+    <string name="diagnostics_export_config_subtitle">running_config.json dosyasını kaydet</string>
+    <string name="diagnostics_export_config_loading">Aktarılıyor...</string>
+    <string name="diagnostics_app_routing">App Routing Tanılama</string>
+    <string name="diagnostics_app_routing_subtitle">/proc/net erişilebilirliğini kontrol et</string>
+    <string name="diagnostics_app_routing_loading">Kontrol ediliyor...</string>
+    <string name="diagnostics_conn_owner">Bağlantı Sahibi İstatistikleri</string>
+    <string name="diagnostics_conn_owner_subtitle">findConnectionOwner sonuçlarını gör</string>
+    <string name="diagnostics_conn_owner_loading">Okunuyor...</string>
+    <string name="diagnostics_reset_conn_owner">İstatistikleri Sıfırla</string>
+    <string name="diagnostics_reset_conn_owner_subtitle">Sayaçları temizle</string>
+    <string name="diagnostics_connectivity">Bağlantı Kontrolü</string>
+    <string name="diagnostics_connectivity_subtitle">Google (www.google.com) bağlantı testi</string>
+    <string name="diagnostics_connectivity_loading">Kontrol ediliyor...</string>
+    <string name="diagnostics_ping_test">Ping Testi</string>
+    <string name="diagnostics_ping_test_subtitle">ICMP Ping (8.8.8.8)</string>
+    <string name="diagnostics_dns_query">DNS Sorgusu</string>
+    <string name="diagnostics_dns_query_subtitle">Domain çözümleme testi</string>
+    <string name="diagnostics_routing_test">Routing Testi</string>
+    <string name="diagnostics_routing_test_subtitle">Rule matching simülasyonu</string>
+    <string name="diagnostics_routing_test_loading">Test ediliyor...</string>
+    <string name="diagnostics_file_not_exist">Mevcut değil</string>
+    <string name="diagnostics_file_not_readable">Mevcut ama okunamaz durumda</string>
+    <string name="diagnostics_stats_reset">İstatistikler sıfırlandı.</string>
+
+    <string name="profile_editor_title">Profili Düzenle</string>
+
+    <string name="export_success">Başarıyla aktarıldı</string>
+    <string name="export_success_message">Veriler seçilen konuma kaydedildi</string>
+    <string name="export_failed">Export hatası</string>
+    <string name="data_validation_failed">Veri doğrulama hatası</string>
+    <string name="import_confirm_title">Import\'u Onayla</string>
+    <string name="import_confirm_button">Import Et</string>
+    <string name="import_export_time">Export Zamanı</string>
+    <string name="import_app_version">Uygulama Versiyonu</string>
+    <string name="import_data_version">Veri Versiyonu</string>
+    <string name="import_profile_count">Profil Sayısı</string>
+    <string name="import_node_count">Toplam Node</string>
+    <string name="import_has_settings">Ayarlar dahil</string>
+    <string name="import_has_custom_rules">Özel Kurallar dahil</string>
+    <string name="import_has_rulesets">Rule Set\'ler dahil</string>
+    <string name="import_has_app_rules">App Routing dahil</string>
+    <string name="import_overwrite_warning">Import işlemi aynı isimdeki mevcut verilerin üzerine yazacaktır</string>
+    <string name="import_count_items">%d adet</string>
+    <string name="import_success">Başarıyla içe aktarıldı</string>
+    <string name="import_partial_success">Kısmen başarıyla aktarıldı</string>
+    <string name="import_failed">Import hatası</string>
+    <string name="import_settings_restored">Ayarlar geri yüklendi</string>
+
+    <string name="app_list_loading">Uygulama listesi yükleniyor...</string>
+    <string name="app_list_loaded">%1$d / %2$d uygulama yüklendi</string>
+    <string name="app_list_search_hint">Uygulama veya paket adı ara</string>
+    <string name="app_list_show_system">Sistem uygulamalarını göster</string>
+    <string name="app_list_show_no_launcher">Başlatıcısı olmayanları göster</string>
+    <string name="app_list_quick_select">Sık Kullanılanlar</string>
+
+    <string name="qr_scanner_no_qr_found">QR kod bulunamadı</string>
+    <string name="qr_scanner_cannot_read_image">Görsel okunamadı</string>
+    <string name="qr_scanner_flash_on">Fener açıldı</string>
+    <string name="qr_scanner_flash_off">Fener kapatıldı</string>
+
+    <string name="profile_card_no_expiry">Süresiz</string>
+    <string name="profile_card_never_updated">Hiç güncellenmedi</string>
+    <string name="profile_card_traffic_unlimited">Sınırsız</string>
+    <string name="profile_card_traffic_remaining">Kalan: %s</string>
+    <string name="profile_card_updated_at">Güncelleme:</string>
+
+    <string name="notification_switch_node">Node Değiştir</string>
+    <string name="notification_reset_connections">Bağlantıları Sıfırla</string>
+    <string name="notification_disconnect">Bağlantıyı Kes</string>
+    <string name="notification_speed_format">↑ %1$s  ↓ %2$s</string>
+
+    <string name="connection_settings_show_notification_speed">Bildirim Çubuğunda Hız Göster</string>
+    <string name="connection_settings_show_notification_speed_subtitle">Anlık indirme ve yükleme hızını göster</string>
+    <string name="connection_settings_network_change_reset">Ağ Değişiminde Bağlantıyı Sıfırla</string>
+    <string name="connection_settings_network_change_reset_subtitle">WiFi/Mobil veri geçişinde bağlantıları yenile</string>
+    <string name="connection_settings_wake_reset">Uyanınca Sıfırla</string>
+    <string name="connection_settings_wake_reset_subtitle">Cihaz uykudan uyandığında tüm bağlantıları yenile</string>
+
+    <string name="about_version">Versiyon: %1$s (%2$d)</string>
+    <string name="about_kernel_version">Kernel Versiyonu: %s</string>
+    <string name="about_kernel_loading">Yükleniyor...</string>
+    <string name="about_kernel_builtin">sing-box (Gömülü)</string>
+    <string name="about_address">Adres:</string>
+    <string name="about_based_on">Sing-box kernel üzerine inşa edilmiştir.</string>
+    <string name="about_designed_by">Designed by KunK.</string>
+
+    <string name="main_restart">Restart</string>
+
+    <string name="routing_mode_rule">Rule Modu</string>
+    <string name="routing_mode_global_proxy">Global Proxy</string>
+    <string name="routing_mode_global_direct">Global Direct</string>
+
+    <string name="default_rule_direct">Direct (Doğrudan)</string>
+    <string name="default_rule_proxy">Proxy (Vekil)</string>
+    <string name="default_rule_block">Block (Engelle)</string>
+
+    <string name="theme_system">Sistem Varsayılanı</string>
+    <string name="theme_light">Açık Tema</string>
+    <string name="theme_dark">Koyu Tema</string>
+
+    <string name="language_system">Sistem Dili</string>
+    <string name="language_chinese">Basitleştirilmiş Çince</string>
+    <string name="language_english">English</string>
+
+    <string name="tun_stack_system">System</string>
+    <string name="tun_stack_gvisor">gVisor</string>
+    <string name="tun_stack_mixed">Mixed</string>
+
+    <string name="vpn_route_mode_global">Global</string>
+    <string name="vpn_route_mode_custom">Custom</string>
+
+    <string name="vpn_app_mode_all">Tüm Uygulamalar</string>
+    <string name="vpn_app_mode_allowlist">Allowlist</string>
+    <string name="vpn_app_mode_blocklist">Blocklist</string>
+
+    <string name="dns_strategy_auto">Auto</string>
+    <string name="dns_strategy_prefer_ipv4">Öncelik IPv4</string>
+    <string name="dns_strategy_prefer_ipv6">Öncelik IPv6</string>
+    <string name="dns_strategy_only_ipv4">Sadece IPv4</string>
+    <string name="dns_strategy_only_ipv6">Sadece IPv6</string>
+
+    <string name="latency_test_tcp">TCP Latency</string>
+    <string name="latency_test_rtt">Real Latency (RTT)</string>
+    <string name="latency_test_handshake">HTTP Handshake</string>
+
+    <string name="gh_mirror_sagernet">SagerNet (Resmi)</string>
+    <string name="gh_mirror_jsdelivr">jsDelivr (CDN)</string>
+
+    <string name="rule_type_domain">Domain</string>
+    <string name="rule_type_domain_suffix">Domain Suffix</string>
+    <string name="rule_type_domain_keyword">Domain Keyword</string>
+    <string name="rule_type_ip_cidr">IP CIDR</string>
+    <string name="rule_type_geoip">GeoIP</string>
+    <string name="rule_type_geosite">GeoSite</string>
+    <string name="rule_type_port">Port</string>
+    <string name="rule_type_process_name">Process Adı</string>
+
+    <string name="outbound_tag_direct">Direct</string>
+    <string name="outbound_tag_proxy">Proxy</string>
+    <string name="outbound_tag_block">Block</string>
+
+    <string name="ruleset_type_remote">Remote</string>
+    <string name="ruleset_type_local">Local</string>
+
+    <string name="ruleset_outbound_direct">Direct</string>
+    <string name="ruleset_outbound_block">Block</string>
+    <string name="ruleset_outbound_proxy">Proxy</string>
+    <string name="ruleset_outbound_node">Tek Node</string>
+    <string name="ruleset_outbound_profile">Profile</string>
+
+    <string name="update_status_no_subscription">Güncellenecek Subscription yok</string>
+    <string name="update_status_failed">Güncelleme başarısız</string>
+    <string name="update_status_success_changes">Başarılı, %d subscription güncellendi</string>
+    <string name="update_status_success_no_changes">Güncelleme tamam, değişiklik yok</string>
+    <string name="update_status_partial">Bitti, %1$d başarılı, %2$d başarısız</string>
+    <string name="update_status_complete">Güncelleme bitti</string>
+
+    <string name="date_infinite">Süresiz</string>
+
+    <string name="power_saving_delay_5min">5 Dakika</string>
+    <string name="power_saving_delay_15min">15 Dakika</string>
+    <string name="power_saving_delay_30min">30 Dakika</string>
+    <string name="power_saving_delay_1hour">1 Saat</string>
+    <string name="power_saving_delay_2hours">2 Saat</string>
+    <string name="power_saving_delay_never">Asla</string>
+
+    <string name="connection_settings_power_saving">Background Güç Tasarrufu</string>
+    <string name="connection_settings_power_saving_subtitle">Uygulama arka plana geçtikten ne kadar sonra core olmayan süreçler durdurulsun</string>
+
+    <string name="node_switch_success">%s konumuna geçildi</string>
+    <string name="node_switch_not_running">%s seçildi (Servis çalışmıyor)</string>
+    <string name="node_switch_failed">%s konumuna geçiş hatası</string>
+    <string name="node_start_failed">Başlatma hatası: %s</string>
+    <string name="nodes_no_valid_found">Geçerli node bulunamadı</string>
+
+    <string name="subscription_update_success_with_changes">Güncellendi (%1$s, %2$d node)</string>
+    <string name="subscription_update_success_no_changes">Değişiklik yok (%d node)</string>
+    <string name="ruleset_update_network_error">Network hatası, güncellenemedi</string>
+
+    <string name="app_groups_name_placeholder">Örn: Sosyal Medya, Oyunlar</string>
+
+    <string name="ruleset_hub_rule_count">Kural sayısı: %d</string>
+
+    <string name="rulesets_selection_mode">%d adet seçildi</string>
+    
+    <string name="title_auto_check_update">Otomatik güncellemeleri kontrol et</string>
+<string name="subtitle_auto_check_update">Uygulama başlatıldığında yeni sürümleri kontrol eder</string>
+    
+
+</resources>
