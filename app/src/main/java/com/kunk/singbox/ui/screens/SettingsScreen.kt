@@ -142,12 +142,6 @@ fun SettingsScreen(
                 val selectedLanguage = AppLanguage.entries[index]
                 viewModel.setAppLanguage(selectedLanguage)
                 showLanguageDialog = false
-                
-                if (selectedLanguage == AppLanguage.SYSTEM) {
-                    val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-                    prefs.edit().remove("app_language_cache").apply()
-                }
-                
                 scope.launch {
                     kotlinx.coroutines.delay(150)
                     activity?.recreate()
