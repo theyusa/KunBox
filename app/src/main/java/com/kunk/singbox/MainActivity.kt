@@ -172,11 +172,16 @@ fun SingBoxApp() {
         SingBoxRemote.notifyAppLifecycle(isForeground = false)
     }
 
-    // 当语言设置变化时,缓存到 SharedPreferences 供 attachBaseContext 使用
     LaunchedEffect(settings?.appLanguage) {
         settings?.appLanguage?.let { language ->
             val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-            prefs.edit().putString("app_language_cache", language.name).apply()
+            if (language == AppLanguage.SYSTEM) {
+                
+                prefs.edit().remove("app_language_cache").apply()
+            } else {
+                
+                prefs.edit().putString("app_language_cache", language.name).apply()
+            }
         }
     }
 
