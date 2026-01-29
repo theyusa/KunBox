@@ -11,10 +11,9 @@ object LocaleHelper {
 
     fun setLocale(context: Context, language: AppLanguage): Context {
         val locale = when (language) {
-            AppLanguage.CHINESE -> Locale.SIMPLIFIED_CHINESE
-            AppLanguage.ENGLISH -> Locale.ENGLISH
-            AppLanguage.TURKISH -> Locale("tr")
             AppLanguage.SYSTEM -> getSystemLocale()
+        
+            else -> Locale(language.localeCode) 
         }
 
         return updateResources(context, locale)
