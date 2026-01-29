@@ -130,8 +130,7 @@ fun SettingsScreen(
         )
     }
 
-
-    if (showLanguageDialog) {
+if (showLanguageDialog) {
         val activity = LocalContext.current as? Activity
         
         SingleSelectDialog(
@@ -139,17 +138,18 @@ fun SettingsScreen(
             options = AppLanguage.entries.map { stringResource(it.displayNameRes) },
             selectedIndex = AppLanguage.entries.indexOf(settings.appLanguage),
             onSelect = { index ->
-                val selectedLanguage = AppLanguage.entries[index]
-                viewModel.setAppLanguage(selectedLanguage)
+                viewModel.setAppLanguage(AppLanguage.entries[index])
                 showLanguageDialog = false
+                
                 scope.launch {
-                    kotlinx.coroutines.delay(150)
+                    kotlinx.coroutines.delay(250)
                     activity?.recreate()
                 }
             },
             onDismiss = { showLanguageDialog = false }
         )
-    }
+}
+    
 
     // 导出状态对话框
     ExportProgressDialog(
