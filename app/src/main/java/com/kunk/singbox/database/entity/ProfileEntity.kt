@@ -25,7 +25,10 @@ data class ProfileEntity(
     val expireDate: Long = 0,
     val totalTraffic: Long = 0,
     val usedTraffic: Long = 0,
-    val sortOrder: Int = 0
+    val sortOrder: Int = 0,
+    // DNS 预解析设置
+    val dnsPreResolve: Boolean = false,
+    val dnsServer: String? = null
 ) {
     /**
      * 转换为 UI 模型
@@ -41,7 +44,9 @@ data class ProfileEntity(
         updateStatus = updateStatus,
         expireDate = expireDate,
         totalTraffic = totalTraffic,
-        usedTraffic = usedTraffic
+        usedTraffic = usedTraffic,
+        dnsPreResolve = dnsPreResolve,
+        dnsServer = dnsServer
     )
 
     companion object {
@@ -60,7 +65,9 @@ data class ProfileEntity(
             expireDate = ui.expireDate,
             totalTraffic = ui.totalTraffic,
             usedTraffic = ui.usedTraffic,
-            sortOrder = sortOrder
+            sortOrder = sortOrder,
+            dnsPreResolve = ui.dnsPreResolve,
+            dnsServer = ui.dnsServer
         )
     }
 }

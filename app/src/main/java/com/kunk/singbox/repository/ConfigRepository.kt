@@ -41,6 +41,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import com.kunk.singbox.utils.NetworkClient
 import com.kunk.singbox.utils.StringBuilderPool
+import com.kunk.singbox.utils.dns.DnsResolver
+import com.kunk.singbox.utils.dns.DnsResolveStore
 import com.tencent.mmkv.MMKV
 
 /**
@@ -231,6 +233,10 @@ class ConfigRepository(private val context: Context) {
         com.kunk.singbox.utils.parser.ClashYamlParser(),
         Base64Parser { nodeLinkParser.parse(it) }
     ))
+
+    // DNS 预解析相关
+    private val dnsResolver = DnsResolver()
+    private val dnsResolveStore = DnsResolveStore.getInstance()
 
     private val _profiles = MutableStateFlow<List<ProfileUi>>(emptyList())
     val profiles: StateFlow<List<ProfileUi>> = _profiles.asStateFlow()
@@ -1060,6 +1066,8 @@ class ConfigRepository(private val context: Context) {
         name: String,
         url: String,
         autoUpdateInterval: Int = 0,
+        dnsPreResolve: Boolean = false,
+        dnsServer: String? = null,
         onProgress: (String) -> Unit = {}
     ): Result<ProfileUi> = withContext(Dispatchers.IO) {
         try {
@@ -1107,7 +1115,9 @@ class ConfigRepository(private val context: Context) {
                 updateStatus = UpdateStatus.Idle,
                 expireDate = userInfo?.expire ?: 0,
                 totalTraffic = userInfo?.total ?: 0,
-                usedTraffic = (userInfo?.upload ?: 0) + (userInfo?.download ?: 0)
+                usedTraffic = (userInfo?.upload ?: 0) + (userInfo?.download ?: 0),
+                dnsPreResolve = dnsPreResolve,
+                dnsServer = dnsServer
             )
 
             // 保存到内存
@@ -1127,6 +1137,12 @@ class ConfigRepository(private val context: Context) {
             // 调度自动更新任务
             if (autoUpdateInterval > 0) {
                 com.kunk.singbox.service.SubscriptionAutoUpdateWorker.schedule(context, profileId, autoUpdateInterval)
+            }
+
+            // DNS 预解析
+            if (dnsPreResolve) {
+                onProgress("正在预解析节点域名...")
+                preResolveDomainsForProfile(profileId, deduplicatedConfig, dnsServer)
             }
 
             onProgress(context.getString(R.string.profiles_import_success, nodes.size.toString()))
@@ -1915,11 +1931,24 @@ class ConfigRepository(private val context: Context) {
         saveProfiles()
     }
 
-    fun updateProfileMetadata(profileId: String, newName: String, newUrl: String?, autoUpdateInterval: Int = 0) {
+    fun updateProfileMetadata(
+        profileId: String,
+        newName: String,
+        newUrl: String?,
+        autoUpdateInterval: Int = 0,
+        dnsPreResolve: Boolean = false,
+        dnsServer: String? = null
+    ) {
         _profiles.update { list ->
             list.map {
                 if (it.id == profileId) {
-                    it.copy(name = newName, url = newUrl, autoUpdateInterval = autoUpdateInterval)
+                    it.copy(
+                        name = newName,
+                        url = newUrl,
+                        autoUpdateInterval = autoUpdateInterval,
+                        dnsPreResolve = dnsPreResolve,
+                        dnsServer = dnsServer
+                    )
                 } else {
                     it
                 }
@@ -2224,6 +2253,11 @@ class ConfigRepository(private val context: Context) {
 
             saveProfiles()
 
+            // DNS 预解析
+            if (profile.dnsPreResolve) {
+                preResolveDomainsForProfile(profile.id, deduplicatedConfig, profile.dnsServer)
+            }
+
             // 返回结果
             if (addedNodes.isNotEmpty() || removedNodes.isNotEmpty()) {
                 SubscriptionUpdateResult.SuccessWithChanges(
@@ -2260,6 +2294,9 @@ class ConfigRepository(private val context: Context) {
                 ?: return@withContext null
             val config = loadConfig(activeId) ?: return@withContext null
 
+            // 获取当前 profile 的 DNS 预解析设置
+            val activeProfile = _profiles.value.find { it.id == activeId }
+
             // 优先使用内存中的值，若为空则从数据库同步读取（解决异步加载竞态问题）
             val activeNodeId = _activeNodeId.value
                 ?: activeStateDao.getSync()?.activeNodeId
@@ -2281,7 +2318,10 @@ class ConfigRepository(private val context: Context) {
 
             val dns = buildRunDns(settings, customRuleSets)
 
-            val outboundsContext = buildRunOutbounds(config, activeNode, settings, allNodesSnapshot)
+            val outboundsContext = buildRunOutbounds(
+                config, activeNode, settings, allNodesSnapshot,
+                activeProfile?.dnsPreResolve ?: false, activeId
+            )
             val route =
                 buildRunRoute(settings, outboundsContext.selectorTag, outboundsContext.outbounds, outboundsContext.nodeTagResolver, customRuleSets)
 
@@ -2337,6 +2377,61 @@ class ConfigRepository(private val context: Context) {
         }
     }
     private fun buildOutboundForRuntime(outbound: Outbound): Outbound = OutboundFixer.buildForRuntime(context, outbound)
+
+    /**
+     * 为指定配置预解析所有节点域名
+     *
+     * @param profileId 配置 ID
+     * @param config 配置内容
+     * @param dnsServer DoH 服务器地址
+     */
+    private suspend fun preResolveDomainsForProfile(
+        profileId: String,
+        config: SingBoxConfig,
+        dnsServer: String?
+    ) {
+        val outbounds = config.outbounds ?: return
+        val domains = outbounds.mapNotNull { outbound ->
+            val server = outbound.server ?: return@mapNotNull null
+            if (DnsResolver.isIpAddress(server)) return@mapNotNull null
+            server
+        }.distinct()
+
+        if (domains.isEmpty()) {
+            Log.d(TAG, "No domains to pre-resolve for profile $profileId")
+            return
+        }
+
+        Log.d(TAG, "Pre-resolving ${domains.size} domains for profile $profileId")
+
+        val results = dnsResolver.resolveBatch(
+            domains = domains,
+            dohServer = dnsServer ?: DnsResolver.DOH_CLOUDFLARE
+        )
+
+        val savedCount = dnsResolveStore.saveBatch(profileId, results)
+        Log.d(TAG, "Pre-resolved and saved $savedCount domains for profile $profileId")
+    }
+
+    /**
+     * 应用 DNS 预解析结果到 Outbound
+     *
+     * @param profileId 配置 ID
+     * @param outbound 原始 Outbound
+     * @return 替换 server 后的 Outbound
+     */
+    private fun applyDnsResolveToOutbound(profileId: String, outbound: Outbound): Outbound {
+        val server = outbound.server ?: return outbound
+        if (DnsResolver.isIpAddress(server)) return outbound
+
+        val resolvedIp = dnsResolveStore.getIp(profileId, server)
+        return if (resolvedIp != null) {
+            Log.d(TAG, "Applying DNS resolve: $server -> $resolvedIp")
+            outbound.copy(server = resolvedIp)
+        } else {
+            outbound
+        }
+    }
 
     /**
      * 构建自定义规则集配置
@@ -3101,7 +3196,9 @@ class ConfigRepository(private val context: Context) {
         baseConfig: SingBoxConfig,
         activeNode: NodeUi?,
         settings: AppSettings,
-        allNodes: List<NodeUi>
+        allNodes: List<NodeUi>,
+        dnsPreResolve: Boolean = false,
+        profileId: String? = null
     ): RunOutboundsContext {
         val rawOutbounds = baseConfig.outbounds
         if (rawOutbounds.isNullOrEmpty()) {
@@ -3109,7 +3206,12 @@ class ConfigRepository(private val context: Context) {
         }
 
         val fixedOutbounds = rawOutbounds?.map { outbound ->
-            buildOutboundForRuntime(outbound)
+            var processed = buildOutboundForRuntime(outbound)
+            // 如果启用了 DNS 预解析，应用解析结果
+            if (dnsPreResolve && profileId != null) {
+                processed = applyDnsResolveToOutbound(profileId, processed)
+            }
+            processed
         }?.toMutableList() ?: mutableListOf()
 
         if (fixedOutbounds.none { it.tag == "direct" }) {

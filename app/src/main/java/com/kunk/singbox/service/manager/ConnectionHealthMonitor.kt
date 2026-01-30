@@ -241,7 +241,7 @@ class ConnectionHealthMonitor private constructor(
             activeConnections.forEach { conn ->
                 val packageName = conn.packageName ?: "unknown"
                 val existingState = appConnectionStates[packageName]
-                
+
                 val isStale = !conn.hasRecentData && conn.oldestConnMs > CONNECTION_TIMEOUT_MS
 
                 val newState = ConnectionState(
@@ -249,7 +249,11 @@ class ConnectionHealthMonitor private constructor(
                     lastActiveTime = if (conn.hasRecentData) currentTime else currentTime - conn.oldestConnMs,
                     isActive = !isStale,
                     connectionCount = conn.connectionCount,
-                    errorCount = if (isStale) (existingState?.errorCount ?: 0) + 1 else (existingState?.errorCount ?: 0),
+                    errorCount = if (isStale) {
+                        (existingState?.errorCount ?: 0) + 1
+                    } else {
+                        existingState?.errorCount ?: 0
+                    },
                     lastErrorTime = if (isStale) currentTime else (existingState?.lastErrorTime ?: 0L)
                 )
 

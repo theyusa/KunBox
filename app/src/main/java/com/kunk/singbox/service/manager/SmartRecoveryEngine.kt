@@ -45,8 +45,6 @@ class SmartRecoveryEngine private constructor(
         private const val TRAFFIC_STALL_THRESHOLD_MS = 30_000L // 30秒无下载流量视为可能僵死
         private const val TRAFFIC_CHECK_INTERVAL_MS = 10_000L // 每10秒检测一次流量
 
-
-
         @Volatile
         private var instance: SmartRecoveryEngine? = null
 
@@ -515,7 +513,6 @@ class SmartRecoveryEngine private constructor(
         val closed = BoxWrapperManager.closeIdleConnections(30) // 关闭空闲超过30秒的连接
         Log.i(TAG, "[Traffic] Closed $closed idle connections")
     }
-
 
     /**
      * 清理资源

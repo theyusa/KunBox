@@ -62,6 +62,7 @@ fun ProfileCard(
     totalTraffic: Long = 0,
     usedTraffic: Long = 0,
     lastUpdated: Long = 0,
+    dnsPreResolve: Boolean = false,
     onClick: () -> Unit,
     onUpdate: () -> Unit,
     onEdit: () -> Unit,
@@ -194,6 +195,21 @@ fun ProfileCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    // DNS 预解析标签
+                    if (dnsPreResolve) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "DNS",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .background(
+                                    MaterialTheme.colorScheme.primaryContainer,
+                                    RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))

@@ -24,6 +24,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -37,12 +38,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Link
@@ -57,6 +62,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -329,8 +335,8 @@ fun ProfilesScreen(
     if (showSubscriptionInput) {
         SubscriptionInputDialog(
             onDismiss = { showSubscriptionInput = false },
-            onConfirm = { name, url, autoUpdateInterval ->
-                viewModel.importSubscription(name, url, autoUpdateInterval)
+            onConfirm = { name, url, autoUpdateInterval, dnsPreResolve, dnsServer ->
+                viewModel.importSubscription(name, url, autoUpdateInterval, dnsPreResolve, dnsServer)
                 showSubscriptionInput = false
             }
         )
@@ -380,10 +386,12 @@ fun ProfilesScreen(
             initialName = profile.name,
             initialUrl = profile.url ?: "",
             initialAutoUpdateInterval = profile.autoUpdateInterval,
+            initialDnsPreResolve = profile.dnsPreResolve,
+            initialDnsServer = profile.dnsServer,
             title = stringResource(R.string.profiles_edit_profile),
             onDismiss = { editingProfile = null },
-            onConfirm = { name, url, autoUpdateInterval ->
-                viewModel.updateProfileMetadata(profile.id, name, url, autoUpdateInterval)
+            onConfirm = { name, url, autoUpdateInterval, dnsPreResolve, dnsServer ->
+                viewModel.updateProfileMetadata(profile.id, name, url, autoUpdateInterval, dnsPreResolve, dnsServer)
                 editingProfile = null
             }
         )
@@ -489,6 +497,7 @@ fun ProfilesScreen(
                         totalTraffic = profile.totalTraffic,
                         usedTraffic = profile.usedTraffic,
                         lastUpdated = profile.lastUpdated,
+                        dnsPreResolve = profile.dnsPreResolve,
                         onClick = { viewModel.setActiveProfile(profile.id) },
                         onUpdate = {
                             viewModel.updateProfile(profile.id)
@@ -662,14 +671,25 @@ private fun SubscriptionInputDialog(
     initialName: String = "",
     initialUrl: String = "",
     initialAutoUpdateInterval: Int = 0,
+    initialDnsPreResolve: Boolean = false,
+    initialDnsServer: String? = null,
     title: String = stringResource(R.string.profiles_add_subscription),
     onDismiss: () -> Unit,
-    onConfirm: (String, String, Int) -> Unit
+    onConfirm: (name: String, url: String, autoUpdateInterval: Int, dnsPreResolve: Boolean, dnsServer: String?) -> Unit
 ) {
     var name by remember { mutableStateOf(initialName) }
     var url by remember { mutableStateOf(initialUrl) }
     var autoUpdateEnabled by remember { mutableStateOf(initialAutoUpdateInterval > 0) }
     var autoUpdateMinutes by remember { mutableStateOf(if (initialAutoUpdateInterval > 0) initialAutoUpdateInterval.toString() else "60") }
+    var dnsPreResolveEnabled by remember { mutableStateOf(initialDnsPreResolve) }
+    var selectedDnsServer by remember { mutableStateOf(initialDnsServer ?: "https://cloudflare-dns.com/dns-query") }
+    var dnsDropdownExpanded by remember { mutableStateOf(false) }
+
+    val dnsServerOptions = listOf(
+        "https://cloudflare-dns.com/dns-query" to stringResource(R.string.profiles_dns_server_cloudflare),
+        "https://dns.google/dns-query" to stringResource(R.string.profiles_dns_server_google),
+        "https://dns.alidns.com/dns-query" to stringResource(R.string.profiles_dns_server_alidns)
+    )
 
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -796,6 +816,144 @@ private fun SubscriptionInputDialog(
                 }
             }
 
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // DNS 预解析开关
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.profiles_dns_preresolve),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = stringResource(R.string.profiles_dns_preresolve_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                androidx.compose.material3.Switch(
+                    checked = dnsPreResolveEnabled,
+                    onCheckedChange = { dnsPreResolveEnabled = it },
+                    colors = androidx.compose.material3.SwitchDefaults.colors(
+                        checkedThumbColor = MaterialTheme.colorScheme.primary,
+                        checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                )
+            }
+
+            // DNS 服务器选择（带动画显示/隐藏）
+            AnimatedVisibility(
+                visible = dnsPreResolveEnabled,
+                enter = expandVertically(
+                    animationSpec = tween(durationMillis = 300)
+                ) + fadeIn(
+                    animationSpec = tween(durationMillis = 300)
+                ),
+                exit = shrinkVertically(
+                    animationSpec = tween(durationMillis = 300)
+                ) + fadeOut(
+                    animationSpec = tween(durationMillis = 300)
+                )
+            ) {
+                Column {
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // DNS 服务器选择按钮
+                    androidx.compose.material3.OutlinedTextField(
+                        value = dnsServerOptions.find { it.first == selectedDnsServer }?.second ?: selectedDnsServer,
+                        onValueChange = {},
+                        readOnly = true,
+                        enabled = false,
+                        label = { Text(stringResource(R.string.profiles_dns_server)) },
+                        trailingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.ArrowDropDown,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { dnsDropdownExpanded = true },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                            disabledBorderColor = MaterialTheme.colorScheme.outline,
+                            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    )
+                }
+            }
+
+            // DNS 服务器选择弹窗
+            if (dnsDropdownExpanded) {
+                androidx.compose.ui.window.Dialog(
+                    onDismissRequest = { dnsDropdownExpanded = false }
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                MaterialTheme.colorScheme.surface,
+                                RoundedCornerShape(24.dp)
+                            )
+                            .padding(vertical = 16.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.profiles_dns_server),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        dnsServerOptions.forEach { (url, label) ->
+                            val isSelected = selectedDnsServer == url
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedDnsServer = url
+                                        dnsDropdownExpanded = false
+                                    }
+                                    .background(
+                                        if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                        else Color.Transparent
+                                    )
+                                    .padding(horizontal = 24.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                                           else MaterialTheme.colorScheme.onSurface
+                                )
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Check,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
 
             val context = LocalContext.current
@@ -837,7 +995,13 @@ private fun SubscriptionInputDialog(
                         0
                     }
 
-                    onConfirm(name, url, finalInterval)
+                    onConfirm(
+                        name,
+                        url,
+                        finalInterval,
+                        dnsPreResolveEnabled,
+                        if (dnsPreResolveEnabled) selectedDnsServer else null
+                    )
                 },
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),

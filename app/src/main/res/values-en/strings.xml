@@ -236,6 +236,12 @@
     <string name="profiles_auto_update">Auto Update</string>
     <string name="profiles_auto_update_interval">Update Interval (minutes)</string>
     <string name="profiles_auto_update_hint">Recommended 30+ minutes</string>
+    <string name="profiles_dns_preresolve">DNS Pre-resolve</string>
+    <string name="profiles_dns_preresolve_hint">Pre-resolve node domains to IP to bypass DNS pollution</string>
+    <string name="profiles_dns_server">DNS Server</string>
+    <string name="profiles_dns_server_cloudflare">Cloudflare (1.1.1.1)</string>
+    <string name="profiles_dns_server_google">Google (8.8.8.8)</string>
+    <string name="profiles_dns_server_alidns">Alibaba DNS (223.5.5.5)</string>
     <string name="profiles_name_label">Name</string>
     <string name="profiles_url_label">Subscription URL</string>
     <string name="profiles_subscription_node_warning">Cannot enter single node link in subscription URL, please use \'Clipboard\' import or \'Add Node\' feature</string>

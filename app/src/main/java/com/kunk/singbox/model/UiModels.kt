@@ -20,7 +20,10 @@ data class ProfileUi(
     @SerializedName("updateStatus") val updateStatus: UpdateStatus = UpdateStatus.Idle,
     @SerializedName("expireDate") val expireDate: Long = 0,
     @SerializedName("totalTraffic") val totalTraffic: Long = 0,
-    @SerializedName("usedTraffic") val usedTraffic: Long = 0
+    @SerializedName("usedTraffic") val usedTraffic: Long = 0,
+    // DNS 预解析设置
+    @SerializedName("dnsPreResolve") val dnsPreResolve: Boolean = false,
+    @SerializedName("dnsServer") val dnsServer: String? = null
 )
 
 @Keep

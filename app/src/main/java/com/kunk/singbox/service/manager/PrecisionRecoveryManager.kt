@@ -1,11 +1,9 @@
 package com.kunk.singbox.service.manager
 
 import android.content.Context
-import android.content.Intent
 import android.util.Log
 import com.kunk.singbox.core.SingBoxCore
 import com.kunk.singbox.ipc.VpnStateStore
-import com.kunk.singbox.service.SingBoxService
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -219,10 +217,11 @@ class PrecisionRecoveryManager private constructor(
                 return true
             }
 
-            // 方法2: 使用 NetworkBump（作为后备方案）
-            val closedByBump = tryCloseConnectionsByNetworkBump()
-            if (closedByBump) {
-                Log.d(TAG, "Closed connections via NetworkBump for $packageName")
+            // 方法2: 使用精准的空闲连接清理（替代 NetworkBump）
+            // 2025-fix-v23: 移除 NetworkBump 后备方案，避免中断其他应用的请求
+            val closedByIdle = tryCloseConnectionsByIdleCleanup()
+            if (closedByIdle) {
+                Log.d(TAG, "Closed connections via idle cleanup for $packageName")
                 return true
             }
 
@@ -255,22 +254,20 @@ class PrecisionRecoveryManager private constructor(
     }
 
     /**
-     * 使用 NetworkBump 关闭连接（后备方案）
+     * 使用空闲连接清理（温和的后备方案）
+     * 2025-fix-v23: 替代 NetworkBump，避免中断其他应用的活跃请求
      */
-    private suspend fun tryCloseConnectionsByNetworkBump(): Boolean {
+    private suspend fun tryCloseConnectionsByIdleCleanup(): Boolean {
         return try {
-            // 发送 NetworkBump 信号
-            val intent = Intent(context, SingBoxService::class.java).apply {
-                action = SingBoxService.ACTION_NETWORK_BUMP
+            // 关闭空闲超过 10 秒的连接
+            val closed = com.kunk.singbox.core.BoxWrapperManager.closeIdleConnections(10)
+            if (closed > 0) {
+                Log.d(TAG, "Closed $closed idle connections")
             }
-            context.startService(intent)
-
-            // 等待网络广播发送
-            delay(200)
-
+            // 即使 closed=0 也返回 true，表示操作成功完成
             true
         } catch (e: Exception) {
-            Log.e(TAG, "NetworkBump failed", e)
+            Log.e(TAG, "Idle connection cleanup failed", e)
             false
         }
     }

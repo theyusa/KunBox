@@ -1094,11 +1094,11 @@ class SingBoxCore private constructor(private val context: Context) {
      */
     fun getActiveConnections(): List<ActiveConnection> {
         if (!libboxAvailable) return emptyList()
-        
+
         return try {
             val iterator = Libbox.getActiveConnectionStates() ?: return emptyList()
             val result = mutableListOf<ActiveConnection>()
-            
+
             while (iterator.hasNext()) {
                 val state = iterator.next() ?: continue
                 result.add(
@@ -1127,7 +1127,7 @@ class SingBoxCore private constructor(private val context: Context) {
 
     fun closeConnectionsForApp(packageName: String): Int {
         if (!libboxAvailable) return 0
-        
+
         return try {
             val count = Libbox.closeConnectionsForApp(packageName)
             if (count > 0) {

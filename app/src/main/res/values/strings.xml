@@ -239,6 +239,12 @@
     <string name="profiles_auto_update">自动更新</string>
     <string name="profiles_auto_update_interval">更新间隔（分钟）</string>
     <string name="profiles_auto_update_hint">建议设置 30 分钟以上</string>
+    <string name="profiles_dns_preresolve">DNS 预解析</string>
+    <string name="profiles_dns_preresolve_hint">将节点域名预解析为 IP，绕过 DNS 污染</string>
+    <string name="profiles_dns_server">DNS 服务器</string>
+    <string name="profiles_dns_server_cloudflare">Cloudflare (1.1.1.1)</string>
+    <string name="profiles_dns_server_google">Google (8.8.8.8)</string>
+    <string name="profiles_dns_server_alidns">阿里 DNS (223.5.5.5)</string>
     <string name="profiles_name_label">名称</string>
     <string name="profiles_url_label">订阅链接</string>
     <string name="profiles_subscription_node_warning">禁止在订阅链接中填入单节点，请使用\'剪贴板\'导入或\'添加节点\'功能</string>

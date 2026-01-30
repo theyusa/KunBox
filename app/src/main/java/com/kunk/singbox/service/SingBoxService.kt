@@ -480,62 +480,99 @@ class SingBoxService : VpnService() {
                 lastConfigPath?.let { startVpn(it) }
             }
 
+            @Suppress("ReturnCount")
             override suspend fun performNetworkBump(reason: String): Boolean {
-                // 2025-fix-v21: 先确保内核已唤醒，再执行网络操作
+                // 2025-fix-v23: 渐进式网络恢复，移除 setUnderlyingNetworks(null) 核弹操作
+                // 问题：setUnderlyingNetworks(null) 会中断所有正在进行的 HTTP 请求
+                // 解决：先探测后恢复，只关闭陈旧连接，保护活跃连接
                 val isWakeScenario = reason.contains("doze_exit", true) ||
                     reason.contains("screen_on", true) ||
                     reason.contains("app_foreground", true)
 
+                // Step 0: 确保内核已唤醒
                 if (isWakeScenario && BoxWrapperManager.isPausedNow()) {
-                    Log.i(TAG, "[NetworkBump] Waking core before network bump")
+                    Log.i(TAG, "[NetworkBump] Waking core before recovery")
                     BoxWrapperManager.wake()
                     delay(50)
                 }
 
-                var network = connectManager.getCurrentNetwork()
+                // Step 1: 快速连通性探测 - 如果网络正常，无需任何操作
+                val probeLatency = quickConnectivityProbe()
+                if (probeLatency >= 0) {
+                    Log.i(TAG, "[NetworkBump] Probe OK (${probeLatency}ms), no recovery needed for: $reason")
+                    return true
+                }
+                Log.i(TAG, "[NetworkBump] Probe failed, starting progressive recovery for: $reason")
 
-                if (network == null) {
-                    if (isWakeScenario) {
-                        Log.i(TAG, "[NetworkBump] Network not ready, waiting...")
-                        network = connectManager.waitForNetwork(3000L).getOrNull()
-                        if (network == null) {
-                            Log.w(TAG, "[NetworkBump] Network still unavailable after 3s wait")
-                            return false
-                        }
-                        Log.i(TAG, "[NetworkBump] Network became available after wait")
-                    } else {
-                        Log.w(TAG, "[NetworkBump] skipped: no current network")
-                        return false
+                // Step 2: 温和恢复 - 只关闭空闲连接（不影响活跃请求）
+                val idleClosed = BoxWrapperManager.closeIdleConnections(30)
+                if (idleClosed > 0) {
+                    Log.i(TAG, "[NetworkBump] Soft: closed $idleClosed idle connections")
+                    delay(100)
+                    val probeAfterSoft = quickConnectivityProbe()
+                    if (probeAfterSoft >= 0) {
+                        Log.i(TAG, "[NetworkBump] Soft recovery OK (${probeAfterSoft}ms)")
+                        return true
                     }
                 }
 
-                return try {
-                    Log.i(TAG, "[NetworkBump] Starting: $reason")
-
-                    setUnderlyingNetworks(null)
-                    delay(200)
-                    setUnderlyingNetworks(arrayOf(network))
-
-                    // 2025-fix-v22: 分级连接重置
-                    // doze_exit 或最近从暂停恢复 → 强制 RST (CloseAllTrackedConnections)
-                    // 其他场景 → 温和关闭 (resetAllConnections)
-                    val needHardReset = reason.contains("doze_exit", true) ||
-                        (isWakeScenario && BoxWrapperManager.wasPausedRecently(30_000L))
-
-                    if (needHardReset) {
-                        val closed = BoxWrapperManager.closeAllTrackedConnections()
-                        Log.i(TAG, "[NetworkBump] Hard reset: closed $closed connections (reason=$reason)")
-                    } else {
-                        runCatching { BoxWrapperManager.resetAllConnections(true) }
-                        Log.i(TAG, "[NetworkBump] Soft reset (reason=$reason)")
+                // Step 3: 中等恢复 - 快速网络恢复（关闭追踪连接）
+                val quickOk = BoxWrapperManager.recoverNetworkQuick()
+                if (quickOk) {
+                    delay(100)
+                    val probeAfterQuick = quickConnectivityProbe()
+                    if (probeAfterQuick >= 0) {
+                        Log.i(TAG, "[NetworkBump] Quick recovery OK (${probeAfterQuick}ms)")
+                        return true
                     }
+                }
 
-                    Log.i(TAG, "[NetworkBump] completed: $reason")
-                    true
-                } catch (e: Exception) {
-                    Log.e(TAG, "[NetworkBump] failed", e)
-                    runCatching { setUnderlyingNetworks(arrayOf(network)) }
-                    false
+                // Step 4: 强恢复 - 完整恢复流程（唤醒+清理+重置网络栈）
+                val needHardRecovery = reason.contains("doze_exit", true) ||
+                    BoxWrapperManager.wasPausedRecently(30_000L)
+                if (needHardRecovery) {
+                    Log.i(TAG, "[NetworkBump] Attempting full recovery")
+                    BoxWrapperManager.recoverNetworkFull()
+                    delay(200)
+                    val probeAfterFull = quickConnectivityProbe()
+                    if (probeAfterFull >= 0) {
+                        Log.i(TAG, "[NetworkBump] Full recovery OK (${probeAfterFull}ms)")
+                        return true
+                    }
+                }
+
+                // Step 5: 最后手段 - 仅刷新底层网络（不断开，只更新）
+                val network = connectManager.getCurrentNetwork()
+                if (network != null) {
+                    Log.i(TAG, "[NetworkBump] Refreshing underlying network (no disconnect)")
+                    setUnderlyingNetworks(arrayOf(network))
+                    // 关闭所有追踪连接，让应用重建
+                    val closed = BoxWrapperManager.closeAllTrackedConnections()
+                    Log.i(TAG, "[NetworkBump] Refresh completed, closed $closed tracked connections")
+                }
+
+                Log.i(TAG, "[NetworkBump] Progressive recovery completed for: $reason")
+                return true
+            }
+
+            /**
+             * 快速连通性探测
+             * 使用 generate_204 进行轻量级测试
+             * @return 延迟毫秒数，-1 表示失败
+             */
+            private suspend fun quickConnectivityProbe(): Int {
+                return withContext(Dispatchers.IO) {
+                    try {
+                        val selected = BoxWrapperManager.getSelectedOutbound()
+                        if (selected.isNullOrBlank()) return@withContext -1
+                        BoxWrapperManager.urlTestOutbound(
+                            selected,
+                            "https://www.gstatic.com/generate_204",
+                            3000
+                        )
+                    } catch (_: Exception) {
+                        -1
+                    }
                 }
             }
 

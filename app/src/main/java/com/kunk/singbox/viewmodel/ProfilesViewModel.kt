@@ -94,8 +94,15 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun updateProfileMetadata(profileId: String, newName: String, newUrl: String?, autoUpdateInterval: Int = 0) {
-        configRepository.updateProfileMetadata(profileId, newName, newUrl, autoUpdateInterval)
+    fun updateProfileMetadata(
+        profileId: String,
+        newName: String,
+        newUrl: String?,
+        autoUpdateInterval: Int = 0,
+        dnsPreResolve: Boolean = false,
+        dnsServer: String? = null
+    ) {
+        configRepository.updateProfileMetadata(profileId, newName, newUrl, autoUpdateInterval, dnsPreResolve, dnsServer)
         emitToast(getApplication<Application>().getString(R.string.profiles_updated))
     }
 
@@ -146,7 +153,13 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
     /**
      * 导入订阅配置
      */
-    fun importSubscription(name: String, url: String, autoUpdateInterval: Int = 0) {
+    fun importSubscription(
+        name: String,
+        url: String,
+        autoUpdateInterval: Int = 0,
+        dnsPreResolve: Boolean = false,
+        dnsServer: String? = null
+    ) {
         // 防止重复导入
         if (_importState.value is ImportState.Loading) {
             return
@@ -159,6 +172,8 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
                 name = name,
                 url = url,
                 autoUpdateInterval = autoUpdateInterval,
+                dnsPreResolve = dnsPreResolve,
+                dnsServer = dnsServer,
                 onProgress = { progress ->
                     _importState.value = ImportState.Loading(progress)
                 }
