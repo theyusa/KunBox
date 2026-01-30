@@ -4,6 +4,9 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -144,26 +147,49 @@ class DnsResolver(
     }
 
     /**
-     * 级联解析：先 DoH，失败则系统 DNS
+     * 竞速解析：同时启动 DoH 和系统 DNS，谁先成功用谁
+     * 避免 DoH 超时时的长时间等待
      */
     suspend fun resolve(
         domain: String,
         dohServer: String? = DOH_CLOUDFLARE
-    ): DnsResolveResult {
+    ): DnsResolveResult = withContext(Dispatchers.IO) {
         if (isIpAddress(domain)) {
-            return DnsResolveResult(domain, "direct")
+            return@withContext DnsResolveResult(domain, "direct")
         }
 
-        // 先尝试 DoH
-        if (dohServer != null) {
-            val dohResult = resolveViaDoH(domain, dohServer)
-            if (dohResult.isSuccess) {
-                return dohResult
+        // 用 Channel 实现真正的竞速
+        val resultChannel = Channel<DnsResolveResult>(2)
+        var pendingCount = if (dohServer != null) 2 else 1
+
+        coroutineScope {
+            // 启动 DoH 解析
+            if (dohServer != null) {
+                launch {
+                    val result = resolveViaDoH(domain, dohServer)
+                    resultChannel.send(result)
+                }
             }
-        }
 
-        // 回退到系统 DNS
-        return resolveViaSystem(domain)
+            // 启动系统 DNS 解析
+            launch {
+                val result = resolveViaSystem(domain)
+                resultChannel.send(result)
+            }
+
+            // 等待结果：收到成功结果立即返回，否则等所有完成
+            var lastResult: DnsResolveResult? = null
+            repeat(pendingCount) {
+                val result = resultChannel.receive()
+                if (result.isSuccess) {
+                    resultChannel.close()
+                    return@coroutineScope result
+                }
+                lastResult = result
+            }
+            resultChannel.close()
+            lastResult ?: DnsResolveResult(null, "racing", "All resolvers failed")
+        }
     }
 
     /**
