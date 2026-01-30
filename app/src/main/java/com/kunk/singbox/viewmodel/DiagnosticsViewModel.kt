@@ -95,7 +95,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                     )
                 }
             } catch (e: Exception) {
-                _resultMessage.value = "读取运行配置失败: ${e.message}"
+                _resultMessage.value = getApplication<Application>().getString(R.string.diag_error_read_failed, e.message)
             } finally {
                 _isRunConfigLoading.value = false
                 _showResultDialog.value = true
@@ -235,7 +235,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         if (_isConnectivityLoading.value) return
         viewModelScope.launch {
             _isConnectivityLoading.value = true
-            _resultTitle.value = context.getString(R.string.diagnostics_connectivity)
+            _resultTitle.value = getApplication<Application>().getString(R.string.diagnostics_connectivity)
             try {
                 // Dual-channel diagnostics:
                 // - DIRECT: reflects local network quality (this app is excluded from TUN in VPN mode)
