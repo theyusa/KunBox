@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.6.8](https://github.com/roseforljh/KunBox/compare/v2.6.7...v2.6.8) (2026-01-30)
+
+
+### Bug Fixes
+
+* .... ([d011867](https://github.com/roseforljh/KunBox/commit/d011867ad1357493e64159a8256d87798fe2917f))
+* **dns:** 使用竞速模式优化 DNS 解析速度 ([285f7f1](https://github.com/roseforljh/KunBox/commit/285f7f19baf9d2f279035dd4af8932c893be125a))
+* **lint:** 修复 detekt 报告的代码问题 ([901485c](https://github.com/roseforljh/KunBox/commit/901485c61c8e531dbadf1c81650335c6a757ab12))
+* **profile:** 添加 DNS 预解析功能绕过 DNS 污染 ([3cd6095](https://github.com/roseforljh/KunBox/commit/3cd6095ae833beea7684021ddc5752227d1f8835))
+* 很吊 ([def14cf](https://github.com/roseforljh/KunBox/commit/def14cf7312207d09e74142a6b30ddcd7d8e4079))
+
 ## [2.6.7](https://github.com/roseforljh/KunBox/compare/v2.6.6...v2.6.7) (2026-01-29)
 
 
