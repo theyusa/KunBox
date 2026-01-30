@@ -504,6 +504,9 @@
     <string name="connection_settings_network_change_reset_subtitle">Close all connections when switching between WiFi and cellular</string>
     <string name="connection_settings_wake_reset">Reset Connections on Wake</string>
     <string name="connection_settings_wake_reset_subtitle">Close all connections when device wakes from sleep</string>
+    <string name="connection_settings_foreground_monitor">Foreground App Network Recovery</string>
+    <string name="connection_settings_foreground_monitor_subtitle">Detect stalled network for foreground apps and auto-recover</string>
+    <string name="connection_settings_foreground_monitor_no_permission">Usage access permission required, tap to grant</string>
 
     <!-- About Dialog -->
     <string name="about_version">App Version: %1$s (%2$d)</string>

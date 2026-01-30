@@ -343,6 +343,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { repository.setWakeResetConnections(value) }
     }
 
+    fun setForegroundAppMonitorEnabled(value: Boolean) {
+        viewModelScope.launch { repository.setForegroundAppMonitorEnabled(value) }
+    }
+
     fun updateLatencyTestConcurrency(value: Int) {
         viewModelScope.launch { repository.setLatencyTestConcurrency(value) }
     }

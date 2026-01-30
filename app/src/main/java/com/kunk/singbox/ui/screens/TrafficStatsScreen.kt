@@ -85,7 +85,7 @@ private val chartColors = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-@Suppress("LongMethod")
+@Suppress("LongMethod", "CognitiveComplexMethod")
 fun TrafficStatsScreen(
     navController: NavController,
     viewModel: TrafficStatsViewModel = viewModel()

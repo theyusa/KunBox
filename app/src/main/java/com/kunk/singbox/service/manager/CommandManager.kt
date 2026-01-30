@@ -40,6 +40,10 @@ class CommandManager(
     private var commandClientLogs: CommandClient? = null
     private var commandClientConnections: CommandClient? = null
 
+    // 2025-fix: 保持 handler 引用，防止被 GC 回收导致 gomobile 引用失效
+    @Volatile
+    private var clientHandler: CommandClientHandler? = null
+
     @Volatile
     private var isNonEssentialSuspended: Boolean = false
 
@@ -144,32 +148,35 @@ class CommandManager(
      * 启动 Command Clients
      */
     fun startClients(): Result<Unit> = runCatching {
-        val clientHandler = createClientHandler()
+        // 2025-fix: 存储 handler 到类字段，防止被 GC 回收
+        val handler = createClientHandler()
+        clientHandler = handler
 
-        // 1. 启动 CommandClient (Groups + Status)
+        // 启动 CommandClient (Status + Groups)
+        // 内核已添加 defer/recover 保护，应该不会再崩溃
         val options = CommandClientOptions()
-        options.addCommand(Libbox.CommandGroup)
         options.addCommand(Libbox.CommandStatus)
-        options.statusInterval = 3000L * 1000L * 1000L // 3s (nanoseconds)
-        commandClient = Libbox.newCommandClient(clientHandler, options)
+        options.addCommand(Libbox.CommandGroup)
+        options.statusInterval = 3000L * 1000L * 1000L // 3s
+        commandClient = Libbox.newCommandClient(handler, options)
         commandClient?.connect()
-        Log.i(TAG, "CommandClient connected")
+        Log.i(TAG, "CommandClient connected (Status + Groups, interval=3s)")
 
-        // 2. 启动 CommandClient (Logs)
-        val optionsLog = CommandClientOptions()
-        optionsLog.addCommand(Libbox.CommandLog)
-        optionsLog.statusInterval = 1500L * 1000L * 1000L
-        commandClientLogs = Libbox.newCommandClient(clientHandler, optionsLog)
-        commandClientLogs?.connect()
-        Log.i(TAG, "CommandClient (Logs) connected")
+        // 2. 启动 CommandClient (Logs) - 暂时禁用调查崩溃
+        // val optionsLog = CommandClientOptions()
+        // optionsLog.addCommand(Libbox.CommandLog)
+        // optionsLog.statusInterval = 1500L * 1000L * 1000L
+        // commandClientLogs = Libbox.newCommandClient(handler, optionsLog)
+        // commandClientLogs?.connect()
+        Log.i(TAG, "CommandClient (Logs) DISABLED for crash investigation")
 
-        // 3. 启动 CommandClient (Connections)
-        val optionsConn = CommandClientOptions()
-        optionsConn.addCommand(Libbox.CommandConnections)
-        optionsConn.statusInterval = 5000L * 1000L * 1000L
-        commandClientConnections = Libbox.newCommandClient(clientHandler, optionsConn)
-        commandClientConnections?.connect()
-        Log.i(TAG, "CommandClient (Connections) connected")
+        // 3. 启动 CommandClient (Connections) - 暂时禁用调查崩溃
+        // val optionsConn = CommandClientOptions()
+        // optionsConn.addCommand(Libbox.CommandConnections)
+        // optionsConn.statusInterval = 5000L * 1000L * 1000L
+        // commandClientConnections = Libbox.newCommandClient(handler, optionsConn)
+        // commandClientConnections?.connect()
+        Log.i(TAG, "CommandClient (Connections) DISABLED for crash investigation")
 
         // 验证回调
         serviceScope.launch {
@@ -194,6 +201,9 @@ class CommandManager(
         commandClientLogs = null
         commandClientConnections?.disconnect()
         commandClientConnections = null
+
+        // 2025-fix: 必须在 clients 断开后再清理 handler，确保 Go 侧引用有效
+        clientHandler = null
 
         BoxWrapperManager.release()
 
@@ -288,78 +298,86 @@ class CommandManager(
             }
         }
 
+        @Suppress("LongMethod")
         override fun writeStatus(message: StatusMessage?) {
-            message ?: return
-            val currentUp = message.uplinkTotal
-            val currentDown = message.downlinkTotal
-            val currentTime = System.currentTimeMillis()
+            if (message == null) return
+            try {
+                val currentUp = message.uplinkTotal
+                val currentDown = message.downlinkTotal
+                val currentTime = System.currentTimeMillis()
 
-            if (lastSpeedUpdateTime == 0L || currentTime < lastSpeedUpdateTime) {
-                lastSpeedUpdateTime = currentTime
-                lastUplinkTotal = currentUp
-                lastDownlinkTotal = currentDown
-                return
-            }
+                if (lastSpeedUpdateTime == 0L || currentTime < lastSpeedUpdateTime) {
+                    lastSpeedUpdateTime = currentTime
+                    lastUplinkTotal = currentUp
+                    lastDownlinkTotal = currentDown
+                    return
+                }
 
-            if (currentUp < lastUplinkTotal || currentDown < lastDownlinkTotal) {
-                lastUplinkTotal = currentUp
-                lastDownlinkTotal = currentDown
-                lastSpeedUpdateTime = currentTime
-                return
-            }
+                if (currentUp < lastUplinkTotal || currentDown < lastDownlinkTotal) {
+                    lastUplinkTotal = currentUp
+                    lastDownlinkTotal = currentDown
+                    lastSpeedUpdateTime = currentTime
+                    return
+                }
 
-            val diffUp = currentUp - lastUplinkTotal
-            val diffDown = currentDown - lastDownlinkTotal
+                val diffUp = currentUp - lastUplinkTotal
+                val diffDown = currentDown - lastDownlinkTotal
 
-            if (diffUp > 0 || diffDown > 0) {
-                val trafficRepo = TrafficRepository.getInstance(context)
-                val configRepo = ConfigRepository.getInstance(context)
-                val perOutboundTraffic = BoxWrapperManager.getTrafficByOutbound()
-                    .filterKeys { tag ->
-                        // 过滤掉直连流量
-                        !tag.equals("direct", ignoreCase = true) &&
-                        !tag.equals("block", ignoreCase = true) &&
-                        !tag.equals("dns-out", ignoreCase = true)
-                    }
+                if (diffUp > 0 || diffDown > 0) {
+                    val trafficRepo = TrafficRepository.getInstance(context)
+                    val configRepo = ConfigRepository.getInstance(context)
 
-                if (perOutboundTraffic.isNotEmpty()) {
-                    // Calculate total traffic from all outbounds
-                    var totalOutboundUp = 0L
-                    var totalOutboundDown = 0L
-                    perOutboundTraffic.forEach { (_, traffic) ->
-                        totalOutboundUp += traffic.first
-                        totalOutboundDown += traffic.second
-                    }
+                    // TODO: 暂时禁用，调查崩溃原因
+                    // val perOutboundTraffic = BoxWrapperManager.getTrafficByOutbound()
+                    //     .filterKeys { tag ->
+                    //         // 过滤掉直连流量
+                    //         !tag.equals("direct", ignoreCase = true) &&
+                    //             !tag.equals("block", ignoreCase = true) &&
+                    //             !tag.equals("dns-out", ignoreCase = true)
+                    //     }
+                    val perOutboundTraffic = emptyMap<String, Pair<Long, Long>>()
 
-                    // Distribute diff proportionally to each outbound
-                    if (totalOutboundUp > 0 || totalOutboundDown > 0) {
-                        perOutboundTraffic.forEach { (nodeTag, traffic) ->
-                            val (outboundUp, outboundDown) = traffic
-                            val allocUp = if (totalOutboundUp > 0) {
-                                (diffUp * outboundUp / totalOutboundUp)
-                            } else 0L
-                            val allocDown = if (totalOutboundDown > 0) {
-                                (diffDown * outboundDown / totalOutboundDown)
-                            } else 0L
+                    if (perOutboundTraffic.isNotEmpty()) {
+                        // Calculate total traffic from all outbounds
+                        var totalOutboundUp = 0L
+                        var totalOutboundDown = 0L
+                        perOutboundTraffic.forEach { (_, traffic) ->
+                            totalOutboundUp += traffic.first
+                            totalOutboundDown += traffic.second
+                        }
 
-                            if (allocUp > 0 || allocDown > 0) {
-                                val nodeName = configRepo.getNodeById(nodeTag)?.name
-                                trafficRepo.addTraffic(nodeTag, allocUp, allocDown, nodeName)
+                        // Distribute diff proportionally to each outbound
+                        if (totalOutboundUp > 0 || totalOutboundDown > 0) {
+                            perOutboundTraffic.forEach { (nodeTag, traffic) ->
+                                val (outboundUp, outboundDown) = traffic
+                                val allocUp = if (totalOutboundUp > 0) {
+                                    (diffUp * outboundUp / totalOutboundUp)
+                                } else 0L
+                                val allocDown = if (totalOutboundDown > 0) {
+                                    (diffDown * outboundDown / totalOutboundDown)
+                                } else 0L
+
+                                if (allocUp > 0 || allocDown > 0) {
+                                    val nodeName = configRepo.getNodeById(nodeTag)?.name
+                                    trafficRepo.addTraffic(nodeTag, allocUp, allocDown, nodeName)
+                                }
                             }
                         }
-                    }
-                } else {
-                    val activeNodeId = configRepo.activeNodeId.value
-                    if (activeNodeId != null) {
-                        val nodeName = configRepo.getNodeById(activeNodeId)?.name
-                        trafficRepo.addTraffic(activeNodeId, diffUp, diffDown, nodeName)
+                    } else {
+                        val activeNodeId = configRepo.activeNodeId.value
+                        if (activeNodeId != null) {
+                            val nodeName = configRepo.getNodeById(activeNodeId)?.name
+                            trafficRepo.addTraffic(activeNodeId, diffUp, diffDown, nodeName)
+                        }
                     }
                 }
-            }
 
-            lastUplinkTotal = currentUp
-            lastDownlinkTotal = currentDown
-            lastSpeedUpdateTime = currentTime
+                lastUplinkTotal = currentUp
+                lastDownlinkTotal = currentDown
+                lastSpeedUpdateTime = currentTime
+            } catch (e: Exception) {
+                Log.e(TAG, "writeStatus callback error", e)
+            }
         }
 
         override fun writeGroups(groups: OutboundGroupIterator?) {
@@ -535,13 +553,14 @@ class CommandManager(
             return
         }
 
-        val clientHandler = createClientHandler()
+        // 2025-fix: 复用已存储的 handler，如果不存在则创建并存储
+        val handler = clientHandler ?: createClientHandler().also { clientHandler = it }
 
         try {
             val optionsLog = CommandClientOptions()
             optionsLog.addCommand(Libbox.CommandLog)
             optionsLog.statusInterval = 1500L * 1000L * 1000L
-            commandClientLogs = Libbox.newCommandClient(clientHandler, optionsLog)
+            commandClientLogs = Libbox.newCommandClient(handler, optionsLog)
             commandClientLogs?.connect()
             Log.i(TAG, "CommandClient (Logs) resumed")
         } catch (e: Exception) {
@@ -552,7 +571,7 @@ class CommandManager(
             val optionsConn = CommandClientOptions()
             optionsConn.addCommand(Libbox.CommandConnections)
             optionsConn.statusInterval = 5000L * 1000L * 1000L
-            commandClientConnections = Libbox.newCommandClient(clientHandler, optionsConn)
+            commandClientConnections = Libbox.newCommandClient(handler, optionsConn)
             commandClientConnections?.connect()
             Log.i(TAG, "CommandClient (Connections) resumed")
         } catch (e: Exception) {

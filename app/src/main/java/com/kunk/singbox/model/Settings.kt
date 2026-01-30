@@ -73,6 +73,7 @@ data class AppSettings(
     // 连接重置设置
     @SerializedName("networkChangeResetConnections") val networkChangeResetConnections: Boolean = true,
     @SerializedName("wakeResetConnections") val wakeResetConnections: Boolean = true,
+    @SerializedName("foregroundAppMonitorEnabled") val foregroundAppMonitorEnabled: Boolean = false,
 
     // TCP Keepalive 设置 (完美方案 - 防止连接假死)
     // 启用 TCP Keepalive，定期发送心跳包保持连接活跃

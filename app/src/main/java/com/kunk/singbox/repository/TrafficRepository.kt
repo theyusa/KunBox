@@ -18,8 +18,12 @@ data class NodeTrafficStats(
 
 data class DailyTrafficRecord(
     val dateKey: String,
-    val nodeStats: MutableMap<String, NodeTrafficStats> = mutableMapOf()
-)
+    @Suppress("ConstructorParameterNaming")
+    private var _nodeStats: MutableMap<String, NodeTrafficStats>? = null
+) {
+    val nodeStats: MutableMap<String, NodeTrafficStats>
+        get() = _nodeStats ?: mutableMapOf<String, NodeTrafficStats>().also { _nodeStats = it }
+}
 
 enum class TrafficPeriod {
     TODAY,

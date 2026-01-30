@@ -15,6 +15,9 @@
     <!-- Required to query all installed apps on Android 11+ -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+    <!-- Required for foreground app detection to fix network stall -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
 
     <application
         android:enableOnBackInvokedCallback="true"

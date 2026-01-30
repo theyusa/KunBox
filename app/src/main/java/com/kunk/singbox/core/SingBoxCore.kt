@@ -249,10 +249,10 @@ class SingBoxCore private constructor(private val context: Context) {
         timeoutMs: Int,
         dependencyOutbounds: List<Outbound> = emptyList()
     ): Long {
-        // 2025-fix: 防御性检查 - VPN 运行时使用 native 测速，避免创建临时服务
-        // 临时服务的 closeService() 会污染全局 Libbox.isRunning() 状态
+        // 2025-fix: VPN 运行时使用 native 测速
+        // 内核已添加 defer/recover 保护
         if (VpnStateStore.getActive() && BoxWrapperManager.isAvailable()) {
-            Log.i(TAG, "VPN is running, redirecting to native URL test for ${outbound.tag}")
+            Log.i(TAG, "VPN is running, using native URL test for ${outbound.tag}")
             val result = BoxWrapperManager.urlTestOutbound(outbound.tag, targetUrl, timeoutMs)
             return if (result >= 0) result.toLong() else -1L
         }

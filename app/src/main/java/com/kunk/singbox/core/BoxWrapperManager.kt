@@ -661,4 +661,43 @@ object BoxWrapperManager {
             emptyMap()
         }
     }
+
+    // ==================== Foreground App Stall Detection (v2.9.2) ====================
+
+    /**
+     * 检测应用网络是否卡顿
+     * 卡顿定义：有活跃连接 + 连接存在超过 windowMs 毫秒 + 有上传但没有下载
+     *
+     * @param packageName 应用包名
+     * @param windowMs 时间窗口（毫秒），建议 3000
+     * @return true 如果检测到卡顿
+     */
+    fun isAppNetworkStalled(packageName: String, windowMs: Int): Boolean {
+        return try {
+            Libbox.isAppNetworkStalled(packageName, windowMs)
+        } catch (e: Exception) {
+            Log.w(TAG, "isAppNetworkStalled failed: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * 关闭指定应用的所有连接
+     * 用于网络卡顿恢复
+     *
+     * @param packageName 应用包名
+     * @return 关闭的连接数
+     */
+    fun closeConnectionsForApp(packageName: String): Int {
+        return try {
+            val count = Libbox.closeConnectionsForApp(packageName)
+            if (count > 0) {
+                Log.i(TAG, "closeConnectionsForApp: closed $count connections for $packageName")
+            }
+            count
+        } catch (e: Exception) {
+            Log.w(TAG, "closeConnectionsForApp failed: ${e.message}")
+            0
+        }
+    }
 }

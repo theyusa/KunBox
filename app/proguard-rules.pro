@@ -64,6 +64,24 @@
 # 禁止 repackage model 类，避免包名丢失导致的初始化错误
 -keeppackagenames com.kunk.singbox.model.**
 
+# TrafficRepository 数据类 - Gson 序列化需要保留字段名
+-keep class com.kunk.singbox.repository.NodeTrafficStats {
+    <fields>;
+    <init>(...);
+}
+-keep class com.kunk.singbox.repository.DailyTrafficRecord {
+    <fields>;
+    <init>(...);
+}
+-keep class com.kunk.singbox.repository.TrafficSummary {
+    <fields>;
+    <init>(...);
+}
+-keep class com.kunk.singbox.repository.TrafficPeriod {
+    <fields>;
+    <init>(...);
+}
+
 # ====================================================================
 # AIDL Interfaces (进程间通信)
 # ====================================================================
