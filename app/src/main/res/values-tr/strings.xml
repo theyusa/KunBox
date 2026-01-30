@@ -593,6 +593,8 @@
     <string name="common_gallery">Galeri</string>
     <string name="common_flash">Flaş</string>
     <string name="qr_scanner_hint">Karekodu çerçevenin içine yerleştirin, otomatik olarak taranacaktır</string>
+    <string name="diag_error_read_failed">Çalışma yapılandırması okunamadı: %1$s</string>
+    
     
     
 
