@@ -653,6 +653,8 @@
     <string name="common_gallery">相册</string>
     <string name="common_flash">闪光灯</string>
     <string name="qr_scanner_hint">将二维码放入框内，即可自动扫描</string>
+    <string name="diag_error_read_failed">读取运行配置失败: %1$s</string>
+    
     
 
 </resources>
