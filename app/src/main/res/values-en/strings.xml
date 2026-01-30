@@ -593,6 +593,8 @@
     <string name="common_gallery">Gallery</string>
     <string name="common_flash">Flashlight</string>
     <string name="qr_scanner_hint">Place the QR code inside the frame to scan automatically</string>
+    <string name="diag_error_read_failed">Failed to read run configuration: %1$s</string>
+    
     
     
 
