@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Analytics
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Download
@@ -363,6 +364,12 @@ fun SettingsScreen(
         // 4. 数据管理
         SettingsGroupTitle(stringResource(R.string.settings_data_management))
         StandardCard {
+            SettingItem(
+                title = "流量统计",
+                subtitle = "查看各节点流量使用情况",
+                icon = Icons.Rounded.Analytics,
+                onClick = { navController.navigate(Screen.TrafficStats.route) }
+            )
             SettingItem(
                 title = stringResource(R.string.settings_export_data),
                 subtitle = stringResource(R.string.settings_export_data_subtitle),

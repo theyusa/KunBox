@@ -31,6 +31,7 @@ import com.kunk.singbox.ui.screens.CustomRulesScreen
 import com.kunk.singbox.ui.screens.AppRoutingScreen
 import com.kunk.singbox.ui.screens.RuleSetHubScreen
 import com.kunk.singbox.ui.screens.DomainRulesScreen
+import com.kunk.singbox.ui.screens.TrafficStatsScreen
 
 sealed class Screen(val route: String) {
     object Dashboard : Screen("dashboard")
@@ -57,6 +58,7 @@ sealed class Screen(val route: String) {
     object DomainRules : Screen("domain_rules")
     object AppRules : Screen("app_rules")
     object RuleSetHub : Screen("rule_set_hub")
+    object TrafficStats : Screen("traffic_stats")
 }
 
 const val NAV_ANIMATION_DURATION = 450
@@ -98,6 +100,7 @@ fun getTabForRoute(route: String?): String {
         route == Screen.RuleSetHub.route -> Screen.Settings.route
         route == Screen.Diagnostics.route -> Screen.Settings.route
         route == Screen.Logs.route -> Screen.Settings.route
+        route == Screen.TrafficStats.route -> Screen.Settings.route
 
         else -> Screen.Dashboard.route
     }
@@ -324,5 +327,12 @@ fun AppNavigation(navController: NavHostController) {
             popEnterTransition = popEnterTransition,
             popExitTransition = popExitTransition
         ) { RuleSetHubScreen(navController) }
+        composable(
+            route = Screen.TrafficStats.route,
+            enterTransition = enterTransition,
+            exitTransition = exitTransition,
+            popEnterTransition = popEnterTransition,
+            popExitTransition = popExitTransition
+        ) { TrafficStatsScreen(navController) }
     }
 }

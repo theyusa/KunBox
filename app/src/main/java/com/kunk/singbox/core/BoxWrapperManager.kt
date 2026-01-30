@@ -316,8 +316,6 @@ object BoxWrapperManager {
 
     /**
      * 关闭所有跟踪连接
-     * 通过 TrafficManager 关闭连接，确保应用收到 RST/FIN 信号
-     * 这是解决"TG 后台恢复后一直加载中"问题的关键
      */
     fun closeAllTrackedConnections(): Int {
         return try {
@@ -506,14 +504,8 @@ object BoxWrapperManager {
         }
     }
 
-    // ==================== Idle Connection Cleanup (Fix TG image loading slow) ====================
-
     /**
-     * Close idle connections that have been inactive for too long
-     * This fixes the "TG image loading slow" issue caused by stale connections
-     *
-     * @param maxIdleSeconds Maximum idle time in seconds (default: 60)
-     * @return Number of connections closed
+     * 关闭空闲连接
      */
     fun closeIdleConnections(maxIdleSeconds: Int = 60): Int {
         return try {
@@ -529,12 +521,7 @@ object BoxWrapperManager {
     }
 
     /**
-     * Close stale connections to a specific host pattern
-     * Useful for troubleshooting specific domains (like Telegram CDN)
-     *
-     * @param hostPattern Host pattern to match (case-insensitive contains match)
-     * @param maxAgeSeconds Maximum connection age in seconds
-     * @return Number of connections closed
+     * 关闭指定域名的陈旧连接
      */
     fun closeStaleConnectionsForHost(hostPattern: String, maxAgeSeconds: Int = 30): Int {
         return try {
@@ -646,6 +633,32 @@ object BoxWrapperManager {
             Libbox.resetTestStatistics()
         } catch (e: Exception) {
             Log.w(TAG, "resetTestStatistics failed: ${e.message}")
+        }
+    }
+
+    // ==================== Per-Outbound Traffic (v2.9.1) ====================
+
+    /**
+     * 获取按出站分组的流量统计
+     * 用于准确记录分流场景下各节点的流量
+     *
+     * @return Map<节点标签, Pair<上传字节, 下载字节>>
+     */
+    fun getTrafficByOutbound(): Map<String, Pair<Long, Long>> {
+        return try {
+            val iterator = Libbox.getTrafficByOutbound() ?: return emptyMap()
+            val result = mutableMapOf<String, Pair<Long, Long>>()
+            while (iterator.hasNext()) {
+                val item = iterator.next() ?: continue
+                val tag = item.tag
+                if (!tag.isNullOrBlank()) {
+                    result[tag] = Pair(item.upload, item.download)
+                }
+            }
+            result
+        } catch (e: Exception) {
+            Log.w(TAG, "getTrafficByOutbound failed: ${e.message}")
+            emptyMap()
         }
     }
 }

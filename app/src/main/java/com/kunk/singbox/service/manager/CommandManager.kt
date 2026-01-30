@@ -312,10 +312,24 @@ class CommandManager(
             val diffDown = currentDown - lastDownlinkTotal
 
             if (diffUp > 0 || diffDown > 0) {
-                val repo = ConfigRepository.getInstance(context)
-                val activeNodeId = repo.activeNodeId.value
-                if (activeNodeId != null) {
-                    TrafficRepository.getInstance(context).addTraffic(activeNodeId, diffUp, diffDown)
+                val trafficRepo = TrafficRepository.getInstance(context)
+                val configRepo = ConfigRepository.getInstance(context)
+                val perOutboundTraffic = BoxWrapperManager.getTrafficByOutbound()
+
+                if (perOutboundTraffic.isNotEmpty()) {
+                    perOutboundTraffic.forEach { (nodeTag, traffic) ->
+                        val (upload, download) = traffic
+                        if (upload > 0 || download > 0) {
+                            val nodeName = configRepo.getNodeById(nodeTag)?.name
+                            trafficRepo.addTraffic(nodeTag, upload, download, nodeName)
+                        }
+                    }
+                } else {
+                    val activeNodeId = configRepo.activeNodeId.value
+                    if (activeNodeId != null) {
+                        val nodeName = configRepo.getNodeById(activeNodeId)?.name
+                        trafficRepo.addTraffic(activeNodeId, diffUp, diffDown, nodeName)
+                    }
                 }
             }
 
