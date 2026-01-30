@@ -24,7 +24,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -45,7 +44,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentPaste
@@ -666,6 +664,7 @@ private fun ImportOptionCard(
     }
 }
 
+@Suppress("LongMethod", "CyclomaticComplexMethod", "CognitiveComplexMethod")
 @Composable
 private fun SubscriptionInputDialog(
     initialName: String = "",
@@ -936,7 +935,7 @@ private fun SubscriptionInputDialog(
                                     text = label,
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = if (isSelected) MaterialTheme.colorScheme.primary
-                                           else MaterialTheme.colorScheme.onSurface
+                                    else MaterialTheme.colorScheme.onSurface
                                 )
                                 if (isSelected) {
                                     Icon(

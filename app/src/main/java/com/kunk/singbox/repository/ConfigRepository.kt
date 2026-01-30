@@ -1062,6 +1062,7 @@ class ConfigRepository(private val context: Context) {
     /**
      * 从订阅 URL 导入配置
      */
+    @Suppress("LongMethod", "CognitiveComplexMethod")
     suspend fun importFromSubscription(
         name: String,
         url: String,
@@ -3192,6 +3193,7 @@ class ConfigRepository(private val context: Context) {
         val nodeTagMap: Map<String, String>
     )
 
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "CognitiveComplexMethod", "NestedBlockDepth")
     private fun buildRunOutbounds(
         baseConfig: SingBoxConfig,
         activeNode: NodeUi?,

@@ -63,8 +63,8 @@ class DnsResolveStore private constructor() {
     /**
      * 生成存储 key
      */
-    private fun makeKey(profileId: String, domain: String): String {
-        return "${profileId}_${domain}"
+    private fun makeKey(profileId: String, domainName: String): String {
+        return profileId + "_" + domainName
     }
 
     /**
@@ -200,7 +200,7 @@ class DnsResolveStore private constructor() {
                     cleanedCount++
                 }
             } catch (e: Exception) {
-                // Invalid entry, remove it
+                Log.w(TAG, "Invalid entry, removing: ${e.message}")
                 mmkv.removeValueForKey(key)
                 cleanedCount++
             }
@@ -220,19 +220,24 @@ class DnsResolveStore private constructor() {
         var expired = 0
 
         mmkv.allKeys()?.forEach { key ->
-            val json = mmkv.decodeString(key, null) ?: return@forEach
-            try {
-                val entry = gson.fromJson(json, ResolvedEntry::class.java)
-                if (entry != null) {
-                    total++
-                    if (entry.isExpired()) expired++ else valid++
-                }
-            } catch (e: Exception) {
-                // Ignore
+            val entry = parseEntry(key)
+            if (entry != null) {
+                total++
+                if (entry.isExpired()) expired++ else valid++
             }
         }
 
         return Stats(total, valid, expired)
+    }
+
+    private fun parseEntry(key: String): ResolvedEntry? {
+        val json = mmkv.decodeString(key, null) ?: return null
+        return try {
+            gson.fromJson(json, ResolvedEntry::class.java)
+        } catch (e: Exception) {
+            Log.v(TAG, "Failed to parse entry: ${e.message}")
+            null
+        }
     }
 
     data class Stats(

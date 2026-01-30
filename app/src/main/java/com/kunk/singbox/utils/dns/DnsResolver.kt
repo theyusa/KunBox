@@ -14,7 +14,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONObject
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.util.concurrent.TimeUnit
@@ -81,45 +80,38 @@ class DnsResolver(
         }
 
         try {
-            // 构建 DNS 查询报文 (A 记录)
-            val query = buildDnsQuery(domain)
-
-            val request = Request.Builder()
-                .url(dohServer)
-                .header("Accept", "application/dns-message")
-                .header("Content-Type", "application/dns-message")
-                .post(query.toRequestBody("application/dns-message".toMediaType()))
-                .build()
-
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    return@withContext DnsResolveResult(
-                        ip = null,
-                        source = "doh",
-                        error = "HTTP ${response.code}"
-                    )
-                }
-
-                val body = response.body?.bytes()
-                if (body == null) {
-                    return@withContext DnsResolveResult(
-                        ip = null,
-                        source = "doh",
-                        error = "Empty response"
-                    )
-                }
-
-                val ip = parseDnsResponse(body)
-                if (ip != null) {
-                    Log.d(TAG, "DoH resolved $domain -> $ip")
-                    DnsResolveResult(ip, "doh")
-                } else {
-                    DnsResolveResult(null, "doh", "No A record found")
-                }
-            }
+            executeDoHRequest(domain, dohServer)
         } catch (e: Exception) {
             Log.w(TAG, "DoH resolve failed for $domain: ${e.message}")
             DnsResolveResult(null, "doh", e.message)
+        }
+    }
+
+    private fun executeDoHRequest(domain: String, dohServer: String): DnsResolveResult {
+        val query = buildDnsQuery(domain)
+
+        val request = Request.Builder()
+            .url(dohServer)
+            .header("Accept", "application/dns-message")
+            .header("Content-Type", "application/dns-message")
+            .post(query.toRequestBody("application/dns-message".toMediaType()))
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                return DnsResolveResult(null, "doh", "HTTP ${response.code}")
+            }
+
+            val body = response.body?.bytes()
+                ?: return DnsResolveResult(null, "doh", "Empty response")
+
+            val ip = parseDnsResponse(body)
+            return if (ip != null) {
+                Log.d(TAG, "DoH resolved $domain -> $ip")
+                DnsResolveResult(ip, "doh")
+            } else {
+                DnsResolveResult(null, "doh", "No A record found")
+            }
         }
     }
 
@@ -312,13 +304,13 @@ class DnsResolver(
     /**
      * 跳过 DNS 名称字段
      */
+    @Suppress("LoopWithTooManyJumpStatements")
     private fun skipName(buffer: ByteBuffer) {
         while (buffer.hasRemaining()) {
             val len = buffer.get().toInt() and 0xFF
             if (len == 0) break
             if ((len and 0xC0) == 0xC0) {
-                // Compression pointer
-                buffer.get()
+                buffer.get() // Compression pointer
                 break
             }
             buffer.position(buffer.position() + len)
