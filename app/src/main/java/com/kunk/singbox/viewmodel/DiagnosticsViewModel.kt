@@ -74,11 +74,11 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         if (_isRunConfigLoading.value) return
         viewModelScope.launch {
             _isRunConfigLoading.value = true
-            _resultTitle.value = getApplication<Application>().getString(R.string.diag_title_run_config)
+            _resultTitle.value = "Running Config (running_config.json)"
             try {
                 val configResult = generateRunningConfig()
                 if (configResult?.path.isNullOrBlank()) {
-                    _resultMessage.value = getApplication<Application>().getString(R.string.diag_error_config_gen)
+                    _resultMessage.value = "Failed to generate running config: no profile selected or generation failed."
                 } else {
                     val realPath = configResult!!.path
                     val runConfig = loadRunConfig(realPath)
@@ -95,7 +95,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                     )
                 }
             } catch (e: Exception) {
-                _resultMessage.value = getApplication<Application>().getString(R.string.diag_error_read_failed, e.message)
+                _resultMessage.value = "读取运行配置失败: ${e.message}"
             } finally {
                 _isRunConfigLoading.value = false
                 _showResultDialog.value = true
@@ -235,7 +235,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         if (_isConnectivityLoading.value) return
         viewModelScope.launch {
             _isConnectivityLoading.value = true
-            _resultTitle.value = getApplication<Application>().getString(R.string.diagnostics_connectivity)
+            _resultTitle.value = context.getString(R.string.diagnostics_connectivity)
             try {
                 // Dual-channel diagnostics:
                 // - DIRECT: reflects local network quality (this app is excluded from TUN in VPN mode)
@@ -310,7 +310,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         if (_isPingLoading.value) return
         viewModelScope.launch {
             _isPingLoading.value = true
-            _resultTitle.value = getApplication<Application>().getString(R.string.diagnostics_ping_test)
+            _resultTitle.value = "TCP Ping Test"
             val host = "8.8.8.8"
             val port = 53
             try {
@@ -337,7 +337,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                     "Sent: $count, Received: 0, Loss: 100%"
                 }
 
-                _resultMessage.value = getApplication<Application>().getString(R.string.diag_ping_target_format,     host,    port,    summary)
+                _resultMessage.value = "Target: $host:$port (Google DNS)\nMethod: TCP Ping (Java Socket)\n\n$summary"
             } catch (e: Exception) {
                 _resultMessage.value = "TCP Ping failed: ${e.message}"
             } finally {
